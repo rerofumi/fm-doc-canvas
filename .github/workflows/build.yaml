@@ -38,19 +38,19 @@ jobs:
       - name: Package
         run: |
           PLATFORM=${{ matrix.platform }}
-          DIR=fm-japanese-input-${PLATFORM}
+          DIR=fm-doc-canvas-${PLATFORM}
           mkdir -p ${DIR}
           # Copy binary from wails build output (build/bin/)
           cp build/bin/* ${DIR}/
           cp README.md ${DIR}/
           cp LICENSE ${DIR}/
-          zip -r fm-japanese-input-${PLATFORM}.zip ${DIR}
+          zip -r fm-doc-canvas-${PLATFORM}.zip ${DIR}
 
       - name: Upload binary to release
         uses: svenstaro/upload-release-action@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref }}
-          file: fm-japanese-input-${{ matrix.platform }}.zip
-          asset_name: fm-japanese-input-${{ matrix.platform }}.zip
+          file: fm-doc-canvas-${{ matrix.platform }}.zip
+          asset_name: fm-doc-canvas-${{ matrix.platform }}.zip
           overwrite: true
