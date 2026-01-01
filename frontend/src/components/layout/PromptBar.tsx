@@ -1,12 +1,20 @@
 import React, { useState } from "react";
-import { Send, Sparkles, Loader2 } from "lucide-react";
+import {
+  Send,
+  Sparkles,
+  Loader2,
+  Type,
+  Image as ImageIcon,
+} from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { AppNode } from "../../types";
 
 const PromptBar: React.FC = () => {
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const { nodes, addNode, generateText, generateSummary } = useAppStore();
+  const [mode, setMode] = useState<"text" | "image">("text"); // モード切替用
+  const { nodes, addNode, generateText, generateSummary, generateImage } =
+    useAppStore();
 
   const selectedNodes = nodes.filter((n) => n.selected);
   const selectedNodesCount = selectedNodes.length;
@@ -17,40 +25,101 @@ const PromptBar: React.FC = () => {
 
     setIsLoading(true);
     try {
-      // 1. Construct context from selected nodes
-      const context = selectedNodes
-        .map((n) => n.data.content)
-        .filter((content) => !!content)
-        .join("\n\n---\n\n");
+      if (mode === "text") {
+        // 1. Construct context from selected nodes (text only)
+        const context = selectedNodes
+          .filter((n) => n.type === "customNode") // Only text nodes for text generation
+          .map((n) => (n.data as any).content)
+          .filter((content) => !!content)
+          .join("\n\n---\n\n");
 
-      // 2. Generate text from LLM via Backend
-      const generatedText = await generateText(prompt, context);
+        // 2. Generate text from LLM via Backend
+        const generatedText = await generateText(prompt, context);
 
-      // 3. Generate summary for the new content via Backend
-      const summary = await generateSummary(generatedText);
+        // 3. Generate summary for the new content via Backend
+        const summary = await generateSummary(generatedText);
 
-      // 4. Determine position for the new node
-      let position = { x: 400, y: 300 };
-      if (selectedNodes.length > 0) {
-        const lastNode = selectedNodes[selectedNodes.length - 1];
-        position = {
-          x: lastNode.position.x + 350,
-          y: lastNode.position.y,
+        // 4. Determine position for the new node
+        let position = { x: 400, y: 300 };
+        if (selectedNodes.length > 0) {
+          const lastNode = selectedNodes[selectedNodes.length - 1];
+          position = {
+            x: lastNode.position.x + 350,
+            y: lastNode.position.y,
+          };
+        }
+
+        // 5. Create and add the new text node
+        const newNode: AppNode = {
+          id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: "customNode",
+          position,
+          data: {
+            content: generatedText,
+            summary: summary,
+          },
         };
+
+        addNode(newNode);
+      } else if (mode === "image") {
+        // Image generation mode
+        // 1. Construct context from selected nodes (text only for Phase 2)
+        const context = selectedNodes
+          .filter((n) => n.type === "customNode") // Only text nodes for image generation context in Phase 2
+          .map((n) => (n.data as any).content)
+          .filter((content) => !!content)
+          .join("\n\n---\n\n");
+
+        // 2. For Phase 2, reference images are not included in the request
+        const refImages: string[] = [];
+
+        // 3. Generate image from LLM via Backend
+        const imageSrc = await generateImage(prompt, refImages);
+
+        // 4. Determine position for the new node
+        let position = { x: 400, y: 300 };
+        if (selectedNodes.length > 0) {
+          const lastNode = selectedNodes[selectedNodes.length - 1];
+          position = {
+            x: lastNode.position.x + 350,
+            y: lastNode.position.y,
+          };
+        }
+
+        // 5. Create and add the new image node
+        const newNode: AppNode = {
+          id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: "imageNode",
+          position,
+          data: {
+            src: imageSrc,
+            alt: prompt,
+          },
+          width: 300,
+          height: 200,
+        };
+
+        addNode(newNode);
+
+        // 6. Create a text node with the prompt used for image generation
+        const promptNode: AppNode = {
+          id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: "customNode",
+          position: {
+            x: position.x,
+            y: position.y + 250, // Position below the image node
+          },
+          data: {
+            content: `**Prompt used for image generation:**\n\n${prompt}`,
+            summary: "Image generation prompt",
+          },
+          width: 300,
+          height: 150,
+        };
+
+        addNode(promptNode);
       }
 
-      // 5. Create and add the new node
-      const newNode: AppNode = {
-        id: `node-${Date.now()}`,
-        type: "customNode",
-        position,
-        data: {
-          content: generatedText,
-          summary: summary,
-        },
-      };
-
-      addNode(newNode);
       setPrompt("");
     } catch (error: any) {
       console.error("Error generating AI content:", error);
@@ -69,14 +138,40 @@ const PromptBar: React.FC = () => {
   return (
     <div className="w-full bg-white border-t border-gray-200 p-4 shadow-lg z-10">
       <div className="max-w-4xl mx-auto flex flex-col gap-2">
-        {selectedNodesCount > 0 && (
-          <div className="flex items-center gap-2 px-2">
+        {/* Mode Toggle */}
+        <div className="flex items-center gap-2 px-2">
+          <div className="flex items-center bg-gray-100 rounded-md p-1">
+            <button
+              onClick={() => setMode("text")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded transition-colors ${
+                mode === "text"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <Type size={14} />
+              Text
+            </button>
+            <button
+              onClick={() => setMode("image")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded transition-colors ${
+                mode === "image"
+                  ? "bg-white text-blue-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <ImageIcon size={14} />
+              Image
+            </button>
+          </div>
+
+          {selectedNodesCount > 0 && (
             <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full uppercase tracking-tighter animate-pulse">
               <Sparkles size={10} />
               {selectedNodesCount} Node(s) Selected as Context
             </span>
-          </div>
-        )}
+          )}
+        </div>
 
         <div className="relative group">
           <textarea
@@ -87,8 +182,12 @@ const PromptBar: React.FC = () => {
             disabled={isLoading}
             placeholder={
               isLoading
-                ? "AI is generating content..."
-                : "Ask AI to generate documentation or expand on ideas... (Ctrl+Enter to send)"
+                ? mode === "text"
+                  ? "AI is generating text..."
+                  : "AI is generating image..."
+                : mode === "text"
+                  ? "Ask AI to generate documentation or expand on ideas... (Ctrl+Enter to send)"
+                  : "Describe the image you want to generate... (Ctrl+Enter to send)"
             }
             className={`w-full p-3 pr-14 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm transition-all min-h-[56px] max-h-32 ${
               isLoading ? "bg-gray-50 opacity-70" : ""
@@ -107,7 +206,11 @@ const PromptBar: React.FC = () => {
                 ? "bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
                 : "bg-gray-100 text-gray-400 cursor-not-allowed"
             }`}
-            title="Send (Ctrl+Enter)"
+            title={
+              mode === "text"
+                ? "Generate Text (Ctrl+Enter)"
+                : "Generate Image (Ctrl+Enter)"
+            }
           >
             {isLoading ? (
               <Loader2 size={20} className="animate-spin" />

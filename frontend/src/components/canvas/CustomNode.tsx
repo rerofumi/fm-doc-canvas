@@ -1,6 +1,6 @@
 import React, { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
-import { AppNode } from "../../types";
+import { AppNode, TextNodeData } from "../../types";
 
 const CustomNode = ({ data, selected }: NodeProps<AppNode>) => {
   return (
@@ -21,7 +21,8 @@ const CustomNode = ({ data, selected }: NodeProps<AppNode>) => {
         type="source"
         position={Position.Left}
         id="left-source"
-        className="w-3 h-3 bg-blue-400 border-2 border-white -translate-y-4"
+        className="w-3 h-3 bg-blue-400 border-2 border-white"
+        style={{ transform: "translateY(12px)" }}
       />
 
       <div className="flex flex-col">
@@ -29,10 +30,10 @@ const CustomNode = ({ data, selected }: NodeProps<AppNode>) => {
           Summary
         </div>
         <div className="text-sm text-gray-700 line-clamp-10 whitespace-pre-wrap">
-          {data.summary ||
-            (data.content
-              ? data.content.substring(0, 100) +
-                (data.content.length > 100 ? "..." : "")
+          {(data as TextNodeData).summary ||
+            ((data as TextNodeData).content
+              ? (data as TextNodeData).content.substring(0, 100) +
+                ((data as TextNodeData).content.length > 100 ? "..." : "")
               : "No content")}
         </div>
       </div>
@@ -48,7 +49,8 @@ const CustomNode = ({ data, selected }: NodeProps<AppNode>) => {
         type="source"
         position={Position.Right}
         id="right-source"
-        className="w-3 h-3 bg-blue-400 border-2 border-white translate-y-4"
+        className="w-3 h-3 bg-blue-400 border-2 border-white"
+        style={{ transform: "translateY(12px)" }}
       />
     </div>
   );

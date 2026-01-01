@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { X, Save, Settings, ShieldCheck, Cpu, Type } from "lucide-react";
+import {
+  X,
+  Save,
+  Settings,
+  ShieldCheck,
+  Cpu,
+  Type,
+  ImageIcon,
+} from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { AppConfig } from "../../types";
 
@@ -50,32 +58,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               <Cpu size={14} />
               LLM Configuration
             </h3>
-            
+
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Base URL
+                </label>
                 <input
                   type="text"
                   className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   value={localConfig.llm.baseURL}
-                  onChange={(e) => setLocalConfig({
-                    ...localConfig,
-                    llm: { ...localConfig.llm, baseURL: e.target.value }
-                  })}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      llm: { ...localConfig.llm, baseURL: e.target.value },
+                    })
+                  }
                   placeholder="https://api.openai.com/v1"
                 />
               </div>
-              
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Model Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Model Name
+                </label>
                 <input
                   type="text"
                   className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   value={localConfig.llm.model}
-                  onChange={(e) => setLocalConfig({
-                    ...localConfig,
-                    llm: { ...localConfig.llm, model: e.target.value }
-                  })}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      llm: { ...localConfig.llm, model: e.target.value },
+                    })
+                  }
                   placeholder="gpt-4o-mini"
                 />
               </div>
@@ -89,14 +105,116 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                   type="password"
                   className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   value={localConfig.llm.apiKey || ""}
-                  onChange={(e) => setLocalConfig({
-                    ...localConfig,
-                    llm: { ...localConfig.llm, apiKey: e.target.value }
-                  })}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      llm: { ...localConfig.llm, apiKey: e.target.value },
+                    })
+                  }
                   placeholder="sk-..."
                 />
                 <p className="mt-1 text-[10px] text-gray-400">
                   Stored locally. Never included in canvas JSON files.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="h-px bg-gray-100" />
+
+          {/* Image Generation Section */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+              <ImageIcon size={14} />
+              Image Generation (OpenRouter)
+            </h3>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Base URL
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={localConfig.imageGen.baseURL}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      imageGen: {
+                        ...localConfig.imageGen,
+                        baseURL: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="https://openrouter.ai/api/v1"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Model Name
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={localConfig.imageGen.model}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      imageGen: {
+                        ...localConfig.imageGen,
+                        model: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="sourceful/riverflow-v2-standard-preview"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <ShieldCheck size={14} className="text-amber-500" />
+                  API Key
+                </label>
+                <input
+                  type="password"
+                  className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={localConfig.imageGen.apiKey || ""}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      imageGen: {
+                        ...localConfig.imageGen,
+                        apiKey: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="sk-..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Download Path
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={localConfig.imageGen.downloadPath}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      imageGen: {
+                        ...localConfig.imageGen,
+                        downloadPath: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="Image/"
+                />
+                <p className="mt-1 text-[10px] text-gray-400">
+                  Relative to application executable or absolute path.
                 </p>
               </div>
             </div>
@@ -110,7 +228,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               <Type size={14} />
               Generation Defaults
             </h3>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Summary Max Characters
@@ -119,10 +237,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 type="number"
                 className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 value={localConfig.generation.summaryMaxChars}
-                onChange={(e) => setLocalConfig({
-                  ...localConfig,
-                  generation: { ...localConfig.generation, summaryMaxChars: parseInt(e.target.value) || 100 }
-                })}
+                onChange={(e) =>
+                  setLocalConfig({
+                    ...localConfig,
+                    generation: {
+                      ...localConfig.generation,
+                      summaryMaxChars: parseInt(e.target.value) || 100,
+                    },
+                  })
+                }
               />
             </div>
           </div>

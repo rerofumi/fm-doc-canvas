@@ -28,6 +28,9 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true, // ファイルドロップを有効化 (Phase 2)
+		},
 	})
 
 	if err != nil {

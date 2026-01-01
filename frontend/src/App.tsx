@@ -3,8 +3,10 @@ import CanvasArea from "./components/canvas/CanvasArea";
 import EditorDrawer from "./components/drawer/EditorDrawer";
 import PromptBar from "./components/layout/PromptBar";
 import SettingsModal from "./components/ui/SettingsModal";
+import LayoutButton from "./components/layout/LayoutButton";
 import { useAppStore } from "./store/useAppStore";
 import { Save, FolderOpen, Settings, Plus } from "lucide-react";
+import { ReactFlowProvider } from "@xyflow/react";
 
 function App() {
   const { addNode, addEmptyNode, nodes, loadConfig, saveCanvas, loadCanvas } =
@@ -20,7 +22,7 @@ function App() {
   useEffect(() => {
     if (nodes.length === 0) {
       addNode({
-        id: "node-1",
+        id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: "customNode",
         position: { x: 250, y: 150 },
         data: {
@@ -81,6 +83,10 @@ function App() {
 
           <div className="w-px h-4 bg-gray-200 mx-1" />
 
+          <LayoutButton />
+
+          <div className="w-px h-4 bg-gray-200 mx-1" />
+
           <button
             onClick={handleLoad}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
@@ -114,7 +120,9 @@ function App() {
         <EditorDrawer />
 
         <main className="flex-1 h-full w-full relative">
-          <CanvasArea />
+          <ReactFlowProvider>
+            <CanvasArea />
+          </ReactFlowProvider>
         </main>
       </div>
 

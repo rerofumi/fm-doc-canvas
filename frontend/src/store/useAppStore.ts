@@ -1,5 +1,15 @@
 import { create } from "zustand";
-import { AppState, AppNode, AppEdge, AppConfig, CanvasFileV1 } from "../types";
+import {
+  AppState,
+  AppNode,
+  AppEdge,
+  AppConfig,
+  CanvasFileV1_0,
+  CanvasFileV1_1,
+  TextNodeData,
+  ImageNodeData,
+  CanvasFile,
+} from "../types";
 import {
   Connection,
   EdgeChange,
@@ -16,6 +26,13 @@ const initialConfig: AppConfig = {
     baseURL: "https://api.openai.com/v1",
     model: "gpt-4o-mini",
     apiKey: "",
+  },
+  imageGen: {
+    provider: "openrouter",
+    baseURL: "https://openrouter.ai/api/v1",
+    model: "sourceful/riverflow-v2-standard-preview",
+    apiKey: "",
+    downloadPath: "Image/",
   },
   generation: {
     summaryMaxChars: 100,
@@ -37,7 +54,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addEmptyNode: () => {
-    const id = `node-${Date.now()}`;
+    const id = `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const newNode: AppNode = {
       id,
       type: "customNode",
@@ -46,6 +63,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         content: "",
         summary: "New Node",
       },
+      width: 200,
+      height: 100,
     };
     set((state) => ({
       nodes: [...state.nodes, newNode],
@@ -116,7 +135,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadConfig: async () => {
     try {
       const config = await AppBackend.GetConfig();
-      set({ config });
+      // Type assertion to ensure compatibility with AppConfig
+      // This is necessary because the backend Config struct might not perfectly match the frontend AppConfig type
+      // Specifically, the backend might not include all optional fields or might have different field types
+      // Ensure the config object has all required properties
+      // If imageGen is missing, use the default values
+      const fullConfig: AppConfig = {
+        llm: (config as any).llm || initialConfig.llm,
+        generation: (config as any).generation || initialConfig.generation,
+        imageGen: (config as any).imageGen || initialConfig.imageGen,
+      };
+      set({ config: fullConfig });
     } catch (error) {
       console.error("Failed to load config:", error);
     }
@@ -125,7 +154,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveConfig: async (config: AppConfig) => {
     try {
       await AppBackend.SaveConfig(config as any);
-      set({ config });
+      // Ensure the config object has all required properties
+      // If imageGen is missing, use the default values
+      const fullConfig: AppConfig = {
+        llm: config.llm || initialConfig.llm,
+        generation: config.generation || initialConfig.generation,
+        imageGen: config.imageGen || initialConfig.imageGen,
+      };
+      set({ config: fullConfig });
     } catch (error) {
       console.error("Failed to save config:", error);
     }
@@ -133,20 +169,45 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   saveCanvas: async () => {
     const { nodes, edges } = get();
-    const canvasData: CanvasFileV1 = {
-      version: "1.0",
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        type: n.type as "customNode",
-        position: n.position,
-        data: n.data,
-      })),
+    // Version 1.1 として保存
+    const canvasData: CanvasFile = {
+      version: "1.1",
+      nodes: nodes.map((n) => {
+        if (n.type === "customNode") {
+          return {
+            id: n.id,
+            type: "customNode" as const,
+            position: n.position,
+            data: n.data as TextNodeData,
+            width: n.width,
+            height: n.height,
+          };
+        } else if (n.type === "imageNode") {
+          return {
+            id: n.id,
+            type: "imageNode" as const,
+            position: n.position,
+            data: n.data as ImageNodeData,
+            width: n.width,
+            height: n.height,
+          };
+        }
+        // Fallback for unknown node types - treat as customNode
+        return {
+          id: n.id,
+          type: "customNode" as const,
+          position: n.position,
+          data: n.data as TextNodeData,
+          width: n.width,
+          height: n.height,
+        };
+      }),
       edges: edges.map((e) => ({
         id: e.id,
         source: e.source,
         target: e.target,
-        sourceHandle: e.sourceHandle,
-        targetHandle: e.targetHandle,
+        sourceHandle: e.sourceHandle || "right-source",
+        targetHandle: e.targetHandle || "left-target",
         type: e.type,
         markerEnd: e.markerEnd as any,
       })),
@@ -168,10 +229,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       const jsonString = await AppBackend.LoadCanvasFromFile();
       if (!jsonString) return;
 
-      const data = JSON.parse(jsonString) as CanvasFileV1;
+      const data = JSON.parse(jsonString) as CanvasFile;
+
+      let nodesToSet: AppNode[] = [];
+      if ((data as CanvasFileV1_0).version === "1.0") {
+        // Version 1.0: Only text nodes
+        nodesToSet = (data as CanvasFileV1_0).nodes.map((n: any) => ({
+          ...n,
+          type: "customNode" as const,
+        })) as AppNode[];
+      } else if ((data as CanvasFileV1_1).version === "1.1") {
+        // Version 1.1: Mixed nodes (text and image)
+        nodesToSet = (data as CanvasFileV1_1).nodes as AppNode[];
+      } else {
+        // Unknown version - try to load as v1.1, but filter out unknown types for safety
+        console.warn(`Unknown canvas file version: ${data.version}`);
+        const v1_1Data = data as CanvasFileV1_1;
+        nodesToSet = v1_1Data.nodes.filter(
+          (n: any) => n.type === "customNode" || n.type === "imageNode",
+        ) as AppNode[];
+      }
+
       set({
-        nodes: data.nodes as AppNode[],
-        edges: (data.edges || []).map((e) => ({
+        nodes: nodesToSet,
+        edges: ((data as CanvasFileV1_1).edges || []).map((e: any) => ({
           ...e,
           sourceHandle: e.sourceHandle || "right-source",
           targetHandle: e.targetHandle || "left-target",
@@ -199,6 +280,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       return summary;
     } catch (error) {
       console.error("Failed to generate summary:", error);
+      throw error;
+    }
+  },
+
+  generateImage: async (prompt: string, refImages: string[]) => {
+    try {
+      const result = await AppBackend.GenerateImage(prompt, refImages);
+      return result;
+    } catch (error) {
+      console.error("Failed to generate image:", error);
+      throw error;
+    }
+  },
+
+  getImageDataURL: async (src: string) => {
+    try {
+      const dataURL = await AppBackend.GetImageDataURL(src);
+      return dataURL;
+    } catch (error) {
+      console.error("Failed to get image data URL:", error);
       throw error;
     }
   },

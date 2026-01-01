@@ -20,10 +20,20 @@ type GenerationConfig struct {
 	SummaryMaxChars int `json:"summaryMaxChars"`
 }
 
+// ImageGenConfig holds credentials and settings for image generation
+type ImageGenConfig struct {
+	Provider     string `json:"provider"`     // "openrouter"
+	BaseURL      string `json:"baseURL"`
+	Model        string `json:"model"`
+	APIKey       string `json:"apiKey"` // Sensitive information, kept in local config only
+	DownloadPath string `json:"downloadPath"` // デフォルト: "Image/"（実行ファイル基準で解決）
+}
+
 // Config represents the application's local settings
 type Config struct {
 	LLM        LLMConfig        `json:"llm"`
 	Generation GenerationConfig `json:"generation"`
+	ImageGen   ImageGenConfig   `json:"imageGen"` // 追加
 }
 
 // ConfigService handles loading and saving application configuration
@@ -120,6 +130,13 @@ func defaultConfig() *Config {
 		},
 		Generation: GenerationConfig{
 			SummaryMaxChars: 100,
+		},
+		ImageGen: ImageGenConfig{
+			Provider:     "openrouter",
+			BaseURL:      "https://openrouter.ai/api/v1",
+			Model:        "sourceful/riverflow-v2-standard-preview",
+			APIKey:       "",
+			DownloadPath: "Image/",
 		},
 	}
 }

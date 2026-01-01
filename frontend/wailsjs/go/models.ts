@@ -1,5 +1,25 @@
 export namespace backend {
 	
+	export class ImageGenConfig {
+	    provider: string;
+	    baseURL: string;
+	    model: string;
+	    apiKey: string;
+	    downloadPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImageGenConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.baseURL = source["baseURL"];
+	        this.model = source["model"];
+	        this.apiKey = source["apiKey"];
+	        this.downloadPath = source["downloadPath"];
+	    }
+	}
 	export class GenerationConfig {
 	    summaryMaxChars: number;
 	
@@ -31,6 +51,7 @@ export namespace backend {
 	export class Config {
 	    llm: LLMConfig;
 	    generation: GenerationConfig;
+	    imageGen: ImageGenConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -40,6 +61,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.llm = this.convertValues(source["llm"], LLMConfig);
 	        this.generation = this.convertValues(source["generation"], GenerationConfig);
+	        this.imageGen = this.convertValues(source["imageGen"], ImageGenConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -61,6 +83,21 @@ export namespace backend {
 		}
 	}
 	
+	
+	export class ImportFileResult {
+	    type: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportFileResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.content = source["content"];
+	    }
+	}
 
 }
 

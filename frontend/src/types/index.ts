@@ -17,10 +17,26 @@ import {
  *  ========================= */
 
 // ノードが保持するカスタムデータ
-export interface NodeData extends Record<string, unknown> {
+// Text Node Data (Existing)
+export interface TextNodeData extends Record<string, unknown> {
   content: string; // 本文テキスト（Markdown）
   summary: string; // サマリー
 }
+
+// Image Node Data (New)
+export interface ImageNodeData extends Record<string, unknown> {
+  /**
+   * 画像ファイルの識別子（`imageGen.downloadPath` 配下からの相対パス）
+   * 例:
+   * - "generated_001.png"
+   * - "Import/photo.png"
+   */
+  src: string;
+  alt?: string; // 生成プロンプト等
+}
+
+// Node Types
+export type NodeData = TextNodeData | ImageNodeData;
 
 /** =========================
  *  実行時モデル（Runtime）
@@ -33,6 +49,18 @@ export interface AppConfig {
     model: string; // 使用モデル名
     apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
   };
+  // 新規追加
+  imageGen: {
+    provider: "openrouter"; // 固定
+    baseURL: string;
+    model: string;
+    apiKey?: string;
+    /**
+     * 画像保存先ディレクトリ
+     * - デフォルト: "Image/"（アプリ実行ファイルと同階層を基準に解釈）
+     */
+    downloadPath: string;
+  };
   generation: {
     summaryMaxChars: number; // サマリー上限文字数
   };
@@ -40,7 +68,7 @@ export interface AppConfig {
 
 // アプリケーション上のノード定義（Runtime）
 // React Flow の Node 型を拡張
-export type AppNode = Node<NodeData, "customNode">;
+export type AppNode = Node<NodeData, "customNode" | "imageNode">;
 
 // ライン（エッジ）定義（Runtime）
 // React Flow の Edge 型を拡張
@@ -74,6 +102,7 @@ export interface AppState {
   loadCanvas: () => Promise<void>;
   generateText: (prompt: string, context: string) => Promise<string>;
   generateSummary: (text: string) => Promise<string>;
+  generateImage: (prompt: string, refImages: string[]) => Promise<string>;
 
   // React Flow integration actions
   onNodesChange: OnNodesChange<AppNode>;
@@ -85,14 +114,27 @@ export interface AppState {
  *  永続化モデル（Persisted）
  *  ========================= */
 
-export type CanvasFileVersion = "1.0";
+export type CanvasFileVersion = "1.0" | "1.1";
 
-export interface PersistedNode {
+export interface PersistedTextNode {
   id: string;
   type: "customNode";
   position: { x: number; y: number };
-  data: NodeData;
+  data: TextNodeData;
+  width?: number;
+  height?: number;
 }
+
+export interface PersistedImageNode {
+  id: string;
+  type: "imageNode";
+  position: { x: number; y: number };
+  data: ImageNodeData;
+  width?: number;
+  height?: number;
+}
+
+export type PersistedNode = PersistedTextNode | PersistedImageNode;
 
 export interface PersistedEdge {
   id: string;
@@ -106,8 +148,8 @@ export interface PersistedEdge {
   };
 }
 
-export interface CanvasFileV1 {
-  version: CanvasFileVersion;
+export interface CanvasFileV1_0 {
+  version: "1.0";
   metadata?: {
     lastOpened?: string;
   };
@@ -115,6 +157,21 @@ export interface CanvasFileV1 {
     baseURL?: string;
     model?: string;
   };
-  nodes: PersistedNode[];
+  nodes: PersistedTextNode[];
   edges: PersistedEdge[];
 }
+
+export interface CanvasFileV1_1 {
+  version: "1.1";
+  metadata?: {
+    lastOpened?: string;
+  };
+  llm?: {
+    baseURL?: string;
+    model?: string;
+  };
+  nodes: PersistedNode[]; // TextNode と ImageNode の混合
+  edges: PersistedEdge[];
+}
+
+export type CanvasFile = CanvasFileV1_0 | CanvasFileV1_1;

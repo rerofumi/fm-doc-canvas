@@ -36,7 +36,7 @@ const EditorDrawer: React.FC = () => {
 
     setIsSummarizing(true);
     try {
-      const summary = await generateSummary(activeNode.data.content);
+      const summary = await generateSummary((activeNode as any).data.content);
       if (activeNodeId) {
         updateNodeSummary(activeNodeId, summary);
       }
@@ -160,7 +160,7 @@ const EditorDrawer: React.FC = () => {
           <textarea
             className="flex-1 p-4 resize-none focus:outline-none text-gray-800 font-mono text-sm leading-relaxed"
             placeholder="Write your markdown here..."
-            value={activeNode?.data.content || ""}
+            value={(activeNode as any)?.data.content || ""}
             onChange={(e) =>
               activeNodeId && updateNodeContent(activeNodeId, e.target.value)
             }
@@ -168,7 +168,7 @@ const EditorDrawer: React.FC = () => {
         ) : (
           <div className="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none prose-blue">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {activeNode?.data.content || "*No content to preview*"}
+              {(activeNode as any)?.data.content || "*No content to preview*"}
             </ReactMarkdown>
           </div>
         )}
@@ -200,7 +200,7 @@ const EditorDrawer: React.FC = () => {
         <textarea
           className="w-full p-2 text-sm border border-gray-200 rounded bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-300 resize-none h-20"
           placeholder="Summary will appear here..."
-          value={activeNode?.data.summary || ""}
+          value={(activeNode as any)?.data.summary || ""}
           onChange={(e) =>
             activeNodeId && updateNodeSummary(activeNodeId, e.target.value)
           }

@@ -9,10 +9,12 @@ import (
 
 // App struct
 type App struct {
-	ctx           context.Context
-	configService *backend.ConfigService
-	fileService   *backend.FileService
-	llmService    *backend.LLMService
+	ctx               context.Context
+	configService     *backend.ConfigService
+	fileService       *backend.FileService
+	llmService        *backend.LLMService
+	imageGenService   *backend.ImageGenService
+	imageAssetService *backend.ImageAssetService
 }
 
 // NewApp creates a new App application struct
@@ -23,13 +25,17 @@ func NewApp() *App {
 		fmt.Printf("Error initializing ConfigService: %v\n", err)
 	}
 
-	fileService := backend.NewFileService()
+	fileService := backend.NewFileService(configService)
 	llmService := backend.NewLLMService(configService)
+	imageGenService := backend.NewImageGenService(configService)
+	imageAssetService := backend.NewImageAssetService(configService)
 
 	return &App{
-		configService: configService,
-		fileService:   fileService,
-		llmService:    llmService,
+		configService:     configService,
+		fileService:       fileService,
+		llmService:        llmService,
+		imageGenService:   imageGenService,
+		imageAssetService: imageAssetService,
 	}
 }
 
@@ -73,4 +79,21 @@ func (a *App) GenerateSummary(text string) (string, error) {
 // Greet returns a greeting for the given name (Legacy / Test)
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
+}
+
+// GenerateImage generates an image based on a prompt and reference images
+func (a *App) GenerateImage(prompt string, refImages []string) (string, error) {
+	return a.imageGenService.GenerateImage(prompt, refImages)
+}
+
+// GetImageDataURL converts a relative image path to a Data URL for display
+func (a *App) GetImageDataURL(src string) (string, error) {
+	return a.imageAssetService.GetImageDataURL(src)
+}
+
+// ImportFile handles importing a file (text or image) from a file path
+func (a *App) ImportFile(filePath string) (backend.ImportFileResult, error) {
+	// 1. Determine file type, 2. Process content, 3. Return result
+	// Note: Currently calling fileService placeholder, needs full implementation in backend
+	return a.fileService.ImportFile(filePath)
 }
