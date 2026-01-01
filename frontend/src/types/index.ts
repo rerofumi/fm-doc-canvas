@@ -38,6 +38,12 @@ export interface ImageNodeData extends Record<string, unknown> {
 // Node Types
 export type NodeData = TextNodeData | ImageNodeData;
 
+// Import File Result (Backend interaction)
+export interface ImportFileResult {
+  type: "text" | "image";
+  content: string; // text: content itself, image: relative path
+}
+
 /** =========================
  *  実行時モデル（Runtime）
  *  ========================= */
@@ -87,6 +93,7 @@ export interface AppState {
   addEmptyNode: () => void;
   updateNodeContent: (id: string, content: string) => void;
   updateNodeSummary: (id: string, summary: string) => void;
+  updateNodeDimensions: (id: string, width: number, height: number) => void;
   setNodes: (nodes: AppNode[]) => void;
   setEdges: (edges: AppEdge[]) => void;
   setActiveNode: (id: string | null) => void;
@@ -102,7 +109,13 @@ export interface AppState {
   loadCanvas: () => Promise<void>;
   generateText: (prompt: string, context: string) => Promise<string>;
   generateSummary: (text: string) => Promise<string>;
-  generateImage: (prompt: string, refImages: string[]) => Promise<string>;
+  generateImage: (
+    prompt: string,
+    context: string,
+    refImages: string[],
+  ) => Promise<string>;
+  getImageDataURL: (src: string) => Promise<string>;
+  importFile: (filePath: string) => Promise<ImportFileResult>;
 
   // React Flow integration actions
   onNodesChange: OnNodesChange<AppNode>;

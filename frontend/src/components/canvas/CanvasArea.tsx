@@ -16,6 +16,7 @@ import ImageNode from "./ImageNode";
 import ContextMenu from "../ui/ContextMenu";
 import { AppNode, AppEdge } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
+import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime";
 
 const nodeTypes: NodeTypes = {
   customNode: CustomNode,
@@ -83,8 +84,8 @@ const CanvasArea: React.FC = () => {
                   result.content.substring(0, 100) +
                   (result.content.length > 100 ? "..." : ""),
               },
-              width: 200,
-              height: 100,
+              width: 250,
+              height: 150,
             };
             memoizedAddNode(newNode);
           } else if (result.type === "image") {
@@ -111,17 +112,11 @@ const CanvasArea: React.FC = () => {
 
     // Register the file drop handler with Wails runtime
     // Note: This requires enabling file drop in main.go options.App
-    const wailsRuntime: any = (window as any).runtime; // Type assertion to avoid TS errors
-    if (wailsRuntime) {
-      // Enable drop target highlighting
-      wailsRuntime.OnFileDrop(handleFileDrop, true); // useDropTarget = true
-    }
+    OnFileDrop(handleFileDrop, true);
 
     // Cleanup
     return () => {
-      if (wailsRuntime) {
-        wailsRuntime.OnFileDrop(null, false);
-      }
+      OnFileDropOff();
     };
   }, [memoizedAddNode, reactFlowInstance]);
 
@@ -131,10 +126,13 @@ const CanvasArea: React.FC = () => {
       // Image nodes cannot be edited, so don't set them as active
       if (node.type === "customNode") {
         setActiveNode(node.id);
+      } else {
+        setActiveNode(null);
+        setDrawerOpen(false);
       }
       setMenu(null);
     },
-    [setActiveNode],
+    [setActiveNode, setDrawerOpen],
   );
 
   const onNodeDoubleClick = useCallback(
@@ -193,7 +191,10 @@ const CanvasArea: React.FC = () => {
   }, [menu, deleteNode, deleteEdge]);
 
   return (
-    <div className="w-full h-full">
+    <div
+      className="w-full h-full"
+      style={{ "--wails-drop-target": "drop" } as React.CSSProperties}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}

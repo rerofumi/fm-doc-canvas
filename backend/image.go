@@ -27,9 +27,16 @@ func NewImageGenService(configService *ConfigService) *ImageGenService {
 }
 
 // GenerateImage generates an image using the configured provider (e.g., OpenRouter)
-// It takes a prompt and optional reference images, saves the result, and returns the relative path
-func (s *ImageGenService) GenerateImage(prompt string, refImages []string) (string, error) {
+// It takes a prompt, context data from other nodes, and optional reference images, 
+// saves the result, and returns the relative path
+func (s *ImageGenService) GenerateImage(prompt string, contextData string, refImages []string) (string, error) {
 	cfg := s.configService.GetConfig()
+
+	// Combine prompt and context for better generation
+	fullPrompt := prompt
+	if contextData != "" {
+		fullPrompt = fmt.Sprintf("Context information:\n%s\n\nBased on the above context, generate an image for: %s", contextData, prompt)
+	}
 	
 	// Prepare the request payload
 	payload := map[string]interface{}{
@@ -37,7 +44,7 @@ func (s *ImageGenService) GenerateImage(prompt string, refImages []string) (stri
 		"messages": []map[string]string{
 			{
 				"role":    "user",
-				"content": prompt,
+				"content": fullPrompt,
 			},
 		},
 		"modalities": []string{"image", "text"},

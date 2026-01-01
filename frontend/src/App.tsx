@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import CanvasArea from "./components/canvas/CanvasArea";
 import EditorDrawer from "./components/drawer/EditorDrawer";
 import PromptBar from "./components/layout/PromptBar";
@@ -12,6 +12,7 @@ function App() {
   const { addNode, addEmptyNode, nodes, loadConfig, saveCanvas, loadCanvas } =
     useAppStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const initialNodeAdded = useRef(false);
 
   // Load configuration on startup
   useEffect(() => {
@@ -20,11 +21,14 @@ function App() {
 
   // Add an initial node if the canvas is empty (for demo/development)
   useEffect(() => {
-    if (nodes.length === 0) {
+    if (nodes.length === 0 && !initialNodeAdded.current) {
+      initialNodeAdded.current = true;
       addNode({
         id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: "customNode",
         position: { x: 250, y: 150 },
+        width: 250,
+        height: 200,
         data: {
           content:
             "# Welcome to FM Doc Canvas\n\nThis is a node-based documentation tool. \n\n- **Click** a node to edit its content in the drawer.\n- **Drag** from the handles to connect nodes.\n- **Use the Prompt Bar** at the bottom to generate new content using AI.",

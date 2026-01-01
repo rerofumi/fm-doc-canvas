@@ -82,8 +82,8 @@ func (a *App) Greet(name string) string {
 }
 
 // GenerateImage generates an image based on a prompt and reference images
-func (a *App) GenerateImage(prompt string, refImages []string) (string, error) {
-	return a.imageGenService.GenerateImage(prompt, refImages)
+func (a *App) GenerateImage(prompt string, contextData string, refImages []string) (string, error) {
+	return a.imageGenService.GenerateImage(prompt, contextData, refImages)
 }
 
 // GetImageDataURL converts a relative image path to a Data URL for display

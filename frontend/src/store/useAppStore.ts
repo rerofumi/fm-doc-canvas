@@ -63,8 +63,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         content: "",
         summary: "New Node",
       },
-      width: 200,
-      height: 100,
+      width: 250,
+      height: 150,
     };
     set((state) => ({
       nodes: [...state.nodes, newNode],
@@ -93,7 +93,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateNodeContent: (id: string, content: string) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
-        node.id === id ? { ...node, data: { ...node.data, content } } : node,
+        node.id === id && node.type === "customNode"
+          ? { ...node, data: { ...node.data, content } }
+          : node,
       ),
     }));
   },
@@ -101,7 +103,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateNodeSummary: (id: string, summary: string) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
-        node.id === id ? { ...node, data: { ...node.data, summary } } : node,
+        node.id === id && node.type === "customNode"
+          ? { ...node, data: { ...node.data, summary } }
+          : node,
+      ),
+    }));
+  },
+
+  updateNodeDimensions: (id: string, width: number, height: number) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === id ? { ...node, width, height } : node,
       ),
     }));
   },
@@ -284,9 +296,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  generateImage: async (prompt: string, refImages: string[]) => {
+  generateImage: async (
+    prompt: string,
+    context: string,
+    refImages: string[],
+  ) => {
     try {
-      const result = await AppBackend.GenerateImage(prompt, refImages);
+      const result = await AppBackend.GenerateImage(prompt, context, refImages);
       return result;
     } catch (error) {
       console.error("Failed to generate image:", error);
@@ -300,6 +316,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       return dataURL;
     } catch (error) {
       console.error("Failed to get image data URL:", error);
+      throw error;
+    }
+  },
+
+  importFile: async (filePath: string) => {
+    try {
+      const result = await AppBackend.ImportFile(filePath);
+      return result as any;
+    } catch (error) {
+      console.error("Failed to import file:", error);
       throw error;
     }
   },
@@ -318,14 +344,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   onConnect: (connection: Connection) => {
+    // Adjust connection to ensure proper flow direction
+    // Right connector (older context) -> Left connector (newer context)
+    const adjustedConnection = {
+      ...connection,
+      sourceHandle: connection.sourceHandle || "right-source",
+      targetHandle: connection.targetHandle || "left-target",
+    };
+
     set({
       edges: addEdge(
         {
-          ...connection,
-          sourceHandle: connection.sourceHandle || "right-source",
-          targetHandle: connection.targetHandle || "left-target",
+          ...adjustedConnection,
           type: "default",
-          markerEnd: { type: MarkerType.ArrowClosed },
+          // Remove markerEnd to display simple lines without arrows
         },
         get().edges,
       ),

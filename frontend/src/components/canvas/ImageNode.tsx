@@ -4,7 +4,8 @@ import { ImageNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
 import * as AppBackend from "../../../wailsjs/go/main/App";
 
-const ImageNode = ({ data, selected, width, height }: NodeProps<any>) => {
+const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
+  const { updateNodeDimensions } = useAppStore();
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,29 +59,30 @@ const ImageNode = ({ data, selected, width, height }: NodeProps<any>) => {
         <NodeResizer
           minWidth={100}
           minHeight={50}
-          onResizeEnd={(ns) => {
-            // ns.width and ns.height contain the new dimensions
-            // This is handled by React Flow's internal state management
-            // If you need to do something specific on resize end, you can do it here
+          onResizeEnd={(_, params) => {
+            updateNodeDimensions(id, params.width, params.height);
           }}
         />
       )}
-      {/* Left Handles */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left-target"
-        className="w-3 h-3 bg-blue-400 border-2 border-white"
-      />
+
+      {/* Left Handle - Source (Out) */}
       <Handle
         type="source"
         position={Position.Left}
         id="left-source"
         className="w-3 h-3 bg-blue-400 border-2 border-white"
-        style={{ transform: "translateY(12px)" }}
       />
 
-      <div className="w-full h-full flex items-center justify-center p-2">
+      {/* Invisible target handle for connection logic compatibility if needed */}
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left-target"
+        className="w-3 h-3 bg-blue-400 border-2 border-white opacity-0 pointer-events-none"
+      />
+
+      <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
         {loading && (
           <div className="text-xs text-gray-500">Loading image...</div>
         )}
@@ -91,24 +93,26 @@ const ImageNode = ({ data, selected, width, height }: NodeProps<any>) => {
           <img
             src={imageSrc}
             alt={(data as ImageNodeData)?.alt || "Generated image"}
-            className="max-w-full max-h-full object-contain"
+            className="max-w-full max-h-full object-contain pointer-events-none"
           />
         )}
       </div>
 
-      {/* Right Handles */}
+      {/* Right Handle - Target (In) */}
       <Handle
         type="target"
         position={Position.Right}
         id="right-target"
         className="w-3 h-3 bg-blue-400 border-2 border-white"
       />
+
+      {/* Invisible source handle for connection logic compatibility if needed */}
+
       <Handle
         type="source"
         position={Position.Right}
         id="right-source"
-        className="w-3 h-3 bg-blue-400 border-2 border-white"
-        style={{ transform: "translateY(12px)" }}
+        className="w-3 h-3 bg-blue-400 border-2 border-white opacity-0 pointer-events-none"
       />
     </div>
   );

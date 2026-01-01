@@ -33,6 +33,16 @@ const PromptBar: React.FC = () => {
           .filter((content) => !!content)
           .join("\n\n---\n\n");
 
+        // Debug log for context
+        console.log("=== Context Debug Info ===");
+        console.log("Selected nodes count:", selectedNodes.length);
+        console.log(
+          "Text nodes count (for context):",
+          selectedNodes.filter((n) => n.type === "customNode").length,
+        );
+        console.log("Context content:", context);
+        console.log("=== End Context Debug Info ===");
+
         // 2. Generate text from LLM via Backend
         const generatedText = await generateText(prompt, context);
 
@@ -58,6 +68,8 @@ const PromptBar: React.FC = () => {
             content: generatedText,
             summary: summary,
           },
+          width: 250,
+          height: 150,
         };
 
         addNode(newNode);
@@ -70,11 +82,21 @@ const PromptBar: React.FC = () => {
           .filter((content) => !!content)
           .join("\n\n---\n\n");
 
+        // Debug log for context
+        console.log("=== Context Debug Info (Image Generation) ===");
+        console.log("Selected nodes count:", selectedNodes.length);
+        console.log(
+          "Text nodes count (for context):",
+          selectedNodes.filter((n) => n.type === "customNode").length,
+        );
+        console.log("Context content:", context);
+        console.log("=== End Context Debug Info ===");
+
         // 2. For Phase 2, reference images are not included in the request
         const refImages: string[] = [];
 
         // 3. Generate image from LLM via Backend
-        const imageSrc = await generateImage(prompt, refImages);
+        const imageSrc = await generateImage(prompt, context, refImages);
 
         // 4. Determine position for the new node
         let position = { x: 400, y: 300 };
