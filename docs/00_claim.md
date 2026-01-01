@@ -40,6 +40,10 @@
 
 ## Phase2 での機能拡張
 
+### ノード整頓ボタン
+
+- 整頓ボタンを押すことでキャンパス上のノード位置が整理されるボタン
+
 ### 画像ボックス＆生成
 
 - プロンプトボックスにいれたプロンプトで画像生成ができる様にする
@@ -48,6 +52,45 @@
 - 生成した画像は設定にて指定した画像ダウンロードフォルダに保存される、デフォルト値はアプリの実行ファイルとおなじディレクトリにある "Image/"
 - 選択に他の画像が含まれていたらその画像も入力コンテキストとして画像生成APIに渡す
 - LLM text プロンプト時は一旦画像ボックスは無視される
+
+### 画像生成設定
+
+- 画像生成 API 設定は LLM 設定とは別に追加する
+- 画像生成に使うプロバイダーは OpenRouter のみとする
+- OpenRouter での画像生成モデル利用は以下のコール形態である
+
+```
+import requests
+import json
+
+response = requests.post(
+  url="https://openrouter.ai/api/v1/chat/completions",
+  headers={
+    "Authorization": "Bearer <OPENROUTER_API_KEY>",
+    "Content-Type": "application/json",
+  },
+  data=json.dumps({
+    "model": "sourceful/riverflow-v2-standard-preview",
+    "messages": [
+        {
+          "role": "user",
+          "content": "Generate a beautiful sunset over mountains"
+        }
+      ],
+    "modalities": ["image", "text"]
+  })
+)
+
+result = response.json()
+
+# The generated image will be in the assistant message
+if result.get("choices"):
+  message = result["choices"][0]["message"]
+  if message.get("images"):
+    for image in message["images"]:
+      image_url = image["image_url"]["url"]  # Base64 data URL
+      print(f"Generated image: {image_url[:50]}...")
+```
 
 ### ファイルインポート
 
