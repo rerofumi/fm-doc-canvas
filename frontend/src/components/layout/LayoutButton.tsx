@@ -10,7 +10,7 @@ const LayoutButton: React.FC = () => {
     if (nodes.length === 0) return;
 
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: "LR", nodesep: 100, ranksep: 200 });
+    g.setGraph({ rankdir: "LR", nodesep: 35, ranksep: 200 });
     g.setDefaultEdgeLabel(() => ({}));
 
     nodes.forEach((node) => {
@@ -47,10 +47,11 @@ const LayoutButton: React.FC = () => {
   return (
     <button
       onClick={handleLayout}
-      className="p-2 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+      className="flex items-center gap-2 px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-200 bg-white shadow-sm"
       title="Auto Layout Nodes"
     >
       <Layers size={16} />
+      <span className="text-sm font-medium">Auto Layout</span>
     </button>
   );
 };

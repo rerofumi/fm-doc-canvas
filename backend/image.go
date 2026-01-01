@@ -38,13 +38,32 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 		fullPrompt = fmt.Sprintf("Context information:\n%s\n\nBased on the above context, generate an image for: %s", contextData, prompt)
 	}
 	
+	// Prepare the message content
+	var messageContent interface{} = fullPrompt
+	if len(refImages) > 0 {
+		contentParts := make([]ContentPart, 0, 1+len(refImages))
+		contentParts = append(contentParts, ContentPart{
+			Type: "text",
+			Text: fullPrompt,
+		})
+		for _, imgURL := range refImages {
+			contentParts = append(contentParts, ContentPart{
+				Type: "image_url",
+				ImageURL: &ImageURL{
+					URL: imgURL,
+				},
+			})
+		}
+		messageContent = contentParts
+	}
+
 	// Prepare the request payload
 	payload := map[string]interface{}{
 		"model": cfg.ImageGen.Model,
-		"messages": []map[string]string{
+		"messages": []map[string]interface{}{
 			{
 				"role":    "user",
-				"content": fullPrompt,
+				"content": messageContent,
 			},
 		},
 		"modalities": []string{"image", "text"},

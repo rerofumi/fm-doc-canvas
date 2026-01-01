@@ -22,6 +22,87 @@ type FileService struct {
 	configService *ConfigService
 }
 
+// ExportImage opens a save dialog and copies the image from internal storage to the selected path
+func (s *FileService) ExportImage(src string) (string, error) {
+	if s.ctx == nil {
+		return "", fmt.Errorf("context not initialized")
+	}
+
+	// 1. Resolve source path with security checks
+	if filepath.IsAbs(src) {
+		return "", fmt.Errorf("absolute paths are not allowed")
+	}
+
+	if strings.Contains(src, "..") {
+		return "", fmt.Errorf("path traversal is not allowed")
+	}
+
+	cfg := s.configService.GetConfig()
+	downloadPath := cfg.ImageGen.DownloadPath
+
+	// If downloadPath is relative, resolve it to absolute based on executable directory
+	if !filepath.IsAbs(downloadPath) {
+		execPath, err := os.Executable()
+		if err != nil {
+			return "", fmt.Errorf("failed to get executable path: %w", err)
+		}
+		execDir := filepath.Dir(execPath)
+		downloadPath = filepath.Join(execDir, downloadPath)
+	}
+
+	cleanSrc := filepath.Clean(src)
+	sourcePath := filepath.Join(downloadPath, cleanSrc)
+
+	// Verify the resolved path is still within downloadPath
+	relPath, err := filepath.Rel(downloadPath, sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get relative path: %w", err)
+	}
+	if strings.HasPrefix(relPath, "..") || relPath == ".." {
+		return "", fmt.Errorf("resolved path is outside the allowed directory")
+	}
+
+	// Check if source file exists
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("source image not found: %s", sourcePath)
+	}
+
+	// 2. Open save dialog
+	ext := filepath.Ext(src)
+	options := runtime.SaveDialogOptions{
+		Title:           "Export Image",
+		DefaultFilename: filepath.Base(src),
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: fmt.Sprintf("Image Files (*%s)", ext),
+				Pattern:     fmt.Sprintf("*%s", ext),
+			},
+		},
+	}
+
+	destPath, err := runtime.SaveFileDialog(s.ctx, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to open save dialog: %w", err)
+	}
+
+	if destPath == "" {
+		return "", nil // User cancelled
+	}
+
+	// 3. Copy the file
+	input, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read source image: %w", err)
+	}
+
+	err = os.WriteFile(destPath, input, 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write exported image: %w", err)
+	}
+
+	return destPath, nil
+}
+
 // NewFileService creates a new instance of FileService
 func NewFileService(configService *ConfigService) *FileService {
 	return &FileService{
@@ -104,9 +185,8 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 // SaveCanvasToFile opens a save dialog and writes the JSON data to the selected path
 func (s *FileService) SaveCanvasToFile(jsonData string) (string, error) {
 	if s.ctx == nil {
-			return "", fmt.Errorf("context not initialized")
-		}
-
+		return "", fmt.Errorf("context not initialized")
+	}
 
 	options := runtime.SaveDialogOptions{
 		Title:           "Save Canvas",
@@ -134,6 +214,71 @@ func (s *FileService) SaveCanvasToFile(jsonData string) (string, error) {
 	}
 
 	return filePath, nil
+}
+
+// ExportMarkdown opens a save dialog and writes the markdown content to the selected path
+func (s *FileService) ExportMarkdown(content string) (string, error) {
+	if s.ctx == nil {
+		return "", fmt.Errorf("context not initialized")
+	}
+
+	options := runtime.SaveDialogOptions{
+		Title:           "Export Markdown",
+		DefaultFilename: "export.md",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "Markdown Files (*.md)",
+				Pattern:     "*.md",
+			},
+		},
+	}
+
+	filePath, err := runtime.SaveFileDialog(s.ctx, options)
+	if err != nil {
+		return "", fmt.Errorf("failed to open save dialog: %w", err)
+	}
+
+	if filePath == "" {
+		return "", nil // User cancelled
+	}
+
+	err = os.WriteFile(filePath, []byte(content), 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return filePath, nil
+}
+
+// GetImageFileURL converts a relative image path to an absolute file URL
+func (s *FileService) GetImageFileURL(src string) (string, error) {
+	// Resolve the download path
+	cfg := s.configService.GetConfig()
+	downloadPath := cfg.ImageGen.DownloadPath
+
+	// If downloadPath is relative, resolve it to absolute based on executable directory
+	if !filepath.IsAbs(downloadPath) {
+		execPath, err := os.Executable()
+		if err != nil {
+			return "", fmt.Errorf("failed to get executable path: %w", err)
+		}
+		execDir := filepath.Dir(execPath)
+		downloadPath = filepath.Join(execDir, downloadPath)
+	}
+
+	// Construct the absolute path to the image
+	absolutePath := filepath.Join(downloadPath, src)
+
+	// Check if the file exists
+	if _, err := os.Stat(absolutePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("image file does not exist: %s", absolutePath)
+	}
+
+	// Convert to file URL
+	// On Windows, we need to convert backslashes to forward slashes and add file:///
+	// On Unix-like systems, we just need to add file://
+	fileURL := "file:///" + filepath.ToSlash(absolutePath)
+	return fileURL, nil
 }
 
 // LoadCanvasFromFile opens an open dialog and reads the content of the selected file

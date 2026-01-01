@@ -20,6 +20,7 @@ import {
   MarkerType,
 } from "@xyflow/react";
 import * as AppBackend from "../../wailsjs/go/main/App";
+import { traverseContextBackwards, TraversalResult } from "../utils/graphUtils";
 
 const initialConfig: AppConfig = {
   llm: {
@@ -42,7 +43,8 @@ const initialConfig: AppConfig = {
 export const useAppStore = create<AppState>((set, get) => ({
   nodes: [],
   edges: [],
-  isDrawerOpen: false,
+  isEditorOpen: false,
+  isSettingsOpen: false,
   activeNodeId: null,
   config: initialConfig,
 
@@ -69,7 +71,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       nodes: [...state.nodes, newNode],
       activeNodeId: id,
-      isDrawerOpen: true,
+      isEditorOpen: true,
     }));
   },
 
@@ -80,7 +82,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         (edge) => edge.source !== id && edge.target !== id,
       ),
       activeNodeId: state.activeNodeId === id ? null : state.activeNodeId,
-      isDrawerOpen: state.activeNodeId === id ? false : state.isDrawerOpen,
+      isEditorOpen: state.activeNodeId === id ? false : state.isEditorOpen,
     }));
   },
 
@@ -134,8 +136,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  setDrawerOpen: (isOpen: boolean) => {
-    set({ isDrawerOpen: isOpen });
+  setEditorOpen: (isOpen: boolean) => {
+    set({ isEditorOpen: isOpen });
+  },
+
+  setSettingsOpen: (isOpen: boolean) => {
+    set({ isSettingsOpen: isOpen });
   },
 
   setConfig: (config: Partial<AppConfig>) => {
@@ -298,14 +304,164 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   generateImage: async (
     prompt: string,
+
     context: string,
+
     refImages: string[],
   ) => {
     try {
       const result = await AppBackend.GenerateImage(prompt, context, refImages);
+
       return result;
     } catch (error) {
       console.error("Failed to generate image:", error);
+
+      throw error;
+    }
+  },
+
+  exportMarkdown: async (content: string) => {
+    try {
+      const result = await AppBackend.ExportMarkdown(content);
+      return result;
+    } catch (error) {
+      console.error("Failed to export markdown:", error);
+      throw error;
+    }
+  },
+
+  exportNode: async (nodeId: string) => {
+    const { nodes } = get();
+    const node = nodes.find((n) => n.id === nodeId);
+
+    if (!node) {
+      throw new Error("Node not found");
+    }
+
+    try {
+      if (node.type === "customNode") {
+        const content = (node.data as TextNodeData).content;
+        return await AppBackend.ExportMarkdown(content);
+      } else if (node.type === "imageNode") {
+        const src = (node.data as ImageNodeData).src;
+        return await AppBackend.ExportImage(src);
+      }
+      throw new Error("Unsupported node type for export");
+    } catch (error) {
+      console.error("Failed to export node:", error);
+      throw error;
+    }
+  },
+
+  exportImage: async (src: string) => {
+    try {
+      const result = await AppBackend.ExportImage(src);
+      return result;
+    } catch (error) {
+      console.error("Failed to export image:", error);
+      throw error;
+    }
+  },
+
+  exportNodesAsMarp: async (nodeIds: string[]) => {
+    const { nodes, edges } = get();
+    if (nodeIds.length === 0) return "";
+
+    // Collect all nodes to include in export.
+    // We traverse backwards from each target node to get its context.
+    const includedNodeMap = new Map<string, AppNode>();
+    let traversalWarningShown = false;
+
+    for (const id of nodeIds) {
+      const traversalResult = traverseContextBackwards(id, nodes, edges);
+
+      // Display warning if there was a traversal issue (only once)
+      if (traversalResult.warning && !traversalWarningShown) {
+        alert(traversalResult.warning.message);
+        traversalWarningShown = true;
+      }
+
+      for (const node of traversalResult.nodes) {
+        includedNodeMap.set(node.id, node);
+      }
+    }
+
+    // Sort nodes using topological sort to ensure upstream nodes appear before downstream nodes
+    const orderedNodes: AppNode[] = [];
+    const visited = new Set<string>();
+
+    const visit = (nodeId: string) => {
+      if (visited.has(nodeId)) return;
+
+      // Find all source nodes for this node (upstream)
+      const incomingEdges = edges.filter((e) => e.target === nodeId);
+      for (const edge of incomingEdges) {
+        if (includedNodeMap.has(edge.source)) {
+          visit(edge.source);
+        }
+      }
+
+      visited.add(nodeId);
+      const node = includedNodeMap.get(nodeId);
+      if (node) {
+        orderedNodes.push(node);
+      }
+    };
+
+    // Start traversal from all nodes in the map
+    // Topological sort will naturally handle the ordering
+    for (const id of includedNodeMap.keys()) {
+      visit(id);
+    }
+
+    // Build the Marp content
+    let marpSlides = ["---", "marp: true", "theme: default", "---", ""];
+    let imageWarningShown = false;
+
+    for (const node of orderedNodes) {
+      let slideContent = "";
+
+      if (node.type === "customNode") {
+        slideContent = (node.data as TextNodeData).content;
+      } else if (node.type === "imageNode") {
+        try {
+          const fileURL = await AppBackend.GetImageFileURL(
+            (node.data as ImageNodeData).src,
+          );
+          slideContent = `![](${fileURL})`;
+        } catch (error) {
+          if (!imageWarningShown) {
+            alert("画像の一部を解決できませんでした。スキップして続行します。");
+            imageWarningShown = true;
+          }
+          console.warn("Failed to resolve image URL for export:", error);
+          // Skip the image if we can't resolve it
+          continue;
+        }
+      }
+
+      // Add slide separator if not the first slide
+      if (marpSlides.length > 5) {
+        marpSlides.push("---");
+        marpSlides.push("");
+      }
+
+      const title =
+        node.type === "customNode"
+          ? (node.data as TextNodeData).summary
+          : "Image";
+      marpSlides.push(`# ${title}`);
+      marpSlides.push(slideContent);
+      marpSlides.push("");
+    }
+
+    const marpContent = marpSlides.join("\n");
+
+    try {
+      const result = await AppBackend.ExportMarkdown(marpContent);
+      return result;
+    } catch (error) {
+      console.error("Failed to export nodes as Marp:", error);
       throw error;
     }
   },
@@ -345,10 +501,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   onConnect: (connection: Connection) => {
     // Adjust connection to ensure proper flow direction
+
     // Right connector (older context) -> Left connector (newer context)
+
     const adjustedConnection = {
       ...connection,
+
       sourceHandle: connection.sourceHandle || "right-source",
+
       targetHandle: connection.targetHandle || "left-target",
     };
 
@@ -356,9 +516,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       edges: addEdge(
         {
           ...adjustedConnection,
+
           type: "default",
+
           // Remove markerEnd to display simple lines without arrows
         },
+
         get().edges,
       ),
     });

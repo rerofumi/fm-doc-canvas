@@ -6,12 +6,12 @@ import { useAppStore } from "../../store/useAppStore";
 
 const EditorDrawer: React.FC = () => {
   const {
-    isDrawerOpen,
+    isEditorOpen,
     activeNodeId,
     nodes,
     updateNodeContent,
     updateNodeSummary,
-    setDrawerOpen,
+    setEditorOpen,
     setActiveNode,
     generateSummary,
   } = useAppStore();
@@ -28,7 +28,7 @@ const EditorDrawer: React.FC = () => {
 
   const handleClose = () => {
     setActiveNode(null);
-    setDrawerOpen(false);
+    setEditorOpen(false);
   };
 
   const handleRegenerateSummary = async () => {
@@ -88,8 +88,8 @@ const EditorDrawer: React.FC = () => {
     };
   }, [isResizing, resize, stopResizing]);
 
-  if (!activeNode && isDrawerOpen) {
-    setDrawerOpen(false);
+  if (!activeNode && isEditorOpen) {
+    setEditorOpen(false);
     return null;
   }
 
@@ -97,7 +97,7 @@ const EditorDrawer: React.FC = () => {
     <div
       ref={drawerRef}
       className={`fixed top-0 left-0 h-full bg-white shadow-2xl transition-transform duration-300 ease-in-out z-50 flex flex-col border-r border-gray-200 ${
-        isDrawerOpen ? "translate-x-0" : "-translate-x-full"
+        isEditorOpen ? "translate-x-0" : "-translate-x-full"
       }`}
       style={{
         width: `${drawerWidth}px`,

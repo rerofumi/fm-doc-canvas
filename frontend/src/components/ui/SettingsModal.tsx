@@ -7,6 +7,7 @@ import {
   Cpu,
   Type,
   ImageIcon,
+  AlertTriangle,
 } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { AppConfig } from "../../types";
@@ -17,7 +18,14 @@ interface SettingsModalProps {
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const { config, saveConfig } = useAppStore();
+  const {
+    config,
+    saveConfig,
+    setNodes,
+    setEdges,
+    setActiveNode,
+    setEditorOpen,
+  } = useAppStore();
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
 
   useEffect(() => {
@@ -25,6 +33,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       setLocalConfig(config);
     }
   }, [isOpen, config]);
+
+  const handleClear = () => {
+    // Reset the entire app state to initial values
+    setNodes([]);
+    setEdges([]);
+    setActiveNode(null);
+    setEditorOpen(false);
+  };
 
   if (!isOpen) return null;
 
@@ -247,6 +263,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                   })
                 }
               />
+            </div>
+          </div>
+
+          <div className="h-px bg-gray-100" />
+
+          {/* Dangerous Zone */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+              <AlertTriangle size={14} className="text-red-500" />
+              Dangerous Zone
+            </h3>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <h4 className="font-medium text-red-800 mb-2">Clear Canvas</h4>
+              <p className="text-sm text-red-600 mb-4">
+                This will permanently delete all nodes and connections. This
+                action cannot be undone.
+              </p>
+              <button
+                onClick={handleClear}
+                className="px-4 py-2 text-sm font-medium bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors"
+              >
+                Clear All Data
+              </button>
             </div>
           </div>
         </div>

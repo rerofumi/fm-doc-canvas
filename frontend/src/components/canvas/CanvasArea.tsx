@@ -31,7 +31,7 @@ const CanvasArea: React.FC = () => {
     onEdgesChange,
     onConnect,
     setActiveNode,
-    setDrawerOpen,
+    setEditorOpen,
     deleteNode,
     deleteEdge,
   } = useAppStore();
@@ -128,11 +128,11 @@ const CanvasArea: React.FC = () => {
         setActiveNode(node.id);
       } else {
         setActiveNode(null);
-        setDrawerOpen(false);
+        setEditorOpen(false);
       }
       setMenu(null);
     },
-    [setActiveNode, setDrawerOpen],
+    [setActiveNode, setEditorOpen],
   );
 
   const onNodeDoubleClick = useCallback(
@@ -141,18 +141,18 @@ const CanvasArea: React.FC = () => {
       // Image nodes cannot be edited, so don't open the drawer
       if (node.type === "customNode") {
         setActiveNode(node.id);
-        setDrawerOpen(true);
+        setEditorOpen(true);
       }
       setMenu(null);
     },
-    [setActiveNode, setDrawerOpen],
+    [setActiveNode, setEditorOpen],
   );
 
   const onPaneClick = useCallback(() => {
     setActiveNode(null);
-    setDrawerOpen(false);
+    setEditorOpen(false);
     setMenu(null);
-  }, [setActiveNode, setDrawerOpen]);
+  }, [setActiveNode, setEditorOpen]);
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: AppNode) => {
@@ -189,6 +189,41 @@ const CanvasArea: React.FC = () => {
     }
     setMenu(null);
   }, [menu, deleteNode, deleteEdge]);
+
+  // Export handlers
+  const handleExport = useCallback(async () => {
+    if (!menu || menu.type !== "node") return;
+
+    try {
+      await useAppStore.getState().exportNode(menu.id);
+      setMenu(null);
+    } catch (error: any) {
+      console.error("Failed to export node:", error);
+      alert(`Failed to export node: ${error.message || "Unknown error"}`);
+    }
+  }, [menu]);
+
+  const handleExportMarp = useCallback(async () => {
+    if (!menu || menu.type !== "node") return;
+
+    try {
+      // Get all selected nodes
+      const selectedNodeIds = nodes.filter((n) => n.selected).map((n) => n.id);
+
+      // If the right-clicked node isn't in the selection, add it
+      const nodeIdsToExport = selectedNodeIds.includes(menu.id)
+        ? selectedNodeIds
+        : [...selectedNodeIds, menu.id];
+
+      await useAppStore.getState().exportNodesAsMarp(nodeIdsToExport);
+      setMenu(null);
+    } catch (error: any) {
+      console.error("Failed to export node as Marp:", error);
+      alert(
+        `Failed to export node as Marp: ${error.message || "Unknown error"}`,
+      );
+    }
+  }, [menu, nodes]);
 
   return (
     <div
@@ -231,6 +266,8 @@ const CanvasArea: React.FC = () => {
           label={menu.type === "node" ? "Node" : "Edge"}
           onClose={() => setMenu(null)}
           onDelete={handleDelete}
+          onExport={menu.type === "node" ? handleExport : undefined}
+          onExportMarp={menu.type === "node" ? handleExportMarp : undefined}
         />
       )}
     </div>

@@ -91,9 +91,36 @@ func (a *App) GetImageDataURL(src string) (string, error) {
 	return a.imageAssetService.GetImageDataURL(src)
 }
 
+
 // ImportFile handles importing a file (text or image) from a file path
+
 func (a *App) ImportFile(filePath string) (backend.ImportFileResult, error) {
+
 	// 1. Determine file type, 2. Process content, 3. Return result
+
 	// Note: Currently calling fileService placeholder, needs full implementation in backend
+
 	return a.fileService.ImportFile(filePath)
+
+}
+
+// GenerateTextWithImages calls the LLM service to generate content based on prompt, context and images
+func (a *App) GenerateTextWithImages(prompt string, contextData string, imageDataURLs []string) (string, error) {
+	return a.llmService.GenerateTextWithImages(prompt, contextData, imageDataURLs)
+}
+
+
+// ExportMarkdown opens a dialog and saves the markdown content
+func (a *App) ExportMarkdown(content string) (string, error) {
+	return a.fileService.ExportMarkdown(content)
+}
+
+// ExportImage opens a dialog and copies the image to the selected path
+func (a *App) ExportImage(src string) (string, error) {
+	return a.fileService.ExportImage(src)
+}
+
+// GetImageFileURL converts a relative image path to an absolute file URL
+func (a *App) GetImageFileURL(src string) (string, error) {
+	return a.fileService.GetImageFileURL(src)
 }

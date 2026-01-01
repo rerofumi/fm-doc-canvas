@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+
 import {
   Send,
   Sparkles,
@@ -6,18 +7,40 @@ import {
   Type,
   Image as ImageIcon,
 } from "lucide-react";
+
 import { useAppStore } from "../../store/useAppStore";
+
 import { AppNode } from "../../types";
+
+import { traverseContextBackwards } from "../../utils/graphUtils";
+import * as AppBackend from "../../../wailsjs/go/main/App";
 
 const PromptBar: React.FC = () => {
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<"text" | "image">("text"); // モード切替用
-  const { nodes, addNode, generateText, generateSummary, generateImage } =
-    useAppStore();
+
+  const {
+    nodes,
+
+    edges,
+
+    addNode,
+
+    generateText,
+
+    generateSummary,
+
+    generateImage,
+
+    getImageDataURL,
+  } = useAppStore();
 
   const selectedNodes = nodes.filter((n) => n.selected);
   const selectedNodesCount = selectedNodes.length;
+  const selectedImageNodesCount = selectedNodes.filter(
+    (n) => n.type === "imageNode",
+  ).length;
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -26,12 +49,45 @@ const PromptBar: React.FC = () => {
     setIsLoading(true);
     try {
       if (mode === "text") {
-        // 1. Construct context from selected nodes (text only)
-        const context = selectedNodes
+        // 1. Construct context using traversal from the last selected node (as target)
+        let contextNodes: AppNode[] = [];
+        if (selectedNodes.length > 0) {
+          // Use the last selected node as the target for traversal
+          const targetNodeId = selectedNodes[selectedNodes.length - 1].id;
+          const traversalResult = traverseContextBackwards(
+            targetNodeId,
+            nodes,
+            edges,
+          );
+
+          // Display warning if there was a traversal issue
+          if (traversalResult.warning) {
+            alert(traversalResult.warning.message);
+          }
+
+          contextNodes = traversalResult.nodes;
+        } else {
+          contextNodes = selectedNodes;
+        }
+
+        // For text nodes, combine content
+        const contextText = contextNodes
           .filter((n) => n.type === "customNode") // Only text nodes for text generation
           .map((n) => (n.data as any).content)
           .filter((content) => !!content)
           .join("\n\n---\n\n");
+
+        // For image nodes, convert to data URLs
+        const imageDataURLs: string[] = [];
+        for (const node of contextNodes.filter((n) => n.type === "imageNode")) {
+          try {
+            const dataURL = await getImageDataURL((node.data as any).src);
+            imageDataURLs.push(dataURL);
+          } catch (error) {
+            console.warn("Failed to get image data URL:", error);
+            // Skip images that can't be loaded
+          }
+        }
 
         // Debug log for context
         console.log("=== Context Debug Info ===");
@@ -40,11 +96,23 @@ const PromptBar: React.FC = () => {
           "Text nodes count (for context):",
           selectedNodes.filter((n) => n.type === "customNode").length,
         );
-        console.log("Context content:", context);
+        console.log("Context content:", contextText);
         console.log("=== End Context Debug Info ===");
 
         // 2. Generate text from LLM via Backend
-        const generatedText = await generateText(prompt, context);
+        // If there are images, use the Vision-enabled method
+        let generatedText = "";
+        if (imageDataURLs.length > 0) {
+          // Use Vision method if images are present
+          generatedText = await AppBackend.GenerateTextWithImages(
+            prompt,
+            contextText,
+            imageDataURLs,
+          );
+        } else {
+          // Use regular text method if no images
+          generatedText = await generateText(prompt, contextText);
+        }
 
         // 3. Generate summary for the new content via Backend
         const summary = await generateSummary(generatedText);
@@ -75,9 +143,30 @@ const PromptBar: React.FC = () => {
         addNode(newNode);
       } else if (mode === "image") {
         // Image generation mode
-        // 1. Construct context from selected nodes (text only for Phase 2)
-        const context = selectedNodes
-          .filter((n) => n.type === "customNode") // Only text nodes for image generation context in Phase 2
+        // 1. Construct context using traversal from the last selected node (as target)
+        let contextNodes: AppNode[] = [];
+        if (selectedNodes.length > 0) {
+          // Use the last selected node as the target for traversal
+          const targetNodeId = selectedNodes[selectedNodes.length - 1].id;
+          const traversalResult = traverseContextBackwards(
+            targetNodeId,
+            nodes,
+            edges,
+          );
+
+          // Display warning if there was a traversal issue
+          if (traversalResult.warning) {
+            alert(traversalResult.warning.message);
+          }
+
+          contextNodes = traversalResult.nodes;
+        } else {
+          contextNodes = selectedNodes;
+        }
+
+        // For text nodes, combine content
+        const context = contextNodes
+          .filter((n) => n.type === "customNode") // Only text nodes for text generation
           .map((n) => (n.data as any).content)
           .filter((content) => !!content)
           .join("\n\n---\n\n");
@@ -92,8 +181,16 @@ const PromptBar: React.FC = () => {
         console.log("Context content:", context);
         console.log("=== End Context Debug Info ===");
 
-        // 2. For Phase 2, reference images are not included in the request
+        // 2. Construct reference images from context
         const refImages: string[] = [];
+        for (const node of contextNodes.filter((n) => n.type === "imageNode")) {
+          try {
+            const dataURL = await getImageDataURL((node.data as any).src);
+            refImages.push(dataURL);
+          } catch (error) {
+            console.warn("Failed to get image data URL for reference:", error);
+          }
+        }
 
         // 3. Generate image from LLM via Backend
         const imageSrc = await generateImage(prompt, context, refImages);
@@ -191,6 +288,12 @@ const PromptBar: React.FC = () => {
             <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full uppercase tracking-tighter animate-pulse">
               <Sparkles size={10} />
               {selectedNodesCount} Node(s) Selected as Context
+            </span>
+          )}
+
+          {selectedImageNodesCount > 0 && (
+            <span className="flex items-center gap-1 text-[10px] font-bold bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full uppercase tracking-tighter">
+              <ImageIcon size={10} />+ {selectedImageNodesCount} Image(s)
             </span>
           )}
         </div>

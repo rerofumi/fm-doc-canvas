@@ -27,8 +27,20 @@ func NewLLMService(configService *ConfigService) *LLMService {
 
 // ChatMessage represents a single message in a chat completion request
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // Can be string or []ContentPart
+}
+
+// ContentPart represents a part of a message content (for multi-modal)
+type ContentPart struct {
+	Type     string    `json:"type"` // "text" or "image_url"
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+// ImageURL represents an image URL in a content part
+type ImageURL struct {
+	URL string `json:"url"` // "data:image/png;base64,..." etc.
 }
 
 // ChatCompletionRequest represents the request body for OpenAI compatible chat APIs
@@ -62,6 +74,41 @@ func (s *LLMService) GenerateText(prompt string, contextData string) (string, er
 	return s.callChatAPI(cfg, messages)
 }
 
+// GenerateTextWithImages sends a prompt, context and images to the LLM and returns the generated content
+func (s *LLMService) GenerateTextWithImages(prompt string, contextData string, imageDataURLs []string) (string, error) {
+	cfg := s.configService.GetConfig()
+
+	systemPrompt := "You are a helpful assistant that generates documentation in Markdown format. Be concise and professional."
+	userMessageText := fmt.Sprintf("Context:\n%s\n\nUser Prompt:\n%s", contextData, prompt)
+
+	// Create content parts for the user message
+	contentParts := make([]ContentPart, 0, 1+len(imageDataURLs))
+	
+	// Add text content
+	contentParts = append(contentParts, ContentPart{
+		Type: "text",
+		Text: userMessageText,
+	})
+	
+	// Add image content parts
+	for _, dataURL := range imageDataURLs {
+		contentParts = append(contentParts, ContentPart{
+			Type: "image_url",
+			ImageURL: &ImageURL{
+				URL: dataURL,
+			},
+		})
+	}
+
+	// Create messages with content parts
+	messages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: contentParts},
+	}
+
+	return s.callChatAPIWithContentParts(cfg, messages)
+}
+
 // GenerateSummary takes a text and returns a concise summary
 func (s *LLMService) GenerateSummary(text string) (string, error) {
 	cfg := s.configService.GetConfig()
@@ -82,6 +129,19 @@ func (s *LLMService) GenerateSummary(text string) (string, error) {
 }
 
 func (s *LLMService) callChatAPI(cfg Config, messages []ChatMessage) (string, error) {
+	// Convert messages to use string content for compatibility
+	stringMessages := make([]ChatMessage, len(messages))
+	for i, msg := range messages {
+		stringMessages[i] = ChatMessage{
+			Role:    msg.Role,
+			Content: fmt.Sprintf("%v", msg.Content),
+		}
+	}
+	
+	return s.callChatAPIWithContentParts(cfg, stringMessages)
+}
+
+func (s *LLMService) callChatAPIWithContentParts(cfg Config, messages []ChatMessage) (string, error) {
 	reqBody := ChatCompletionRequest{
 		Model:    cfg.LLM.Model,
 		Messages: messages,
@@ -129,5 +189,14 @@ func (s *LLMService) callChatAPI(cfg Config, messages []ChatMessage) (string, er
 		return "", fmt.Errorf("no response generated from LLM")
 	}
 
-	return chatResp.Choices[0].Message.Content, nil
+	// The content might be a string or a []ContentPart, but for our use case,
+	// the response should always be a string.
+	// We'll do a type assertion to be safe.
+	content, ok := chatResp.Choices[0].Message.Content.(string)
+	if !ok {
+		// If it's not a string, convert it to a string representation
+		content = fmt.Sprintf("%v", chatResp.Choices[0].Message.Content)
+	}
+
+	return content, nil
 }

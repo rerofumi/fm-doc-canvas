@@ -57,7 +57,7 @@ export interface AppConfig {
   };
   // 新規追加
   imageGen: {
-    provider: "openrouter"; // 固定
+    provider: string; // 固定
     baseURL: string;
     model: string;
     apiKey?: string;
@@ -84,7 +84,8 @@ export type AppEdge = Edge;
 export interface AppState {
   nodes: AppNode[];
   edges: AppEdge[];
-  isDrawerOpen: boolean;
+  isEditorOpen: boolean;
+  isSettingsOpen: boolean;
   activeNodeId: string | null;
   config: AppConfig;
 
@@ -97,7 +98,8 @@ export interface AppState {
   setNodes: (nodes: AppNode[]) => void;
   setEdges: (edges: AppEdge[]) => void;
   setActiveNode: (id: string | null) => void;
-  setDrawerOpen: (isOpen: boolean) => void;
+  setEditorOpen: (isOpen: boolean) => void;
+  setSettingsOpen: (isOpen: boolean) => void;
   setConfig: (config: Partial<AppConfig>) => void;
   deleteNode: (id: string) => void;
   deleteEdge: (id: string) => void;
@@ -116,6 +118,10 @@ export interface AppState {
   ) => Promise<string>;
   getImageDataURL: (src: string) => Promise<string>;
   importFile: (filePath: string) => Promise<ImportFileResult>;
+  exportMarkdown: (content: string) => Promise<string>;
+  exportNode: (nodeId: string) => Promise<string>;
+  exportImage: (src: string) => Promise<string>;
+  exportNodesAsMarp: (nodeIds: string[]) => Promise<string>;
 
   // React Flow integration actions
   onNodesChange: OnNodesChange<AppNode>;
