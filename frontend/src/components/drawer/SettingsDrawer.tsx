@@ -32,6 +32,7 @@ const SettingsDrawer: React.FC = () => {
   const handleSaveConfig = async () => {
     try {
       await saveConfig(localConfig);
+      setSettingsOpen(false); // Close the drawer after saving
     } catch (error) {
       console.error("Failed to save config:", error);
       alert("Failed to save configuration");

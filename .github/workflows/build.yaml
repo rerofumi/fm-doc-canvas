@@ -3,6 +3,9 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -49,7 +52,7 @@ jobs:
       - name: Upload binary to release
         uses: svenstaro/upload-release-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref }}
           file: fm-doc-canvas-${{ matrix.platform }}.zip
           asset_name: fm-doc-canvas-${{ matrix.platform }}.zip
