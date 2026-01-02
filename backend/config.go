@@ -20,20 +20,109 @@ type GenerationConfig struct {
 	SummaryMaxChars int `json:"summaryMaxChars"`
 }
 
+// OpenRouterConfig holds settings for OpenRouter
+type OpenRouterConfig struct {
+	BaseURL string `json:"baseURL"`
+	Model   string `json:"model"`
+	APIKey  string `json:"apiKey"` // Sensitive information
+}
+
+func (c *OpenRouterConfig) GetProvider() string {
+	return "openrouter"
+}
+
+// OpenAIConfig holds settings for OpenAI
+type OpenAIConfig struct {
+	BaseURL string `json:"baseURL"`
+	Model   string `json:"model"`
+	APIKey  string `json:"apiKey"` // Sensitive information
+}
+
+func (c *OpenAIConfig) GetProvider() string {
+	return "openai"
+}
+
+// ProviderConfig is an interface for provider-specific configurations
+type ProviderConfig interface {
+	// GetProvider returns the provider name
+	GetProvider() string
+}
+
 // ImageGenConfig holds credentials and settings for image generation
 type ImageGenConfig struct {
-	Provider     string `json:"provider"`     // "openrouter"
-	BaseURL      string `json:"baseURL"`
-	Model        string `json:"model"`
-	APIKey       string `json:"apiKey"` // Sensitive information, kept in local config only
-	DownloadPath string `json:"downloadPath"` // デフォルト: "Image/"（実行ファイル基準で解決）
+	Provider      string          `json:"provider"`
+	DownloadPath  string          `json:"downloadPath"` // Default: "Image/" (resolved relative to executable)
+	OpenRouter    *OpenRouterConfig   `json:"openrouter,omitempty"`
+	OpenAI        *OpenAIConfig        `json:"openai,omitempty"`
+
+	// For backward compatibility
+	BaseURL string `json:"baseURL,omitempty"`
+	Model   string `json:"model,omitempty"`
+	APIKey  string `json:"apiKey,omitempty"`
+}
+
+// GetProviderConfig returns the provider-specific configuration
+func (c *ImageGenConfig) GetProviderConfig() (ProviderConfig, error) {
+	switch c.Provider {
+	case "openrouter":
+		if c.OpenRouter == nil {
+			return nil, fmt.Errorf("openrouter config is not set")
+		}
+		return c.OpenRouter, nil
+	case "openai":
+		if c.OpenAI == nil {
+			return nil, fmt.Errorf("openai config is not set")
+		}
+		return c.OpenAI, nil
+	default:
+		return nil, fmt.Errorf("unknown provider: %s", c.Provider)
+	}
+}
+
+// UnmarshalJSON implements custom unmarshaling for backward compatibility
+func (c *ImageGenConfig) UnmarshalJSON(data []byte) error {
+	// First, try to unmarshal into a temporary struct for backward compatibility
+	type Alias ImageGenConfig
+	temp := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &temp); err != nil {
+		return err
+	}
+
+	// If the old fields are set, migrate them to the new structure
+	if c.BaseURL != "" || c.Model != "" || c.APIKey != "" {
+		switch c.Provider {
+		case "openrouter":
+			c.OpenRouter = &OpenRouterConfig{
+				BaseURL: c.BaseURL,
+				Model:   c.Model,
+				APIKey:  c.APIKey,
+			}
+		case "openai":
+			c.OpenAI = &OpenAIConfig{
+				BaseURL: c.BaseURL,
+				Model:   c.Model,
+				APIKey:  c.APIKey,
+			}
+		}
+		// Clear the old fields
+		c.BaseURL = ""
+		c.Model = ""
+		c.APIKey = ""
+	}
+
+	return nil
 }
 
 // Config represents the application's local settings
 type Config struct {
 	LLM        LLMConfig        `json:"llm"`
 	Generation GenerationConfig `json:"generation"`
-	ImageGen   ImageGenConfig   `json:"imageGen"` // 追加
+	ImageGen   ImageGenConfig   `json:"imageGen"`
 }
 
 // ConfigService handles loading and saving application configuration
@@ -133,10 +222,17 @@ func defaultConfig() *Config {
 		},
 		ImageGen: ImageGenConfig{
 			Provider:     "openrouter",
-			BaseURL:      "https://openrouter.ai/api/v1",
-			Model:        "sourceful/riverflow-v2-standard-preview",
-			APIKey:       "",
 			DownloadPath: "Image/",
+			OpenRouter: &OpenRouterConfig{
+				BaseURL: "https://openrouter.ai/api/v1",
+				Model:   "sourceful/riverflow-v2-standard-preview",
+				APIKey:  "",
+			},
+			OpenAI: &OpenAIConfig{
+				BaseURL: "https://api.openai.com/v1",
+				Model:   "gpt-image-1.5",
+				APIKey:  "",
+			},
 		},
 	}
 }

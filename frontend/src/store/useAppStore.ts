@@ -30,10 +30,17 @@ const initialConfig: AppConfig = {
   },
   imageGen: {
     provider: "openrouter",
-    baseURL: "https://openrouter.ai/api/v1",
-    model: "sourceful/riverflow-v2-standard-preview",
-    apiKey: "",
     downloadPath: "Image/",
+    openrouter: {
+      baseURL: "https://openrouter.ai/api/v1",
+      model: "sourceful/riverflow-v2-standard-preview",
+      apiKey: "",
+    },
+    openai: {
+      baseURL: "https://api.openai.com/v1",
+      model: "gpt-image-1.5",
+      apiKey: "",
+    },
   },
   generation: {
     summaryMaxChars: 100,
@@ -156,12 +163,44 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Type assertion to ensure compatibility with AppConfig
       // This is necessary because the backend Config struct might not perfectly match the frontend AppConfig type
       // Specifically, the backend might not include all optional fields or might have different field types
+
+      // Handle backward compatibility for imageGen
+      let imageGen = (config as any).imageGen || initialConfig.imageGen;
+
+      // If the old format is used (flat structure), migrate to the new format
+      if (imageGen.baseURL || imageGen.model || imageGen.apiKey) {
+        switch (imageGen.provider) {
+          case "openrouter":
+            imageGen = {
+              provider: "openrouter",
+              downloadPath: imageGen.downloadPath,
+              openrouter: {
+                baseURL: imageGen.baseURL || "",
+                model: imageGen.model || "",
+                apiKey: imageGen.apiKey || "",
+              },
+            };
+            break;
+          case "openai":
+            imageGen = {
+              provider: "openai",
+              downloadPath: imageGen.downloadPath,
+              openai: {
+                baseURL: imageGen.baseURL || "",
+                model: imageGen.model || "",
+                apiKey: imageGen.apiKey || "",
+                size: "1024x1024",
+              },
+            };
+            break;
+        }
+      }
+
       // Ensure the config object has all required properties
-      // If imageGen is missing, use the default values
       const fullConfig: AppConfig = {
         llm: (config as any).llm || initialConfig.llm,
         generation: (config as any).generation || initialConfig.generation,
-        imageGen: (config as any).imageGen || initialConfig.imageGen,
+        imageGen: imageGen,
       };
       set({ config: fullConfig });
     } catch (error) {
@@ -171,9 +210,37 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   saveConfig: async (config: AppConfig) => {
     try {
-      await AppBackend.SaveConfig(config as any);
+      // Create a copy of the config to avoid modifying the original
+      const configToSave = { ...config };
+
+      // For backward compatibility, flatten the imageGen config if needed
+      if (configToSave.imageGen) {
+        const { provider, downloadPath, ...providerConfigs } =
+          configToSave.imageGen;
+        let flatConfig = {
+          provider,
+          downloadPath,
+        } as any;
+
+        // Add provider-specific fields to the flat structure
+        switch (provider) {
+          case "openrouter":
+            flatConfig.baseURL = providerConfigs.openrouter?.baseURL || "";
+            flatConfig.model = providerConfigs.openrouter?.model || "";
+            flatConfig.apiKey = providerConfigs.openrouter?.apiKey || "";
+            break;
+          case "openai":
+            flatConfig.baseURL = providerConfigs.openai?.baseURL || "";
+            flatConfig.model = providerConfigs.openai?.model || "";
+            flatConfig.apiKey = providerConfigs.openai?.apiKey || "";
+            break;
+        }
+
+        configToSave.imageGen = flatConfig;
+      }
+
+      await AppBackend.SaveConfig(configToSave as any);
       // Ensure the config object has all required properties
-      // If imageGen is missing, use the default values
       const fullConfig: AppConfig = {
         llm: config.llm || initialConfig.llm,
         generation: config.generation || initialConfig.generation,

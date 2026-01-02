@@ -237,71 +237,197 @@ const SettingsDrawer: React.FC = () => {
                       imageGen: {
                         ...localConfig.imageGen,
                         provider: e.target.value,
+                        // Reset provider-specific settings when changing provider
+                        openrouter:
+                          e.target.value === "openrouter"
+                            ? localConfig.imageGen.openrouter || {
+                                baseURL: "",
+                                model: "",
+                                apiKey: "",
+                              }
+                            : undefined,
+
+                        openai:
+                          e.target.value === "openai"
+                            ? localConfig.imageGen.openai || {
+                                baseURL: "",
+                                model: "",
+                                apiKey: "",
+                              }
+                            : undefined,
                       },
                     })
                   }
                   className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
                 >
                   <option value="openrouter">OpenRouter</option>
+                  <option value="openai">OpenAI</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  API Base URL
-                </label>
-                <input
-                  type="text"
-                  value={localConfig.imageGen.baseURL}
-                  onChange={(e) =>
-                    setLocalConfig({
-                      ...localConfig,
-                      imageGen: {
-                        ...localConfig.imageGen,
-                        baseURL: e.target.value,
-                      },
-                    })
-                  }
-                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  Model
-                </label>
-                <input
-                  type="text"
-                  value={localConfig.imageGen.model}
-                  onChange={(e) =>
-                    setLocalConfig({
-                      ...localConfig,
-                      imageGen: {
-                        ...localConfig.imageGen,
-                        model: e.target.value,
-                      },
-                    })
-                  }
-                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">
-                  API Key
-                </label>
-                <input
-                  type="password"
-                  value={localConfig.imageGen.apiKey}
-                  onChange={(e) =>
-                    setLocalConfig({
-                      ...localConfig,
-                      imageGen: {
-                        ...localConfig.imageGen,
-                        apiKey: e.target.value,
-                      },
-                    })
-                  }
-                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
-                />
-              </div>
+              {/* OpenRouter Settings */}
+              {localConfig.imageGen.provider === "openrouter" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      API Base URL
+                    </label>
+                    <input
+                      type="text"
+                      value={localConfig.imageGen.openrouter?.baseURL || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            openrouter: {
+                              baseURL: e.target.value,
+                              model:
+                                localConfig.imageGen.openrouter?.model || "",
+                              apiKey:
+                                localConfig.imageGen.openrouter?.apiKey || "",
+                            },
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Model
+                    </label>
+                    <input
+                      type="text"
+                      value={localConfig.imageGen.openrouter?.model || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            openrouter: {
+                              baseURL:
+                                localConfig.imageGen.openrouter?.baseURL || "",
+                              model: e.target.value,
+                              apiKey:
+                                localConfig.imageGen.openrouter?.apiKey || "",
+                            },
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={localConfig.imageGen.openrouter?.apiKey || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            openrouter: {
+                              baseURL:
+                                localConfig.imageGen.openrouter?.baseURL || "",
+                              model:
+                                localConfig.imageGen.openrouter?.model || "",
+                              apiKey: e.target.value,
+                            },
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Stability AI Settings */}
+
+              {/* OpenAI Settings */}
+              {localConfig.imageGen.provider === "openai" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      API Base URL
+                    </label>
+                    <input
+                      type="text"
+                      value={localConfig.imageGen.openai?.baseURL || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            openai: {
+                              baseURL: e.target.value,
+                              model: localConfig.imageGen.openai?.model || "",
+                              apiKey: localConfig.imageGen.openai?.apiKey || "",
+                            },
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Model
+                    </label>
+                    <input
+                      type="text"
+                      value={localConfig.imageGen.openai?.model || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            openai: {
+                              baseURL:
+                                localConfig.imageGen.openai?.baseURL || "",
+                              model: e.target.value,
+                              apiKey: localConfig.imageGen.openai?.apiKey || "",
+                            },
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={localConfig.imageGen.openai?.apiKey || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            openai: {
+                              baseURL:
+                                localConfig.imageGen.openai?.baseURL || "",
+                              model: localConfig.imageGen.openai?.model || "",
+                              apiKey: e.target.value,
+                            },
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* xAI Settings */}
+
+              {/* Local Settings */}
+
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
                   Download Path

@@ -14,9 +14,16 @@ import (
 	"time"
 )
 
+
+
 // ImageGenService handles image generation via external APIs
 type ImageGenService struct {
 	configService *ConfigService
+}
+
+// Provider defines the interface for image generation providers
+type ImageGenProvider interface {
+	Generate(prompt string, contextData string, refImages []string) (string, error)
 }
 
 // NewImageGenService creates a new instance of ImageGenService
@@ -26,18 +33,58 @@ func NewImageGenService(configService *ConfigService) *ImageGenService {
 	}
 }
 
-// GenerateImage generates an image using the configured provider (e.g., OpenRouter)
-// It takes a prompt, context data from other nodes, and optional reference images, 
+// getProvider returns the appropriate image generation provider based on the current config
+func (s *ImageGenService) getProvider() (ImageGenProvider, error) {
+	cfg := s.configService.GetConfig()
+	providerCfg, err := cfg.ImageGen.GetProviderConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider config: %w", err)
+	}
+
+	switch provider := providerCfg.(type) {
+	case *OpenRouterConfig:
+		return &OpenRouterProvider{
+			config:    provider,
+			baseCfg:   &cfg.ImageGen,
+			service:   s,
+		}, nil
+	case *OpenAIConfig:
+		return &OpenAIProvider{
+			config:    provider,
+			baseCfg:   &cfg.ImageGen,
+			service:   s,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported provider: %T", providerCfg)
+	}
+}
+
+// GenerateImage generates an image using the configured provider
+// It takes a prompt, context data from other nodes, and optional reference images,
 // saves the result, and returns the relative path
 func (s *ImageGenService) GenerateImage(prompt string, contextData string, refImages []string) (string, error) {
-	cfg := s.configService.GetConfig()
+	provider, err := s.getProvider()
+	if err != nil {
+		return "", fmt.Errorf("failed to get image generation provider: %w", err)
+	}
 
+	return provider.Generate(prompt, contextData, refImages)
+}
+
+// OpenRouterProvider implements ImageGenProvider for OpenRouter
+type OpenRouterProvider struct {
+	config    *OpenRouterConfig
+	baseCfg   *ImageGenConfig
+	service   *ImageGenService
+}
+
+func (p *OpenRouterProvider) Generate(prompt string, contextData string, refImages []string) (string, error) {
 	// Combine prompt and context for better generation
 	fullPrompt := prompt
 	if contextData != "" {
 		fullPrompt = fmt.Sprintf("Context information:\n%s\n\nBased on the above context, generate an image for: %s", contextData, prompt)
 	}
-	
+
 	// Prepare the message content
 	var messageContent interface{} = fullPrompt
 	if len(refImages) > 0 {
@@ -59,7 +106,7 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 
 	// Prepare the request payload
 	payload := map[string]interface{}{
-		"model": cfg.ImageGen.Model,
+		"model": p.config.Model,
 		"messages": []map[string]interface{}{
 			{
 				"role":    "user",
@@ -68,23 +115,23 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 		},
 		"modalities": []string{"image", "text"},
 	}
-	
+
 	// Convert payload to JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request payload: %w", err)
 	}
-	
+
 	// Create HTTP request
-	url := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(cfg.ImageGen.BaseURL, "/"))
+	url := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(p.config.BaseURL, "/"))
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create HTTP request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.ImageGen.APIKey))
-	
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.config.APIKey))
+
 	// Send request
 	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Do(req)
@@ -92,55 +139,55 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 		return "", fmt.Errorf("failed to send request to OpenRouter: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("OpenRouter API returned error status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	// Parse response
 	var result map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("failed to unmarshal response: %w", err)
 	}
-	
+
 	// Extract image URL from response
 	choices, ok := result["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
 		return "", fmt.Errorf("no choices in response")
 	}
-	
+
 	firstChoice, ok := choices[0].(map[string]interface{})
 	if !ok {
 		return "", fmt.Errorf("invalid choice format")
 	}
-	
+
 	message, ok := firstChoice["message"].(map[string]interface{})
 	if !ok {
 		return "", fmt.Errorf("invalid message format")
 	}
-	
+
 	// Check if images are in the response
 	if images, hasImages := message["images"].([]interface{}); hasImages && len(images) > 0 {
 		firstImage, ok := images[0].(map[string]interface{})
 		if !ok {
 			return "", fmt.Errorf("invalid image format")
 		}
-		
+
 		imageURL, ok := firstImage["image_url"].(map[string]interface{})["url"].(string)
 		if !ok {
 			return "", fmt.Errorf("invalid image URL format")
 		}
-		
+
 		// Download and save the image
-		return s.downloadAndSaveImage(imageURL)
+		return p.service.downloadAndSaveImage(imageURL)
 	}
-	
+
 	// If no images, check content for image data (some models might return it differently)
 	if content, hasContent := message["content"].(string); hasContent {
 		// This is a simplified check. In reality, you might need to parse markdown or HTML
@@ -151,30 +198,114 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 			re := regexp.MustCompile(`data:image/[^;]+;base64,[a-zA-Z0-9+/=]+`)
 			matches := re.FindStringSubmatch(content)
 			if len(matches) > 0 {
-				return s.downloadAndSaveImage(matches[0])
+				return p.service.downloadAndSaveImage(matches[0])
 			}
 		}
 	}
-	
+
 	return "", fmt.Errorf("no image found in response")
+}
+
+// OpenAIProvider implements ImageGenProvider for OpenAI Image Generation
+type OpenAIProvider struct {
+	config    *OpenAIConfig
+	baseCfg   *ImageGenConfig
+	service   *ImageGenService
+}
+
+func (p *OpenAIProvider) Generate(prompt string, contextData string, refImages []string) (string, error) {
+	// Combine prompt and context for better generation
+	fullPrompt := prompt
+	if contextData != "" {
+		fullPrompt = fmt.Sprintf("Context information:\n%s\n\nBased on the above context, generate an image for: %s", contextData, prompt)
+	}
+
+	// Prepare the request payload for OpenAI Image Generation
+	payload := map[string]interface{}{
+		"model":  p.config.Model,
+		"prompt": fullPrompt,
+		"n":      1,
+	}
+	// Add response_format for OpenAI Image API when using dall-e models
+	if !strings.Contains(p.config.BaseURL, "api.openai.com") || (strings.Contains(p.config.BaseURL, "api.openai.com") && (p.config.Model == "dall-e-3" || p.config.Model == "dall-e-2")) {
+		payload["response_format"] = "b64_json"
+	}
+	// Convert payload to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request payload: %w", err)
+	}
+
+	// Create HTTP request
+	url := fmt.Sprintf("%s/images/generations", strings.TrimSuffix(p.config.BaseURL, "/"))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.config.APIKey))
+
+	// Send request
+	client := &http.Client{Timeout: 180 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request to OpenAI: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenAI API returned error status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var result struct {
+		Data []struct {
+			B64JSON string `json:"b64_json"`
+		} `json:"data"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if result.Error != nil {
+		return "", fmt.Errorf("OpenAI API error: %s", result.Error.Message)
+	}
+
+	if len(result.Data) == 0 || result.Data[0].B64JSON == "" {
+		return "", fmt.Errorf("no image data in response")
+	}
+
+	// Create data URL and save the image
+	dataURL := fmt.Sprintf("data:image/png;base64,%s", result.Data[0].B64JSON)
+	return p.service.downloadAndSaveImage(dataURL)
 }
 
 // resolveDownloadPath resolves the download path to an absolute path based on the executable's directory
 func (s *ImageGenService) resolveDownloadPath() (string, error) {
 	cfg := s.configService.GetConfig()
 	downloadPath := cfg.ImageGen.DownloadPath
-	
+
 	// If it's already an absolute path, return as is
 	if filepath.IsAbs(downloadPath) {
 		return downloadPath, nil
 	}
-	
+
 	// Otherwise, resolve relative to the executable's directory
 	execPath, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("failed to get executable path: %w", err)
 	}
-	
+
 	execDir := filepath.Dir(execPath)
 	absPath := filepath.Join(execDir, downloadPath)
 	return absPath, nil
@@ -248,7 +379,6 @@ func (s *ImageGenService) downloadAndSaveImage(imageURL string) (string, error) 
 	return relPath, nil
 }
 
-
 // NewImageAssetService creates a new instance of ImageAssetService
 func NewImageAssetService(configService *ConfigService) *ImageAssetService {
 	return &ImageAssetService{
@@ -262,15 +392,15 @@ func (s *ImageAssetService) GetImageDataURL(src string) (string, error) {
 	if filepath.IsAbs(src) {
 		return "", fmt.Errorf("absolute paths are not allowed")
 	}
-	
+
 	if strings.Contains(src, "..") {
 		return "", fmt.Errorf("path traversal is not allowed")
 	}
-	
+
 	// 2. Resolve path
 	cfg := s.configService.GetConfig()
 	downloadPath := cfg.ImageGen.DownloadPath
-	
+
 	// If downloadPath is relative, resolve it to absolute based on executable directory
 	if !filepath.IsAbs(downloadPath) {
 		execPath, err := os.Executable()
@@ -280,33 +410,33 @@ func (s *ImageAssetService) GetImageDataURL(src string) (string, error) {
 		execDir := filepath.Dir(execPath)
 		downloadPath = filepath.Join(execDir, downloadPath)
 	}
-	
+
 	// Clean the src to prevent path traversal
 	cleanSrc := filepath.Clean(src)
 	fullPath := filepath.Join(downloadPath, cleanSrc)
-	
+
 	// 3. Additional security check: Ensure the resolved path is still within downloadPath
 	relPath, err := filepath.Rel(downloadPath, fullPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get relative path: %w", err)
 	}
-	
+
 	if strings.Contains(relPath, "..") || relPath == "." {
 		return "", fmt.Errorf("resolved path is outside the allowed directory")
 	}
-	
+
 	// 4. Read image file
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read image file: %w", err)
 	}
-	
+
 	// 5. Determine MIME type
 	mimeType := http.DetectContentType(data)
-	
+
 	// 6. Convert to Data URL
 	encoded := base64.StdEncoding.EncodeToString(data)
 	dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)
-	
+
 	return dataURL, nil
 }

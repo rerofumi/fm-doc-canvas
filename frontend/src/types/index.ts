@@ -49,23 +49,40 @@ export interface ImportFileResult {
  *  ========================= */
 
 // LLM設定など（アプリのローカル設定）
+export interface OpenRouterConfig {
+  baseURL: string;
+  model: string;
+  apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
+}
+
+export interface OpenAIConfig {
+  baseURL: string;
+  model: string;
+  apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
+}
+
+// プロバイダごとの設定を保持する型
+export type ProviderConfig =
+  | { provider: "openrouter"; config: OpenRouterConfig }
+  | { provider: "openai"; config: OpenAIConfig };
+
 export interface AppConfig {
   llm: {
     baseURL: string; // OpenAI互換APIのBase URL
     model: string; // 使用モデル名
     apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
   };
-  // 新規追加
+  // 画像生成プロバイダの設定
   imageGen: {
-    provider: string; // 固定
-    baseURL: string;
-    model: string;
-    apiKey?: string;
-    /**
-     * 画像保存先ディレクトリ
-     * - デフォルト: "Image/"（アプリ実行ファイルと同階層を基準に解釈）
-     */
+    provider: string; // "openrouter" | "stabilityai" | "dalle" | "local"
     downloadPath: string;
+    // プロバイダごとの設定（バックエンドとの互換性のために残す）
+    baseURL?: string;
+    model?: string;
+    apiKey?: string;
+    // プロバイダごとの設定
+    openrouter?: OpenRouterConfig;
+    openai?: OpenAIConfig;
   };
   generation: {
     summaryMaxChars: number; // サマリー上限文字数
