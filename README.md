@@ -4,6 +4,8 @@
 
 LLM ＆ 画像生成には API キーが必要で、OpenRouter の使用を前提としています。(OpenAI API 互換なら他も利用できます)
 
+![Screenshot_mapmode](manuals/screenshot_2026-01-02-a.png)
+
 ## 主な機能
 
 - **フリーキャンバス・エディタ**: ノード形式でテキストを配置し、ラインで自由に接続して情報の流れを可視化。

@@ -86,7 +86,7 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.ImageGen.APIKey))
 	
 	// Send request
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 180 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request to OpenRouter: %w", err)
