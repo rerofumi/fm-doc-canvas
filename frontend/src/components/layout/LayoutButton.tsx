@@ -10,7 +10,7 @@ const LayoutButton: React.FC = () => {
     if (nodes.length === 0) return;
 
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: "LR", nodesep: 35, ranksep: 200 });
+    g.setGraph({ rankdir: "LR", nodesep: 35, ranksep: 70 });
     g.setDefaultEdgeLabel(() => ({}));
 
     nodes.forEach((node) => {

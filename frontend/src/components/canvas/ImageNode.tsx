@@ -3,12 +3,20 @@ import { Handle, Position, NodeProps, NodeResizer } from "@xyflow/react";
 import { ImageNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
 import * as AppBackend from "../../../wailsjs/go/main/App";
+import ImageOverlay from "./ImageOverlay/ImageOverlay";
 
 const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
   const { updateNodeDimensions } = useAppStore();
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOverlayOpen, setIsOverlayOpen] = useState(false);
+
+  useEffect(() => {
+    if (!selected && isOverlayOpen) {
+      setIsOverlayOpen(false);
+    }
+  }, [selected, isOverlayOpen]);
 
   const getImageDataURL = async (src: string) => {
     try {
@@ -45,76 +53,91 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
   }, [(data as ImageNodeData)?.src]);
 
   return (
-    <div
-      className={`shadow-md rounded-md border-2 transition-colors relative ${
-        selected ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
-      }`}
-      style={{
-        width: width || 200,
-        height: height || 150,
-        backgroundColor: "#f9fafb",
-      }}
-    >
-      {selected && (
-        <NodeResizer
-          minWidth={100}
-          minHeight={50}
-          onResizeEnd={(_, params) => {
-            updateNodeDimensions(id, params.width, params.height);
-          }}
-        />
-      )}
-
-      {/* Left Handle - Source (Out) */}
-      <Handle
-        type="source"
-        position={Position.Left}
-        id="left-source"
-        className="w-3 h-3 bg-blue-400 border-2 border-white"
-      />
-
-      {/* Invisible target handle for connection logic compatibility if needed */}
-
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left-target"
-        className="w-3 h-3 bg-blue-400 border-2 border-white opacity-0 pointer-events-none"
-      />
-
-      <div className="w-full h-full flex items-center justify-center p-2 overflow-hidden">
-        {loading && (
-          <div className="text-xs text-gray-500">Loading image...</div>
-        )}
-        {error && (
-          <div className="text-xs text-red-500 text-center p-2">{error}</div>
-        )}
-        {imageSrc && !loading && !error && (
-          <img
-            src={imageSrc}
-            alt={(data as ImageNodeData)?.alt || "Generated image"}
-            className="max-w-full max-h-full object-contain pointer-events-none"
+    <>
+      <div
+        className={`shadow-md rounded-md border-2 transition-colors relative ${
+          selected ? "border-blue-500 ring-2 ring-blue-200" : "border-gray-200"
+        }`}
+        style={{
+          width: width || 200,
+          height: height || 150,
+          backgroundColor: "#f9fafb",
+        }}
+      >
+        {selected && (
+          <NodeResizer
+            minWidth={100}
+            minHeight={50}
+            onResizeEnd={(_, params) => {
+              updateNodeDimensions(id, params.width, params.height);
+            }}
           />
         )}
+
+        {/* Left Handle - Source (Out) */}
+        <Handle
+          type="source"
+          position={Position.Left}
+          id="left-source"
+          className="w-3 h-3 bg-blue-400 border-2 border-white"
+        />
+
+        {/* Invisible target handle for connection logic compatibility if needed */}
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="left-target"
+          className="w-3 h-3 bg-blue-400 border-2 border-white opacity-0 pointer-events-none"
+        />
+
+        <div
+          className="w-full h-full flex items-center justify-center p-2 overflow-hidden"
+          onDoubleClick={() => {
+            if (imageSrc) {
+              setIsOverlayOpen(true);
+            }
+          }}
+        >
+          {loading && (
+            <div className="text-xs text-gray-500">Loading image...</div>
+          )}
+          {error && (
+            <div className="text-xs text-red-500 text-center p-2">{error}</div>
+          )}
+          {imageSrc && !loading && !error && (
+            <img
+              src={imageSrc}
+              alt={(data as ImageNodeData)?.alt || "Generated image"}
+              className="max-w-full max-h-full object-contain"
+            />
+          )}
+        </div>
+
+        {/* Right Handle - Target (In) */}
+        <Handle
+          type="target"
+          position={Position.Right}
+          id="right-target"
+          className="w-3 h-3 bg-blue-400 border-2 border-white"
+        />
+
+        {/* Invisible source handle for connection logic compatibility if needed */}
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="right-source"
+          className="w-3 h-3 bg-blue-400 border-2 border-white opacity-0 pointer-events-none"
+        />
       </div>
 
-      {/* Right Handle - Target (In) */}
-      <Handle
-        type="target"
-        position={Position.Right}
-        id="right-target"
-        className="w-3 h-3 bg-blue-400 border-2 border-white"
-      />
-
-      {/* Invisible source handle for connection logic compatibility if needed */}
-
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="right-source"
-        className="w-3 h-3 bg-blue-400 border-2 border-white opacity-0 pointer-events-none"
-      />
-    </div>
+      {isOverlayOpen && (
+        <ImageOverlay
+          src={imageSrc!}
+          alt={(data as ImageNodeData)?.alt || "Generated image"}
+          onClose={() => setIsOverlayOpen(false)}
+        />
+      )}
+    </>
   );
 };
 

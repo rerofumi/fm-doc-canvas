@@ -76,7 +76,7 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 	}
 	
 	// Create HTTP request
-	url := fmt.Sprintf("%s/chat/completions", cfg.ImageGen.BaseURL)
+	url := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(cfg.ImageGen.BaseURL, "/"))
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create HTTP request: %w", err)

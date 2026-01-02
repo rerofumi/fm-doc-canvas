@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -152,7 +153,7 @@ func (s *LLMService) callChatAPIWithContentParts(cfg Config, messages []ChatMess
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/chat/completions", cfg.LLM.BaseURL)
+	url := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(cfg.LLM.BaseURL, "/"))
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
