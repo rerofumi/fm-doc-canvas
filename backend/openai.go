@@ -216,9 +216,15 @@ func (p *OpenAIProvider) editImage(prompt string, contextData string, refImages 
 		return "", fmt.Errorf("failed to write response_format field: %w", err)
 	}
 
-	// Add first image
-	if err := p.addImageToMultipart(writer, "image", refImages[0]); err != nil {
-		return "", fmt.Errorf("failed to add image: %w", err)
+	// Add all reference images
+	for i, img := range refImages {
+		fieldName := "image"
+		if i > 0 {
+			fieldName = fmt.Sprintf("image%d", i+1)
+		}
+		if err := p.addImageToMultipart(writer, fieldName, img); err != nil {
+			return "", fmt.Errorf("failed to add image %d: %w", i+1, err)
+		}
 	}
 
 	if err := writer.Close(); err != nil {
