@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { X, Trash2, Save, FolderOpen, Download, Upload } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
+import { OpenAIConfig, GoogleConfig } from "../../types";
 
 const SettingsDrawer: React.FC = () => {
   const {
@@ -255,13 +256,20 @@ const SettingsDrawer: React.FC = () => {
                                 apiKey: "",
                               }
                             : undefined,
+                        google:
+                          e.target.value === "google"
+                            ? localConfig.imageGen.google || {
+                                model: "",
+                                apiKey: "",
+                              }
+                            : undefined,
                       },
                     })
                   }
-                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
                 >
                   <option value="openrouter">OpenRouter</option>
                   <option value="openai">OpenAI</option>
+                  <option value="google">Google</option>
                 </select>
               </div>
               {/* OpenRouter Settings */}
@@ -352,7 +360,7 @@ const SettingsDrawer: React.FC = () => {
                 <>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      API Base URL
+                      Base URL
                     </label>
                     <input
                       type="text"
@@ -363,10 +371,9 @@ const SettingsDrawer: React.FC = () => {
                           imageGen: {
                             ...localConfig.imageGen,
                             openai: {
+                              ...localConfig.imageGen.openai,
                               baseURL: e.target.value,
-                              model: localConfig.imageGen.openai?.model || "",
-                              apiKey: localConfig.imageGen.openai?.apiKey || "",
-                            },
+                            } as OpenAIConfig,
                           },
                         })
                       }
@@ -386,11 +393,9 @@ const SettingsDrawer: React.FC = () => {
                           imageGen: {
                             ...localConfig.imageGen,
                             openai: {
-                              baseURL:
-                                localConfig.imageGen.openai?.baseURL || "",
+                              ...localConfig.imageGen.openai,
                               model: e.target.value,
-                              apiKey: localConfig.imageGen.openai?.apiKey || "",
-                            },
+                            } as OpenAIConfig,
                           },
                         })
                       }
@@ -410,11 +415,59 @@ const SettingsDrawer: React.FC = () => {
                           imageGen: {
                             ...localConfig.imageGen,
                             openai: {
-                              baseURL:
-                                localConfig.imageGen.openai?.baseURL || "",
-                              model: localConfig.imageGen.openai?.model || "",
+                              ...localConfig.imageGen.openai,
                               apiKey: e.target.value,
-                            },
+                            } as OpenAIConfig,
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Google Settings */}
+              {localConfig.imageGen.provider === "google" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Model
+                    </label>
+                    <input
+                      type="text"
+                      value={localConfig.imageGen.google?.model || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            google: {
+                              ...localConfig.imageGen.google,
+                              model: e.target.value,
+                            } as GoogleConfig,
+                          },
+                        })
+                      }
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={localConfig.imageGen.google?.apiKey || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            google: {
+                              ...localConfig.imageGen.google,
+                              apiKey: e.target.value,
+                            } as GoogleConfig,
                           },
                         })
                       }

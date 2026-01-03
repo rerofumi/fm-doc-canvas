@@ -1,5 +1,19 @@
 export namespace backend {
 	
+	export class GoogleConfig {
+	    model: string;
+	    apiKey: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GoogleConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.apiKey = source["apiKey"];
+	    }
+	}
 	export class OpenAIConfig {
 	    baseURL: string;
 	    model: string;
@@ -37,6 +51,7 @@ export namespace backend {
 	    downloadPath: string;
 	    openrouter?: OpenRouterConfig;
 	    openai?: OpenAIConfig;
+	    google?: GoogleConfig;
 	    baseURL?: string;
 	    model?: string;
 	    apiKey?: string;
@@ -51,6 +66,7 @@ export namespace backend {
 	        this.downloadPath = source["downloadPath"];
 	        this.openrouter = this.convertValues(source["openrouter"], OpenRouterConfig);
 	        this.openai = this.convertValues(source["openai"], OpenAIConfig);
+	        this.google = this.convertValues(source["google"], GoogleConfig);
 	        this.baseURL = source["baseURL"];
 	        this.model = source["model"];
 	        this.apiKey = source["apiKey"];
@@ -136,6 +152,7 @@ export namespace backend {
 		    return a;
 		}
 	}
+	
 	
 	
 	export class ImportFileResult {

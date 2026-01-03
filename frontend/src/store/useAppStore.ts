@@ -41,6 +41,10 @@ const initialConfig: AppConfig = {
       model: "gpt-image-1.5",
       apiKey: "",
     },
+    google: {
+      model: "gemini-2.5-flash-image",
+      apiKey: "",
+    },
   },
   generation: {
     summaryMaxChars: 100,
@@ -193,6 +197,16 @@ export const useAppStore = create<AppState>((set, get) => ({
               },
             };
             break;
+          case "google":
+            imageGen = {
+              provider: "google",
+              downloadPath: imageGen.downloadPath,
+              google: {
+                model: imageGen.model || "",
+                apiKey: imageGen.apiKey || "",
+              },
+            };
+            break;
         }
       }
 
@@ -233,6 +247,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             flatConfig.baseURL = providerConfigs.openai?.baseURL || "";
             flatConfig.model = providerConfigs.openai?.model || "";
             flatConfig.apiKey = providerConfigs.openai?.apiKey || "";
+            break;
+          case "google":
+            flatConfig.model = providerConfigs.google?.model || "";
+            flatConfig.apiKey = providerConfigs.google?.apiKey || "";
             break;
         }
 

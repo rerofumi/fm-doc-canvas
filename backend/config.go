@@ -42,6 +42,16 @@ func (c *OpenAIConfig) GetProvider() string {
 	return "openai"
 }
 
+// GoogleConfig holds settings for Google
+type GoogleConfig struct {
+	Model  string `json:"model"`
+	APIKey string `json:"apiKey"` // Sensitive information
+}
+
+func (c *GoogleConfig) GetProvider() string {
+	return "google"
+}
+
 // ProviderConfig is an interface for provider-specific configurations
 type ProviderConfig interface {
 	// GetProvider returns the provider name
@@ -54,6 +64,7 @@ type ImageGenConfig struct {
 	DownloadPath  string          `json:"downloadPath"` // Default: "Image/" (resolved relative to executable)
 	OpenRouter    *OpenRouterConfig   `json:"openrouter,omitempty"`
 	OpenAI        *OpenAIConfig        `json:"openai,omitempty"`
+	Google        *GoogleConfig        `json:"google,omitempty"`
 
 	// For backward compatibility
 	BaseURL string `json:"baseURL,omitempty"`
@@ -74,6 +85,11 @@ func (c *ImageGenConfig) GetProviderConfig() (ProviderConfig, error) {
 			return nil, fmt.Errorf("openai config is not set")
 		}
 		return c.OpenAI, nil
+	case "google":
+		if c.Google == nil {
+			return nil, fmt.Errorf("google config is not set")
+		}
+		return c.Google, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", c.Provider)
 	}
@@ -107,6 +123,11 @@ func (c *ImageGenConfig) UnmarshalJSON(data []byte) error {
 				BaseURL: c.BaseURL,
 				Model:   c.Model,
 				APIKey:  c.APIKey,
+			}
+		case "google":
+			c.Google = &GoogleConfig{
+				Model:  c.Model,
+				APIKey: c.APIKey,
 			}
 		}
 		// Clear the old fields
@@ -232,6 +253,10 @@ func defaultConfig() *Config {
 				BaseURL: "https://api.openai.com/v1",
 				Model:   "gpt-image-1.5",
 				APIKey:  "",
+			},
+			Google: &GoogleConfig{
+				Model:  "gemini-2.5-flash-image",
+				APIKey: "",
 			},
 		},
 	}
