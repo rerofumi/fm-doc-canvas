@@ -29,29 +29,19 @@ func (s *FileService) ExportImage(src string) (string, error) {
 	}
 
 	// 1. Resolve source path with security checks
-	if filepath.IsAbs(src) {
-		return "", fmt.Errorf("absolute paths are not allowed")
-	}
-
 	if strings.Contains(src, "..") {
 		return "", fmt.Errorf("path traversal is not allowed")
 	}
 
-	cfg := s.configService.GetConfig()
-	downloadPath := cfg.ImageGen.DownloadPath
-
-	// If downloadPath is relative, resolve it to absolute based on executable directory
-	if !filepath.IsAbs(downloadPath) {
-		execPath, err := os.Executable()
-		if err != nil {
-			return "", fmt.Errorf("failed to get executable path: %w", err)
-		}
-		execDir := filepath.Dir(execPath)
-		downloadPath = filepath.Join(execDir, downloadPath)
+	sourcePath, err := s.configService.ResolveImagePath(src)
+	if err != nil {
+		return "", err
 	}
 
-	cleanSrc := filepath.Clean(src)
-	sourcePath := filepath.Join(downloadPath, cleanSrc)
+	downloadPath, err := s.configService.ResolveDownloadPath()
+	if err != nil {
+		return "", err
+	}
 
 	// Verify the resolved path is still within downloadPath
 	relPath, err := filepath.Rel(downloadPath, sourcePath)
@@ -134,17 +124,9 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 	
 	case ".png", ".jpg", ".jpeg", ".webp":
 		// Resolve the download path
-		cfg := s.configService.GetConfig()
-		downloadPath := cfg.ImageGen.DownloadPath
-
-		// If downloadPath is relative, resolve it to absolute based on executable directory
-		if !filepath.IsAbs(downloadPath) {
-			execPath, err := os.Executable()
-			if err != nil {
-				return result, fmt.Errorf("failed to get executable path: %w", err)
-			}
-			execDir := filepath.Dir(execPath)
-			downloadPath = filepath.Join(execDir, downloadPath)
+		downloadPath, err := s.configService.ResolveDownloadPath()
+		if err != nil {
+			return result, err
 		}
 
 		importPath := filepath.Join(downloadPath, "Import")
@@ -172,8 +154,8 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 		}
 
 		result.Type = "image"
-		// Return the relative path from the downloadPath
-		result.Content = filepath.Join("Import", targetFilename)
+		// Return the relative path from the downloadPath (use forward slashes for web compatibility)
+		result.Content = "Import/" + targetFilename
 	
 	default:
 		return result, fmt.Errorf("unsupported file type: %s", ext)
@@ -252,22 +234,11 @@ func (s *FileService) ExportMarkdown(content string) (string, error) {
 
 // GetImageFileURL converts a relative image path to an absolute file URL
 func (s *FileService) GetImageFileURL(src string) (string, error) {
-	// Resolve the download path
-	cfg := s.configService.GetConfig()
-	downloadPath := cfg.ImageGen.DownloadPath
-
-	// If downloadPath is relative, resolve it to absolute based on executable directory
-	if !filepath.IsAbs(downloadPath) {
-		execPath, err := os.Executable()
-		if err != nil {
-			return "", fmt.Errorf("failed to get executable path: %w", err)
-		}
-		execDir := filepath.Dir(execPath)
-		downloadPath = filepath.Join(execDir, downloadPath)
-	}
-
 	// Construct the absolute path to the image
-	absolutePath := filepath.Join(downloadPath, src)
+	absolutePath, err := s.configService.ResolveImagePath(src)
+	if err != nil {
+		return "", err
+	}
 
 	// Check if the file exists
 	if _, err := os.Stat(absolutePath); os.IsNotExist(err) {

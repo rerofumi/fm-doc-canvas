@@ -65,15 +65,10 @@ func (s *ImageGenService) downloadAndSaveImage(dataURL string) (string, error) {
 		return "", fmt.Errorf("failed to save image: %w", err)
 	}
 
-	// Return relative path with forward slashes
-	execPath, err := os.Executable()
+	// Return relative path from download directory with forward slashes
+	relPath, err := filepath.Rel(downloadDir, fullPath)
 	if err != nil {
-		return fullPath, nil
-	}
-
-	relPath, err := filepath.Rel(filepath.Dir(execPath), fullPath)
-	if err != nil {
-		return fullPath, nil
+		return filename, nil
 	}
 
 	// Convert backslashes to forward slashes for web compatibility
@@ -83,17 +78,13 @@ func (s *ImageGenService) downloadAndSaveImage(dataURL string) (string, error) {
 }
 
 // GetImageDataURL gets the data URL for an image file
-func (s *ImageAssetService) GetImageDataURL(filePath string) (string, error) {
-	// If the path is not absolute, resolve it relative to the executable's directory
-	if !filepath.IsAbs(filePath) {
-		execPath, err := os.Executable()
-		if err != nil {
-			return "", fmt.Errorf("failed to get executable path: %w", err)
-		}
-		execDir := filepath.Dir(execPath)
-		filePath = filepath.Join(execDir, filePath)
+func (s *ImageAssetService) GetImageDataURL(src string) (string, error) {
+	// Resolve path using ConfigService (handles both DownloadPath relative and legacy executable relative)
+	filePath, err := s.configService.ResolveImagePath(src)
+	if err != nil {
+		return "", err
 	}
-	
+
 	// Read image file
 	data, err := os.ReadFile(filePath)
 	if err != nil {

@@ -231,6 +231,58 @@ func (s *ConfigService) Load() error {
 	return nil
 }
 
+// ResolveDownloadPath returns the absolute path for the configured download directory
+func (s *ConfigService) ResolveDownloadPath() (string, error) {
+	s.mu.RLock()
+	downloadPath := s.config.ImageGen.DownloadPath
+	s.mu.RUnlock()
+
+	if filepath.IsAbs(downloadPath) {
+		return downloadPath, nil
+	}
+
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get executable path: %w", err)
+	}
+	execDir := filepath.Dir(execPath)
+	return filepath.Join(execDir, downloadPath), nil
+}
+
+// ResolveImagePath resolves a relative image path against the download directory.
+// It supports backward compatibility for paths that were previously stored relative to the executable.
+func (s *ConfigService) ResolveImagePath(src string) (string, error) {
+	if filepath.IsAbs(src) {
+		return "", fmt.Errorf("absolute paths are not allowed")
+	}
+
+	downloadPath, err := s.ResolveDownloadPath()
+	if err != nil {
+		return "", err
+	}
+
+	// 1. Try standard resolution (relative to DownloadPath)
+	// This covers "Import/filename.png" -> "Image/Import/filename.png"
+	path := filepath.Join(downloadPath, src)
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+
+	// 2. Backward compatibility: Try resolution relative to executable directory
+	// This covers "Image/generated.png" -> "Image/generated.png" when src contains "Image/"
+	execPath, err := os.Executable()
+	if err == nil {
+		execDir := filepath.Dir(execPath)
+		compatPath := filepath.Join(execDir, src)
+		if _, err := os.Stat(compatPath); err == nil {
+			return compatPath, nil
+		}
+	}
+
+	// Fallback to the standard path if file doesn't exist in either location
+	return path, nil
+}
+
 func defaultConfig() *Config {
 	return &Config{
 		LLM: LLMConfig{

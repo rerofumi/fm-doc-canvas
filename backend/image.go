@@ -1,10 +1,8 @@
 package backend
 
 import (
-
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
 type ImageGenService struct {
@@ -63,22 +61,10 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 }
 
 func (s *ImageGenService) resolveDownloadPath() (string, error) {
-	cfg := s.configService.GetConfig()
-	downloadPath := cfg.ImageGen.DownloadPath
-
-	// If it's already an absolute path, return as is
-	if filepath.IsAbs(downloadPath) {
-		return downloadPath, nil
-	}
-
-	// Otherwise, resolve relative to the executable's directory
-	execPath, err := os.Executable()
+	absPath, err := s.configService.ResolveDownloadPath()
 	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %w", err)
+		return "", err
 	}
-
-	execDir := filepath.Dir(execPath)
-	absPath := filepath.Join(execDir, downloadPath)
 
 	// Create download directory if it doesn't exist
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
