@@ -43,6 +43,7 @@ const SettingsDrawer: React.FC = () => {
   const handleSaveCanvas = async () => {
     try {
       await saveCanvas();
+      setSettingsOpen(false); // Close the drawer after saving
     } catch (error) {
       console.error("Failed to save canvas:", error);
       alert("Failed to save canvas");
@@ -52,6 +53,7 @@ const SettingsDrawer: React.FC = () => {
   const handleLoadCanvas = async () => {
     try {
       await loadCanvas();
+      setSettingsOpen(false); // Close the drawer after loading
     } catch (error) {
       console.error("Failed to load canvas:", error);
       alert("Failed to load canvas");

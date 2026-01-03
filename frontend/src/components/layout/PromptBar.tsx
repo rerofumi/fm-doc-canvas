@@ -49,23 +49,31 @@ const PromptBar: React.FC = () => {
     setIsLoading(true);
     try {
       if (mode === "text") {
-        // 1. Construct context using traversal from the last selected node (as target)
+        // 1. Construct context using traversal from ALL selected nodes
         let contextNodes: AppNode[] = [];
         if (selectedNodes.length > 0) {
-          // Use the last selected node as the target for traversal
-          const targetNodeId = selectedNodes[selectedNodes.length - 1].id;
-          const traversalResult = traverseContextBackwards(
-            targetNodeId,
-            nodes,
-            edges,
-          );
+          const uniqueNodes = new Map<string, AppNode>();
 
-          // Display warning if there was a traversal issue
-          if (traversalResult.warning) {
-            alert(traversalResult.warning.message);
+          // Traverse from each selected node
+          for (const node of selectedNodes) {
+            const traversalResult = traverseContextBackwards(
+              node.id,
+              nodes,
+              edges,
+            );
+
+            // Display warning if there was a traversal issue
+            if (traversalResult.warning) {
+              alert(traversalResult.warning.message);
+            }
+
+            // Add traversed nodes to the map to ensure uniqueness
+            traversalResult.nodes.forEach((n) => {
+              uniqueNodes.set(n.id, n);
+            });
           }
 
-          contextNodes = traversalResult.nodes;
+          contextNodes = Array.from(uniqueNodes.values());
         } else {
           contextNodes = selectedNodes;
         }
@@ -143,23 +151,31 @@ const PromptBar: React.FC = () => {
         addNode(newNode);
       } else if (mode === "image") {
         // Image generation mode
-        // 1. Construct context using traversal from the last selected node (as target)
+        // 1. Construct context using traversal from ALL selected nodes
         let contextNodes: AppNode[] = [];
         if (selectedNodes.length > 0) {
-          // Use the last selected node as the target for traversal
-          const targetNodeId = selectedNodes[selectedNodes.length - 1].id;
-          const traversalResult = traverseContextBackwards(
-            targetNodeId,
-            nodes,
-            edges,
-          );
+          const uniqueNodes = new Map<string, AppNode>();
 
-          // Display warning if there was a traversal issue
-          if (traversalResult.warning) {
-            alert(traversalResult.warning.message);
+          // Traverse from each selected node
+          for (const node of selectedNodes) {
+            const traversalResult = traverseContextBackwards(
+              node.id,
+              nodes,
+              edges,
+            );
+
+            // Display warning if there was a traversal issue
+            if (traversalResult.warning) {
+              alert(traversalResult.warning.message);
+            }
+
+            // Add traversed nodes to the map to ensure uniqueness
+            traversalResult.nodes.forEach((n) => {
+              uniqueNodes.set(n.id, n);
+            });
           }
 
-          contextNodes = traversalResult.nodes;
+          contextNodes = Array.from(uniqueNodes.values());
         } else {
           contextNodes = selectedNodes;
         }
