@@ -142,5 +142,10 @@ OpenAI 互換 API を提供する任意のプロバイダー（OpenRouter, Ollam
 
 [LICENSE](./LICENSE) ファイルを参照してください。
 
+## 更新履歴
+
+- v0.3.5: 画像生成プロバイダを OpenRouter/OpenAI/Gemini の 3つに拡張、複数ノード選択時のコンテキスト構築失敗を修正
+- v0.3.0: first release
+
 ---
 Created by [rerofumi](mailto:rero2@yuumu.org)
