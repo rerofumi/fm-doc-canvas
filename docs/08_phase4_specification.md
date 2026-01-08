@@ -70,31 +70,51 @@ type LLMConfig struct {
 
 本機能で参照する "responses API" は **Responses API** (`POST /v1/responses`) を指す。従来の `image edit` (`/images/edits`) は廃止し、参照画像がある場合は Responses API の **image generation tool** を用いて生成する。
 
-*   **Endpoint**: `/responses` (BaseURL に依存。`/v1` が BaseURL に含まれる場合は `BaseURL + "/responses"` 等へ調整)
-*   **Model**: `p.config.Model` (ImageGen の OpenAI 設定にあるモデルを使用)
-  - 注意: `tools: [{type:"image_generation"}]` を呼び出せるモデルであること（設定ミス時は API エラーになる）。
+*   **Endpoint**: `/responses` (BaseURL に依存。`BaseURL + "/responses"`)
+*   **モデルの扱い (重要)**:
+    - Responses API の top-level `model` は **controller**（ツール呼び出しを決定するチャット/推論モデル）。
+    - 実際に画像を生成するモデルは `tools: [{"type":"image_generation","model":"..."}]` の `model`（= **image tool model**）。
+    - 実装では `ImageGen.OpenAI.Model`（= `p.config.Model`）の値によって意味が変わる:
+        1. `gpt-image-*` が設定されている場合: それを **image tool model** として扱う（例: `gpt-image-1.5`）。controller は `gpt-5` 系を使用。
+        2. `gpt-*` の chat モデルが設定されている場合: それを controller に使う（fallback あり）。image tool model は未指定（プロバイダ側デフォルト）
+*   **controller のフォールバック**:
+    - provider/org の対応状況差を吸収するため、controller は複数候補を順に試す（例: `gpt-5` → `gpt-5-mini` → `gpt-4o-mini`）。
 *   **Payload**:
     - 参照画像は `data:image/...;base64,...` の **data URL** を `input_image.image_url` に渡す。
     - テキストは `input_text.text` に渡す。
+    - 参照画像は最大 5 枚に制限する。
     - 画像生成には `tools: [{ "type": "image_generation" }]` が必須。
+    - `tool_choice: {"type":"image_generation"}` を指定し、**text 応答ではなく tool 呼び出しを強制**する（`image_generation_call` を確実に得るため）。
+    - 追加の tool オプション（実装済み）:
+        - `quality: "medium"`
+        - `size: "1536x1024"`
+        ※ これらは image tool model（`gpt-image-*`）が指定されている場合に tool に付与される。
+
     ```json
     {
-      "model": "設定されたモデル (例: gpt-image-1.5 など)",
+      "model": "controller model (例: gpt-5)",
       "input": [
         {
           "role": "user",
           "content": [
-            { "type": "input_text", "text": "Prompt + Context..." },
+            { "type": "input_text", "text": "(tool 呼び出しの指示) + Prompt + Context..." },
             { "type": "input_image", "image_url": "data:image/png;base64,..." }
             // ... 参照画像分（最大5枚）
           ]
         }
       ],
       "tools": [
-        { "type": "image_generation" }
-      ]
+        {
+          "type": "image_generation",
+          "model": "gpt-image-1.5",
+          "quality": "medium",
+          "size": "1536x1024"
+        }
+      ],
+      "tool_choice": { "type": "image_generation" }
     }
     ```
+
 *   **Response Handling**:
     *   API レスポンスは `choices[0].message.content` ではなく、`response.output[]` に **image_generation_call** が含まれる。
     *   生成画像は `output[].result` に **Base64**（拡張子は `output_format` に依存。未指定なら通常 PNG/JPEG）として格納される。
