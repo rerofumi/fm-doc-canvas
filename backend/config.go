@@ -12,7 +12,8 @@ import (
 type LLMConfig struct {
 	BaseURL string `json:"baseURL"`
 	Model   string `json:"model"`
-	APIKey  string `json:"apiKey"` // Sensitive information, kept in local config only
+	APIKey       string `json:"apiKey"` // Sensitive information, kept in local config only
+	SystemPrompt string `json:"systemPrompt"`
 }
 
 // GenerationConfig holds settings for content generation

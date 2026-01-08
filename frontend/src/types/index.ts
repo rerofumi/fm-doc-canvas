@@ -76,6 +76,7 @@ export interface AppConfig {
     baseURL: string; // OpenAI互換APIのBase URL
     model: string; // 使用モデル名
     apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
+    systemPrompt?: string; // システムプロンプト
   };
   // 画像生成プロバイダの設定
   imageGen: {

@@ -2,23 +2,12 @@ package backend
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"image"
-
-	"image/draw"
-	"image/png"
 	"io"
-	"mime/multipart"
 	"net/http"
-	"net/textproto"
 	"strings"
 	"time"
-
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 )
 
 type OpenAIProvider struct {
@@ -27,72 +16,7 @@ type OpenAIProvider struct {
 	service *ImageGenService
 }
 
-// addImageToMultipart adds an image to a multipart writer
-func (p *OpenAIProvider) addImageToMultipart(writer *multipart.Writer, fieldName, imageURL string) error {
-	// Extract base64 data from data URL if needed
-	if strings.HasPrefix(imageURL, "data:image/") {
-		parts := strings.Split(imageURL, ",")
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid data URL format")
-		}
 
-		// Extract MIME type
-		header := strings.Split(parts[0], ";")[0]
-		mimeType := strings.TrimPrefix(header, "data:")
-
-		// Decode base64 data
-		data := parts[1]
-		decoded, err := base64.StdEncoding.DecodeString(data)
-		if err != nil {
-			return fmt.Errorf("failed to decode base64 image data: %w", err)
-		}
-		// Ensure PNG with alpha (RGBA) as required by OpenAI edits API
-		img, _, err := image.Decode(bytes.NewReader(decoded))
-		if err != nil {
-			return fmt.Errorf("failed to decode image bytes: %w", err)
-		}
-		rgba := image.NewRGBA(img.Bounds())
-		draw.Draw(rgba, rgba.Bounds(), img, image.Point{}, draw.Src)
-
-		// OpenAI requires RGBA, LA, or L format. If the image is fully opaque, Go's png encoder
-		// defaults to RGB (Color Type 2), which causes the API error.
-		// We force PNG encoder to use RGBA (Color Type 6) by ensuring at least one pixel is not fully opaque.
-		bounds := rgba.Bounds()
-		if bounds.Dx() > 0 && bounds.Dy() > 0 {
-			x, y := bounds.Min.X, bounds.Min.Y
-			c := rgba.RGBAAt(x, y)
-			if c.A == 255 {
-				c.A = 254
-				rgba.SetRGBA(x, y, c)
-			}
-		}
-
-		var pngBuf bytes.Buffer
-		if err := png.Encode(&pngBuf, rgba); err != nil {
-			return fmt.Errorf("failed to encode RGBA PNG: %w", err)
-		}
-
-		filename := "image.png"
-		mimeType = "image/png"
-		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, filename))
-		h.Set("Content-Type", mimeType)
-
-		part, err := writer.CreatePart(h)
-		if err != nil {
-			return fmt.Errorf("failed to create form file: %w", err)
-		}
-
-		if _, err := part.Write(pngBuf.Bytes()); err != nil {
-			return fmt.Errorf("failed to write image data: %w", err)
-		}
-		return nil
-	}
-
-	// For regular URLs, we would need to download the image first
-	// For simplicity, we'll assume all reference images are data URLs
-	return fmt.Errorf("only data URL images are supported for image edits")
-}
 
 // Generate implements ImageGenProvider.Generate for OpenAIProvider
 func (p *OpenAIProvider) generateImage(prompt string, contextData string) (string, error) {
@@ -175,120 +99,227 @@ func (p *OpenAIProvider) generateImage(prompt string, contextData string) (strin
 	return p.service.downloadAndSaveImage(dataURL)
 }
 
-func (p *OpenAIProvider) editImage(prompt string, contextData string, refImages []string) (string, error) {
-	// Combine prompt and context for better generation
+func (p *OpenAIProvider) generateWithChatCompletion(prompt string, contextData string, refImages []string) (string, error) {
+	// NOTE:
+	// Phase 4: reference images are handled via the Responses API (/v1/responses),
+	// not via /chat/completions and not via /images/edits.
+	//
+	// Payload shape (simplified):
+	// {
+	//   "model": "...",
+	//   "input": [{ "role":"user", "content":[{"type":"input_text","text":"..."},{"type":"input_image","image_url":"data:..."}]}],
+	//   "tools": [{ "type":"image_generation" }]
+	// }
+	//
+	// Response contains:
+	// response.output[].type === "image_generation_call" with output[].result (base64 image).
+
+	// Combine prompt and context
 	fullPrompt := prompt
 	if contextData != "" {
 		fullPrompt = fmt.Sprintf("Context information:\n%s\n\nBased on the above context, generate an image for: %s", contextData, prompt)
 	}
 
-	// Prepare enhanced prompt with detailed instructions for all reference images
-	enhancedPrompt := fullPrompt
-	if len(refImages) > 1 {
-		references := ""
-		for i, _ := range refImages[1:] {
-			if i == 0 {
-				references = fmt.Sprintf("Please incorporate elements from reference image %d (style, colors, composition, etc.) into the base image.", i+2)
-			} else {
-				references += fmt.Sprintf(" Also consider reference image %d's characteristics.", i+2)
-			}
-		}
-		enhancedPrompt = fmt.Sprintf("%s\n\n%s", fullPrompt, references)
+	// Enforce max 5 reference images (as per spec)
+	if len(refImages) > 5 {
+		refImages = refImages[:5]
 	}
 
-	// Prepare multipart form data
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	// Add prompt
-	if err := writer.WriteField("prompt", enhancedPrompt); err != nil {
-		return "", fmt.Errorf("failed to write prompt field: %w", err)
+	// Build Responses API input content
+	type responsesInputContent struct {
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		ImageURL string `json:"image_url,omitempty"`
 	}
 
-	// Add n parameter
-	if err := writer.WriteField("n", "1"); err != nil {
-		return "", fmt.Errorf("failed to write n field: %w", err)
+	type responsesInputItem struct {
+		Role    string                 `json:"role"`
+		Content []responsesInputContent `json:"content"`
 	}
 
-	// Add response_format for OpenAI Image API
-	// Add response_format for OpenAI Image API
-	if err := writer.WriteField("response_format", "b64_json"); err != nil {
-		return "", fmt.Errorf("failed to write response_format field: %w", err)
+	type responsesRequest struct {
+		Model      string                   `json:"model"`
+		Input      []responsesInputItem     `json:"input"`
+		Tools      []map[string]interface{} `json:"tools"`
+		ToolChoice interface{}              `json:"tool_choice,omitempty"`
 	}
 
-	// Add all reference images
-	for i, img := range refImages {
-		fieldName := "image"
-		if i > 0 {
-			fieldName = fmt.Sprintf("image%d", i+1)
-		}
-		if err := p.addImageToMultipart(writer, fieldName, img); err != nil {
-			return "", fmt.Errorf("failed to add image %d: %w", i+1, err)
-		}
+	content := make([]responsesInputContent, 0, 1+len(refImages))
+	// Strongly steer the model to call the image_generation tool (otherwise it may answer in text).
+	// Keep this instruction inside the user content to work across OpenAI-compatible providers.
+	content = append(content, responsesInputContent{
+		Type: "input_text",
+		Text: "You MUST generate an image by calling the image_generation tool exactly once. Do not answer with text.\n\n" + fullPrompt,
+	})
+	for _, img := range refImages {
+		// Expect img to be a data URL: data:image/...;base64,...
+		content = append(content, responsesInputContent{
+			Type:     "input_image",
+			ImageURL: img,
+		})
 	}
 
-	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("failed to close multipart writer: %w", err)
+	// Model selection notes:
+	// In the Responses API, the top-level `model` is the *controller* (a chat/reasoning model like gpt-5)
+	// that decides when to call tools.
+	// The actual image is produced by the `image_generation` tool, which can be configured with its own
+	// image model (e.g. gpt-image-1.5).
+
+	requestedModel := strings.TrimSpace(p.config.Model)
+
+	// If the config model is an image model, treat it as the desired image_generation tool model.
+	imageToolModel := ""
+	if strings.HasPrefix(requestedModel, "gpt-image-") {
+		imageToolModel = requestedModel
 	}
 
-	contentType := writer.FormDataContentType()
+	// Choose controller model candidates.
+	// Prefer gpt-5; fall back if the provider/org doesn't allow it.
+	var modelCandidates []string
+	isChatModel := strings.HasPrefix(requestedModel, "gpt-") || requestedModel == "chatgpt-4o-latest"
 
-	// Create HTTP request
-	url := fmt.Sprintf("%s/images/edits", strings.TrimSuffix(p.config.BaseURL, "/"))
-	req, err := http.NewRequest("POST", url, &buf)
-	if err != nil {
-		return "", fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.config.APIKey))
-
-	// Send request
-	client := &http.Client{Timeout: 180 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send request to OpenAI: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+	switch {
+	case requestedModel == "":
+		modelCandidates = []string{"gpt-5", "gpt-5-mini", "gpt-4o-mini"}
+	case imageToolModel != "":
+		// Config is an image model like gpt-image-1.5 → use gpt-5 as controller.
+		modelCandidates = []string{"gpt-5", "gpt-5-mini", "gpt-4o-mini"}
+	case isChatModel:
+		// Config is a controller model (gpt-5, gpt-4o-mini, etc.).
+		modelCandidates = []string{requestedModel, "gpt-5", "gpt-5-mini", "gpt-4o-mini"}
+	default:
+		modelCandidates = []string{"gpt-5", "gpt-5-mini", "gpt-4o-mini"}
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenAI API returned error status %d: %s", resp.StatusCode, string(body))
+	// Parse Responses API response
+	type responsesOutputItem struct {
+		Type         string `json:"type"`
+		Result       string `json:"result,omitempty"`        // base64 image for image_generation_call
+		OutputFormat string `json:"output_format,omitempty"` // "png" | "jpeg" | "webp" (may be omitted)
 	}
 
-	// Parse response
-	var result struct {
-		Data []struct {
-			B64JSON string `json:"b64_json"`
-		} `json:"data"`
-		Error *struct {
+	type responsesResponse struct {
+		Output []responsesOutputItem `json:"output"`
+		Error  *struct {
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+
+	// Use /responses endpoint
+	baseURL := strings.TrimSuffix(p.config.BaseURL, "/")
+	url := fmt.Sprintf("%s/responses", baseURL)
+
+	client := &http.Client{Timeout: 180 * time.Second}
+
+	var lastErr error
+	for _, model := range modelCandidates {
+			tool := map[string]interface{}{"type": "image_generation"}
+			// If an image model was specified in config (e.g. gpt-image-1.5), request it for the tool.
+			// (This is separate from the controller `model`.)
+			if imageToolModel != "" {
+				tool["model"] = imageToolModel
+				tool["quality"] = "medium"
+				tool["size"] = "1536x1024"
+			}
+
+			reqBody := responsesRequest{
+			Model: model,
+			Input: []responsesInputItem{
+				{
+					Role:    "user",
+					Content: content,
+				},
+			},
+			Tools: []map[string]interface{}{tool},
+			// Force the tool call so we get an image_generation_call output instead of plain text.
+			ToolChoice: map[string]interface{}{"type": "image_generation"},
+		}
+
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal request payload: %w", err)
+		}
+
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return "", fmt.Errorf("failed to create HTTP request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		if p.config.APIKey != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.config.APIKey))
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to send request: %w", err)
+			continue
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return "", fmt.Errorf("failed to read response body: %w", readErr)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("API returned error status %d: %s", resp.StatusCode, string(body))
+			continue
+		}
+
+		var result responsesResponse
+		if err := json.Unmarshal(body, &result); err != nil {
+			return "", fmt.Errorf("failed to unmarshal response: %w", err)
+		}
+		if result.Error != nil {
+			lastErr = fmt.Errorf("OpenAI API error: %s", result.Error.Message)
+			continue
+		}
+
+		// Find the first image_generation_call
+		var imgB64 string
+		mime := "image/png"
+		for _, o := range result.Output {
+			if o.Type != "image_generation_call" {
+				continue
+			}
+			if o.Result == "" {
+				continue
+			}
+
+			switch strings.ToLower(o.OutputFormat) {
+			case "jpeg", "jpg":
+				mime = "image/jpeg"
+			case "webp":
+				mime = "image/webp"
+			case "png":
+				mime = "image/png"
+			default:
+				// keep default
+			}
+
+			imgB64 = o.Result
+			break
+		}
+
+		if imgB64 == "" {
+			lastErr = fmt.Errorf("no image_generation_call in response: %s", string(body))
+			continue
+		}
+
+		dataURL := fmt.Sprintf("data:%s;base64,%s", mime, imgB64)
+		return p.service.downloadAndSaveImage(dataURL)
 	}
 
-	if result.Error != nil {
-		return "", fmt.Errorf("OpenAI API error: %s", result.Error.Message)
+	if lastErr != nil {
+		return "", lastErr
 	}
-
-	if len(result.Data) == 0 || result.Data[0].B64JSON == "" {
-		return "", fmt.Errorf("no image data in response")
-	}
-
-	// Create data URL and save the image
-	dataURL := fmt.Sprintf("data:image/png;base64,%s", result.Data[0].B64JSON)
-	return p.service.downloadAndSaveImage(dataURL)
+	return "", fmt.Errorf("failed to generate image: no model candidates")
 }
 
 func (p *OpenAIProvider) Generate(prompt string, contextData string, refImages []string) (string, error) {
 	if len(refImages) > 0 {
-		return p.editImage(prompt, contextData, refImages)
+		return p.generateWithChatCompletion(prompt, contextData, refImages)
 	} else {
 		return p.generateImage(prompt, contextData)
 	}

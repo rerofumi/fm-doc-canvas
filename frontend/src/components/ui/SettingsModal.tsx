@@ -133,6 +133,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                   Stored locally. Never included in canvas JSON files.
                 </p>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  System Prompt
+                </label>
+                <textarea
+                  className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none min-h-[80px]"
+                  value={localConfig.llm.systemPrompt || ""}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      llm: { ...localConfig.llm, systemPrompt: e.target.value },
+                    })
+                  }
+                  placeholder="You are a helpful assistant..."
+                />
+                <p className="mt-1 text-[10px] text-gray-400">
+                  Instructions that guide the model's behavior.
+                </p>
+              </div>
             </div>
           </div>
 

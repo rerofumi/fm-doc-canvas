@@ -106,6 +106,7 @@ export namespace backend {
 	    baseURL: string;
 	    model: string;
 	    apiKey: string;
+	    systemPrompt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LLMConfig(source);
@@ -116,6 +117,7 @@ export namespace backend {
 	        this.baseURL = source["baseURL"];
 	        this.model = source["model"];
 	        this.apiKey = source["apiKey"];
+	        this.systemPrompt = source["systemPrompt"];
 	    }
 	}
 	export class Config {

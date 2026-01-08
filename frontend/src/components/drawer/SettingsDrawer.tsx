@@ -204,6 +204,23 @@ const SettingsDrawer: React.FC = () => {
                   className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  System Prompt
+                </label>
+                <textarea
+                  value={localConfig.llm.systemPrompt || ""}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      llm: { ...localConfig.llm, systemPrompt: e.target.value },
+                    })
+                  }
+                  rows={3}
+                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 min-h-[80px]"
+                  placeholder="Instructions that guide the model's behavior..."
+                />
+              </div>
             </div>
           </div>
 

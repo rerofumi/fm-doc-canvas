@@ -48,6 +48,7 @@ type ImageURL struct {
 type ChatCompletionRequest struct {
 	Model    string        `json:"model"`
 	Messages []ChatMessage `json:"messages"`
+	Tools    []interface{} `json:"tools,omitempty"`
 }
 
 // ChatCompletionResponse represents the response body from OpenAI compatible chat APIs
@@ -64,7 +65,10 @@ type ChatCompletionResponse struct {
 func (s *LLMService) GenerateText(prompt string, contextData string) (string, error) {
 	cfg := s.configService.GetConfig()
 
-	systemPrompt := "You are a helpful assistant that generates documentation in Markdown format. Be concise and professional."
+	systemPrompt := cfg.LLM.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "You are a helpful assistant that generates documentation in Markdown format. Be concise and professional."
+	}
 	userMessage := fmt.Sprintf("Context:\n%s\n\nUser Prompt:\n%s", contextData, prompt)
 
 	messages := []ChatMessage{
@@ -79,7 +83,10 @@ func (s *LLMService) GenerateText(prompt string, contextData string) (string, er
 func (s *LLMService) GenerateTextWithImages(prompt string, contextData string, imageDataURLs []string) (string, error) {
 	cfg := s.configService.GetConfig()
 
-	systemPrompt := "You are a helpful assistant that generates documentation in Markdown format. Be concise and professional."
+	systemPrompt := cfg.LLM.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "You are a helpful assistant that generates documentation in Markdown format. Be concise and professional."
+	}
 	userMessageText := fmt.Sprintf("Context:\n%s\n\nUser Prompt:\n%s", contextData, prompt)
 
 	// Create content parts for the user message
@@ -121,10 +128,12 @@ func (s *LLMService) GenerateSummary(text string) (string, error) {
 
 	systemPrompt := fmt.Sprintf("Summarize the following text in approximately %d characters or less. Focus on the core message.", maxChars)
 	
-	messages := []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: text},
+	messages := []ChatMessage{}
+	if cfg.LLM.SystemPrompt != "" {
+		messages = append(messages, ChatMessage{Role: "system", Content: cfg.LLM.SystemPrompt})
 	}
+	messages = append(messages, ChatMessage{Role: "system", Content: systemPrompt})
+	messages = append(messages, ChatMessage{Role: "user", Content: text})
 
 	return s.callChatAPI(cfg, messages)
 }
