@@ -66,10 +66,16 @@ export interface GoogleConfig {
   apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
 }
 
+export interface XAIConfig {
+  model: string;
+  apiKey?: string; // 秘匿情報（ローカル設定にのみ保存）
+}
+
 // プロバイダごとの設定を保持する型
 export type ProviderConfig =
   | { provider: "openrouter"; config: OpenRouterConfig }
-  | { provider: "openai"; config: OpenAIConfig };
+  | { provider: "openai"; config: OpenAIConfig }
+  | { provider: "xai"; config: XAIConfig };
 
 export interface AppConfig {
   llm: {
@@ -90,6 +96,7 @@ export interface AppConfig {
     openrouter?: OpenRouterConfig;
     openai?: OpenAIConfig;
     google?: GoogleConfig;
+    xai?: XAIConfig;
   };
   generation: {
     summaryMaxChars: number; // サマリー上限文字数

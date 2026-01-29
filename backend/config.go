@@ -53,6 +53,16 @@ func (c *GoogleConfig) GetProvider() string {
 	return "google"
 }
 
+// XAIConfig holds settings for xAI
+type XAIConfig struct {
+	APIKey string `json:"apiKey"` // Sensitive information
+	Model  string `json:"model"`  // Default: "grok-imagine-image"
+}
+
+func (c *XAIConfig) GetProvider() string {
+	return "xai"
+}
+
 // ProviderConfig is an interface for provider-specific configurations
 type ProviderConfig interface {
 	// GetProvider returns the provider name
@@ -66,6 +76,7 @@ type ImageGenConfig struct {
 	OpenRouter    *OpenRouterConfig   `json:"openrouter,omitempty"`
 	OpenAI        *OpenAIConfig        `json:"openai,omitempty"`
 	Google        *GoogleConfig        `json:"google,omitempty"`
+	XAI           *XAIConfig           `json:"xai,omitempty"` // New: xAI support
 
 	// For backward compatibility
 	BaseURL string `json:"baseURL,omitempty"`
@@ -91,6 +102,11 @@ func (c *ImageGenConfig) GetProviderConfig() (ProviderConfig, error) {
 			return nil, fmt.Errorf("google config is not set")
 		}
 		return c.Google, nil
+	case "xai":
+		if c.XAI == nil {
+			return nil, fmt.Errorf("xai config is not set")
+		}
+		return c.XAI, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", c.Provider)
 	}
@@ -127,6 +143,11 @@ func (c *ImageGenConfig) UnmarshalJSON(data []byte) error {
 			}
 		case "google":
 			c.Google = &GoogleConfig{
+				Model:  c.Model,
+				APIKey: c.APIKey,
+			}
+		case "xai":
+			c.XAI = &XAIConfig{
 				Model:  c.Model,
 				APIKey: c.APIKey,
 			}
@@ -309,6 +330,10 @@ func defaultConfig() *Config {
 			},
 			Google: &GoogleConfig{
 				Model:  "gemini-2.5-flash-image",
+				APIKey: "",
+			},
+			XAI: &XAIConfig{
+				Model:  "grok-imagine-image",
 				APIKey: "",
 			},
 		},

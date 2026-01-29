@@ -45,6 +45,12 @@ func (s *ImageGenService) getProvider() (ImageGenProvider, error) {
 			baseCfg: &cfg.ImageGen,
 			service: s,
 		}, nil
+	case *XAIConfig:
+		return &XAIProvider{
+			config:  provider,
+			baseCfg: &cfg.ImageGen,
+			service: s,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported provider: %T", providerCfg)
 	}

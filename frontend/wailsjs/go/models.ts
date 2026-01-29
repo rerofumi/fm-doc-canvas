@@ -1,5 +1,19 @@
 export namespace backend {
 	
+	export class XAIConfig {
+	    apiKey: string;
+	    model: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new XAIConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.apiKey = source["apiKey"];
+	        this.model = source["model"];
+	    }
+	}
 	export class GoogleConfig {
 	    model: string;
 	    apiKey: string;
@@ -52,6 +66,7 @@ export namespace backend {
 	    openrouter?: OpenRouterConfig;
 	    openai?: OpenAIConfig;
 	    google?: GoogleConfig;
+	    xai?: XAIConfig;
 	    baseURL?: string;
 	    model?: string;
 	    apiKey?: string;
@@ -67,6 +82,7 @@ export namespace backend {
 	        this.openrouter = this.convertValues(source["openrouter"], OpenRouterConfig);
 	        this.openai = this.convertValues(source["openai"], OpenAIConfig);
 	        this.google = this.convertValues(source["google"], GoogleConfig);
+	        this.xai = this.convertValues(source["xai"], XAIConfig);
 	        this.baseURL = source["baseURL"];
 	        this.model = source["model"];
 	        this.apiKey = source["apiKey"];
@@ -171,6 +187,7 @@ export namespace backend {
 	        this.content = source["content"];
 	    }
 	}
+	
 	
 	
 

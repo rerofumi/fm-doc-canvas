@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { X, Trash2, Save, FolderOpen, Download, Upload } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
-import { OpenAIConfig, GoogleConfig } from "../../types";
+import { OpenAIConfig, GoogleConfig, XAIConfig } from "../../types";
 
 const SettingsDrawer: React.FC = () => {
   const {
@@ -282,6 +282,13 @@ const SettingsDrawer: React.FC = () => {
                                 apiKey: "",
                               }
                             : undefined,
+                        xai:
+                          e.target.value === "xai"
+                            ? localConfig.imageGen.xai || {
+                                model: "grok-imagine-image",
+                                apiKey: "",
+                              }
+                            : undefined,
                       },
                     })
                   }
@@ -289,6 +296,7 @@ const SettingsDrawer: React.FC = () => {
                   <option value="openrouter">OpenRouter</option>
                   <option value="openai">OpenAI</option>
                   <option value="google">Google</option>
+                  <option value="xai">xAI</option>
                 </select>
               </div>
               {/* OpenRouter Settings */}
@@ -497,6 +505,56 @@ const SettingsDrawer: React.FC = () => {
               )}
 
               {/* xAI Settings */}
+              {localConfig.imageGen.provider === "xai" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      Model
+                    </label>
+                    <input
+                      type="text"
+                      value={localConfig.imageGen.xai?.model || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            xai: {
+                              ...localConfig.imageGen.xai,
+                              model: e.target.value,
+                            } as XAIConfig,
+                          },
+                        })
+                      }
+                      placeholder="grok-imagine-image"
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={localConfig.imageGen.xai?.apiKey || ""}
+                      onChange={(e) =>
+                        setLocalConfig({
+                          ...localConfig,
+                          imageGen: {
+                            ...localConfig.imageGen,
+                            xai: {
+                              ...localConfig.imageGen.xai,
+                              apiKey: e.target.value,
+                            } as XAIConfig,
+                          },
+                        })
+                      }
+                      placeholder="xai-..."
+                      className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Local Settings */}
 

@@ -145,9 +145,10 @@ OpenAI 互換 API を提供する任意のプロバイダー（OpenRouter, Ollam
 
 ## 更新履歴
 
-- v0.4.0: システムプロンプト設定の追加、OpenAI 画像生成での複数参照画像対応
-- v0.3.5: 画像生成プロバイダを OpenRouter/OpenAI/Gemini の 3つに拡張、複数ノード選択時のコンテキスト構築失敗を修正
-- v0.3.0: first release
+ - v0.4.1: xAI の Image generate/edit を追加
+ - v0.4.0: システムプロンプト設定の追加、OpenAI 画像生成での複数参照画像対応
+ - v0.3.5: 画像生成プロバイダを OpenRouter/OpenAI/Gemini の 3つに拡張、複数ノード選択時のコンテキスト構築失敗を修正
+ - v0.3.0: first release
 
 ---
 Created by [rerofumi](mailto:rero2@yuumu.org)

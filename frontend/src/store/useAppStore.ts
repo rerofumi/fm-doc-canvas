@@ -45,6 +45,10 @@ const initialConfig: AppConfig = {
       model: "gemini-2.5-flash-image",
       apiKey: "",
     },
+    xai: {
+      model: "grok-imagine-image",
+      apiKey: "",
+    },
   },
   generation: {
     summaryMaxChars: 100,
@@ -207,6 +211,16 @@ export const useAppStore = create<AppState>((set, get) => ({
               },
             };
             break;
+          case "xai":
+            imageGen = {
+              provider: "xai",
+              downloadPath: imageGen.downloadPath,
+              xai: {
+                model: imageGen.model || "",
+                apiKey: imageGen.apiKey || "",
+              },
+            };
+            break;
         }
       }
 
@@ -251,6 +265,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           case "google":
             flatConfig.model = providerConfigs.google?.model || "";
             flatConfig.apiKey = providerConfigs.google?.apiKey || "";
+            break;
+          case "xai":
+            flatConfig.model = providerConfigs.xai?.model || "";
+            flatConfig.apiKey = providerConfigs.xai?.apiKey || "";
             break;
         }
 
