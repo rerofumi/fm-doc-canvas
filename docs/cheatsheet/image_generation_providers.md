@@ -13,6 +13,7 @@ This cheatsheet summarizes external API behavior that affects the current image 
 ## OpenRouter Image Generation
 
 - Current local implementation uses `POST {baseURL}/chat/completions`.
+- The configured `baseURL` may include or omit a trailing slash; local code trims it before appending `/chat/completions`.
 - Required payload shape:
   - `model`: configured model id.
   - `messages`: single user message.
@@ -23,6 +24,10 @@ This cheatsheet summarizes external API behavior that affects the current image 
 - OpenRouter documents generated images as base64 data URLs, commonly PNG.
 - Local implementation also scans `message.content` for a `data:image/...;base64,...` fallback.
 - Implementation caveat: OpenRouter may return 404 for unavailable model ids. Verify the configured model id if only OpenRouter fails while other providers work.
+- Known-good manual check as of 2026-05-05:
+  - `baseURL`: `https://openrouter.ai/api/v1/`
+  - `model`: `sourceful/riverflow-v2-fast`
+  - `modalities`: `["image"]`
 
 ## OpenAI Images API
 

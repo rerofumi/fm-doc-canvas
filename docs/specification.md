@@ -18,7 +18,7 @@
 - `backend/file.go`: native dialogs, canvas save/load, import, export, image file URL resolution.
 - `backend/llm.go`: OpenAI-compatible chat completion calls, text generation, summary generation, vision input.
 - `backend/image.go`: image generation provider dispatch.
-- `backend/openrouter.go`: OpenRouter image generation using chat completions with image modality.
+- `backend/openrouter.go`: OpenRouter image generation using chat completions with image-only modality.
 - `backend/openai.go`: OpenAI image generation and Responses API image tool handling.
 - `backend/google.go`: Google Generative Language image generation handling.
 - `backend/xai.go`: xAI image generation/edit handling.
@@ -34,7 +34,7 @@
 ### Runtime Nodes
 
 - Text node: `type: "customNode"`, `data.content`, `data.summary`.
-- Image node: `type: "imageNode"`, `data.src`, optional `data.alt`.
+- Image node: `type: "imageNode"`, `data.src`, optional `data.alt`, optional generated `data.prompt`, optional `data.provider`, optional `data.model`.
 - Node dimensions are stored on the React Flow node as `width` and `height`.
 
 ### Persisted Canvas
@@ -49,6 +49,7 @@
 - `llm`: `baseURL`, `model`, optional `apiKey`, optional `systemPrompt`.
 - `generation`: `summaryMaxChars`.
 - `imageGen`: `provider`, `downloadPath`, provider-specific OpenRouter/OpenAI/Google/xAI settings.
+- OpenRouter default image model is `sourceful/riverflow-v2-fast`. The app migrates the previous default `sourceful/riverflow-v2-standard-preview` to this value when loading/saving config.
 
 ## UI / Screens
 
@@ -56,11 +57,14 @@
 - Canvas: React Flow background, controls, minimap, custom node types, context menu.
 - Editor drawer: Markdown edit mode, preview mode, summary field, summary regeneration, resizable drawer width.
 - Settings drawer: file operations, LLM settings, image generation provider settings, generation settings, canvas clearing.
-- Prompt bar: Text / Image mode toggle, selected-node indicators, prompt textarea, submit button.
+- Prompt bar: Text / Image mode toggle, selected-node indicators, request-level image provider selector in Image mode, prompt textarea, submit button.
+- Image node prompt preview: generated image nodes show a compact prompt caption. Clicking the caption appends that prompt to the shared Prompt bar input without deleting existing text.
 
 ## Inputs
 
 - Text prompt from the prompt bar.
+- Prompt text appended from image node prompt captions.
+- Request-level image provider selected in the prompt bar Image mode.
 - Selected nodes and upstream nodes collected via `traverseContextBackwards`.
 - Drag-and-dropped files with supported extensions.
 - Native file dialogs for save/load/export.
@@ -80,6 +84,7 @@
 ## Error Handling
 
 - Backend methods return errors for missing Wails context, unsupported file types, dialog failures, file I/O failures, API request failures, non-200 API responses, malformed responses, missing generated output, invalid paths, and missing image files.
+- OpenRouter non-200 errors include the configured model and request URL to make model availability and endpoint issues easier to diagnose.
 - Frontend catches generation/import/export errors, logs them, and shows alert dialogs for user-visible failures.
 - Canvas load errors are rethrown after logging.
 
@@ -102,4 +107,3 @@
 - Build: `mise run build`.
 - Static frontend build: Wails build runs `npm run build`, which invokes `tsc && vite build`.
 - Manual verification should cover node editing, connection traversal warnings, generation modes, image import/display, JSON save/load, settings persistence, and export paths.
-
