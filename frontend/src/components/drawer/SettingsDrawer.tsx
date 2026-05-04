@@ -1,7 +1,31 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { X, Trash2, Save, FolderOpen, Download, Upload } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
-import { OpenAIConfig, GoogleConfig, XAIConfig } from "../../types";
+import { AppConfig, OpenAIConfig, GoogleConfig, XAIConfig } from "../../types";
+
+const ensureImageProviderConfigs = (
+  imageGen: AppConfig["imageGen"],
+): AppConfig["imageGen"] => ({
+  ...imageGen,
+  openrouter: imageGen.openrouter || {
+    baseURL: "https://openrouter.ai/api/v1",
+    model: "sourceful/riverflow-v2-fast",
+    apiKey: "",
+  },
+  openai: imageGen.openai || {
+    baseURL: "https://api.openai.com/v1",
+    model: "gpt-image-1.5",
+    apiKey: "",
+  },
+  google: imageGen.google || {
+    model: "gemini-2.5-flash-image",
+    apiKey: "",
+  },
+  xai: imageGen.xai || {
+    model: "grok-imagine-image",
+    apiKey: "",
+  },
+});
 
 const SettingsDrawer: React.FC = () => {
   const {
@@ -255,40 +279,8 @@ const SettingsDrawer: React.FC = () => {
                     setLocalConfig({
                       ...localConfig,
                       imageGen: {
-                        ...localConfig.imageGen,
+                        ...ensureImageProviderConfigs(localConfig.imageGen),
                         provider: e.target.value,
-                        // Reset provider-specific settings when changing provider
-                        openrouter:
-                          e.target.value === "openrouter"
-                            ? localConfig.imageGen.openrouter || {
-                                baseURL: "",
-                                model: "",
-                                apiKey: "",
-                              }
-                            : undefined,
-
-                        openai:
-                          e.target.value === "openai"
-                            ? localConfig.imageGen.openai || {
-                                baseURL: "",
-                                model: "",
-                                apiKey: "",
-                              }
-                            : undefined,
-                        google:
-                          e.target.value === "google"
-                            ? localConfig.imageGen.google || {
-                                model: "",
-                                apiKey: "",
-                              }
-                            : undefined,
-                        xai:
-                          e.target.value === "xai"
-                            ? localConfig.imageGen.xai || {
-                                model: "grok-imagine-image",
-                                apiKey: "",
-                              }
-                            : undefined,
                       },
                     })
                   }

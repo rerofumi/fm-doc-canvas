@@ -12,9 +12,9 @@ import (
 )
 
 type OpenRouterProvider struct {
-	config    *OpenRouterConfig
-	baseCfg   *ImageGenConfig
-	service   *ImageGenService
+	config  *OpenRouterConfig
+	baseCfg *ImageGenConfig
+	service *ImageGenService
 }
 
 // Generate implements ImageGenProvider.Generate for OpenRouterProvider
@@ -53,7 +53,7 @@ func (p *OpenRouterProvider) Generate(prompt string, contextData string, refImag
 				"content": messageContent,
 			},
 		},
-		"modalities": []string{"image", "text"},
+		"modalities": []string{"image"},
 	}
 
 	// Convert payload to JSON
@@ -87,7 +87,7 @@ func (p *OpenRouterProvider) Generate(prompt string, contextData string, refImag
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("OpenRouter API returned error status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("OpenRouter API returned error status %d for model %q at %s: %s", resp.StatusCode, p.config.Model, url, string(body))
 	}
 
 	// Parse response

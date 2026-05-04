@@ -21,7 +21,12 @@ func NewImageGenService(configService *ConfigService) *ImageGenService {
 
 func (s *ImageGenService) getProvider() (ImageGenProvider, error) {
 	cfg := s.configService.GetConfig()
-	providerCfg, err := cfg.ImageGen.GetProviderConfig()
+	return s.getProviderFor(cfg.ImageGen.Provider)
+}
+
+func (s *ImageGenService) getProviderFor(providerName string) (ImageGenProvider, error) {
+	cfg := s.configService.GetConfig()
+	providerCfg, err := cfg.ImageGen.GetProviderConfigFor(providerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider config: %w", err)
 	}
@@ -29,15 +34,15 @@ func (s *ImageGenService) getProvider() (ImageGenProvider, error) {
 	switch provider := providerCfg.(type) {
 	case *OpenRouterConfig:
 		return &OpenRouterProvider{
-			config:    provider,
-			baseCfg:   &cfg.ImageGen,
-			service:   s,
+			config:  provider,
+			baseCfg: &cfg.ImageGen,
+			service: s,
 		}, nil
 	case *OpenAIConfig:
 		return &OpenAIProvider{
-			config:    provider,
-			baseCfg:   &cfg.ImageGen,
-			service:   s,
+			config:  provider,
+			baseCfg: &cfg.ImageGen,
+			service: s,
 		}, nil
 	case *GoogleConfig:
 		return &GoogleProvider{
@@ -61,6 +66,21 @@ func (s *ImageGenService) GenerateImage(prompt string, contextData string, refIm
 	provider, err := s.getProvider()
 	if err != nil {
 		return "", fmt.Errorf("failed to get image generation provider: %w", err)
+	}
+
+	return provider.Generate(prompt, contextData, refImages)
+}
+
+// GenerateImageWithProvider generates an image with a request-level provider
+// override. Empty provider uses the configured default.
+func (s *ImageGenService) GenerateImageWithProvider(prompt string, contextData string, refImages []string, providerName string) (string, error) {
+	if providerName == "" {
+		return s.GenerateImage(prompt, contextData, refImages)
+	}
+
+	provider, err := s.getProviderFor(providerName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get image generation provider %q: %w", providerName, err)
 	}
 
 	return provider.Generate(prompt, contextData, refImages)

@@ -8,6 +8,8 @@ export function ExportMarkdown(arg1:string):Promise<string>;
 
 export function GenerateImage(arg1:string,arg2:string,arg3:Array<string>):Promise<string>;
 
+export function GenerateImageWithProvider(arg1:string,arg2:string,arg3:Array<string>,arg4:string):Promise<string>;
+
 export function GenerateSummary(arg1:string):Promise<string>;
 
 export function GenerateText(arg1:string,arg2:string):Promise<string>;

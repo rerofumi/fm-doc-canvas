@@ -16,13 +16,13 @@ This cheatsheet summarizes external API behavior that affects the current image 
 - Required payload shape:
   - `model`: configured model id.
   - `messages`: single user message.
-  - `modalities`: currently `["image", "text"]`.
+  - `modalities`: currently `["image"]`.
 - Official docs state image generation models are identified by `image` in `output_modalities`.
-- Official docs allow `modalities: ["image", "text"]` for text+image output models and `["image"]` for image-only models.
+- Official docs allow `modalities: ["image", "text"]` for text+image output models and `["image"]` for image-only models. The local default is `sourceful/riverflow-v2-fast`, which is called with image-only output.
 - Response image is expected in `choices[0].message.images[].image_url.url`.
 - OpenRouter documents generated images as base64 data URLs, commonly PNG.
 - Local implementation also scans `message.content` for a `data:image/...;base64,...` fallback.
-- Implementation caveat: if image-only models fail with `["image", "text"]`, consider model-aware modality selection.
+- Implementation caveat: OpenRouter may return 404 for unavailable model ids. Verify the configured model id if only OpenRouter fails while other providers work.
 
 ## OpenAI Images API
 

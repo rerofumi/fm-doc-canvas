@@ -6,7 +6,7 @@ import * as AppBackend from "../../../wailsjs/go/main/App";
 import ImageOverlay from "./ImageOverlay/ImageOverlay";
 
 const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
-  const { updateNodeDimensions } = useAppStore();
+  const { updateNodeDimensions, appendPromptInput } = useAppStore();
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +52,11 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
     fetchImage();
   }, [(data as ImageNodeData)?.src]);
 
+  const promptText =
+    ((data as ImageNodeData)?.prompt || (data as ImageNodeData)?.alt || "")
+      .toString()
+      .trim();
+
   return (
     <>
       <div
@@ -91,7 +96,9 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
         />
 
         <div
-          className="w-full h-full flex items-center justify-center p-2 overflow-hidden"
+          className={`w-full flex items-center justify-center p-2 overflow-hidden ${
+            promptText ? "h-[calc(100%-40px)]" : "h-full"
+          }`}
           onDoubleClick={() => {
             if (imageSrc) {
               setIsOverlayOpen(true);
@@ -112,6 +119,30 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
             />
           )}
         </div>
+
+        {promptText && (
+          <button
+            type="button"
+            title={promptText}
+            onClick={(event) => {
+              event.stopPropagation();
+              appendPromptInput(promptText);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            className="absolute bottom-0 left-0 right-0 h-10 border-t border-gray-200 bg-white/95 px-2 text-left text-[10px] leading-4 text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            <span
+              className="block overflow-hidden break-words"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}
+            >
+              {promptText}
+            </span>
+          </button>
+        )}
 
         {/* Right Handle - Target (In) */}
         <Handle

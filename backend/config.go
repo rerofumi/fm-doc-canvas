@@ -10,8 +10,8 @@ import (
 
 // LLMConfig holds credentials and settings for LLM access
 type LLMConfig struct {
-	BaseURL string `json:"baseURL"`
-	Model   string `json:"model"`
+	BaseURL      string `json:"baseURL"`
+	Model        string `json:"model"`
 	APIKey       string `json:"apiKey"` // Sensitive information, kept in local config only
 	SystemPrompt string `json:"systemPrompt"`
 }
@@ -71,12 +71,12 @@ type ProviderConfig interface {
 
 // ImageGenConfig holds credentials and settings for image generation
 type ImageGenConfig struct {
-	Provider      string          `json:"provider"`
-	DownloadPath  string          `json:"downloadPath"` // Default: "Image/" (resolved relative to executable)
-	OpenRouter    *OpenRouterConfig   `json:"openrouter,omitempty"`
-	OpenAI        *OpenAIConfig        `json:"openai,omitempty"`
-	Google        *GoogleConfig        `json:"google,omitempty"`
-	XAI           *XAIConfig           `json:"xai,omitempty"` // New: xAI support
+	Provider     string            `json:"provider"`
+	DownloadPath string            `json:"downloadPath"` // Default: "Image/" (resolved relative to executable)
+	OpenRouter   *OpenRouterConfig `json:"openrouter,omitempty"`
+	OpenAI       *OpenAIConfig     `json:"openai,omitempty"`
+	Google       *GoogleConfig     `json:"google,omitempty"`
+	XAI          *XAIConfig        `json:"xai,omitempty"` // New: xAI support
 
 	// For backward compatibility
 	BaseURL string `json:"baseURL,omitempty"`
@@ -86,7 +86,13 @@ type ImageGenConfig struct {
 
 // GetProviderConfig returns the provider-specific configuration
 func (c *ImageGenConfig) GetProviderConfig() (ProviderConfig, error) {
-	switch c.Provider {
+	return c.GetProviderConfigFor(c.Provider)
+}
+
+// GetProviderConfigFor returns provider-specific configuration without mutating
+// the configured default provider.
+func (c *ImageGenConfig) GetProviderConfigFor(providerName string) (ProviderConfig, error) {
+	switch providerName {
 	case "openrouter":
 		if c.OpenRouter == nil {
 			return nil, fmt.Errorf("openrouter config is not set")
@@ -108,7 +114,7 @@ func (c *ImageGenConfig) GetProviderConfig() (ProviderConfig, error) {
 		}
 		return c.XAI, nil
 	default:
-		return nil, fmt.Errorf("unknown provider: %s", c.Provider)
+		return nil, fmt.Errorf("unknown provider: %s", providerName)
 	}
 }
 
@@ -221,6 +227,8 @@ func (s *ConfigService) Save(cfg *Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	applyConfigDefaults(cfg)
+
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -249,6 +257,7 @@ func (s *ConfigService) Load() error {
 		return fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	applyConfigDefaults(&cfg)
 	s.config = &cfg
 	return nil
 }
@@ -320,7 +329,7 @@ func defaultConfig() *Config {
 			DownloadPath: "Image/",
 			OpenRouter: &OpenRouterConfig{
 				BaseURL: "https://openrouter.ai/api/v1",
-				Model:   "sourceful/riverflow-v2-standard-preview",
+				Model:   "sourceful/riverflow-v2-fast",
 				APIKey:  "",
 			},
 			OpenAI: &OpenAIConfig{
@@ -337,5 +346,40 @@ func defaultConfig() *Config {
 				APIKey: "",
 			},
 		},
+	}
+}
+
+func applyConfigDefaults(cfg *Config) {
+	defaults := defaultConfig()
+
+	if cfg.LLM.BaseURL == "" {
+		cfg.LLM.BaseURL = defaults.LLM.BaseURL
+	}
+	if cfg.LLM.Model == "" {
+		cfg.LLM.Model = defaults.LLM.Model
+	}
+	if cfg.Generation.SummaryMaxChars == 0 {
+		cfg.Generation.SummaryMaxChars = defaults.Generation.SummaryMaxChars
+	}
+	if cfg.ImageGen.Provider == "" {
+		cfg.ImageGen.Provider = defaults.ImageGen.Provider
+	}
+	if cfg.ImageGen.DownloadPath == "" {
+		cfg.ImageGen.DownloadPath = defaults.ImageGen.DownloadPath
+	}
+	if cfg.ImageGen.OpenRouter == nil {
+		cfg.ImageGen.OpenRouter = defaults.ImageGen.OpenRouter
+	}
+	if cfg.ImageGen.OpenRouter.Model == "sourceful/riverflow-v2-standard-preview" {
+		cfg.ImageGen.OpenRouter.Model = defaults.ImageGen.OpenRouter.Model
+	}
+	if cfg.ImageGen.OpenAI == nil {
+		cfg.ImageGen.OpenAI = defaults.ImageGen.OpenAI
+	}
+	if cfg.ImageGen.Google == nil {
+		cfg.ImageGen.Google = defaults.ImageGen.Google
+	}
+	if cfg.ImageGen.XAI == nil {
+		cfg.ImageGen.XAI = defaults.ImageGen.XAI
 	}
 }

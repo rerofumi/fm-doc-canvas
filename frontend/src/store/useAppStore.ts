@@ -17,10 +17,9 @@ import {
   addEdge,
   applyNodeChanges,
   applyEdgeChanges,
-  MarkerType,
 } from "@xyflow/react";
 import * as AppBackend from "../../wailsjs/go/main/App";
-import { traverseContextBackwards, TraversalResult } from "../utils/graphUtils";
+import { traverseContextBackwards } from "../utils/graphUtils";
 
 const initialConfig: AppConfig = {
   llm: {
@@ -33,7 +32,7 @@ const initialConfig: AppConfig = {
     downloadPath: "Image/",
     openrouter: {
       baseURL: "https://openrouter.ai/api/v1",
-      model: "sourceful/riverflow-v2-standard-preview",
+      model: "sourceful/riverflow-v2-fast",
       apiKey: "",
     },
     openai: {
@@ -55,6 +54,80 @@ const initialConfig: AppConfig = {
   },
 };
 
+const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
+  const provider = imageGen.provider || initialConfig.imageGen.provider;
+  const downloadPath =
+    imageGen.downloadPath || initialConfig.imageGen.downloadPath;
+
+  const migrated: AppConfig["imageGen"] = {
+    ...initialConfig.imageGen,
+    ...imageGen,
+    provider,
+    downloadPath,
+    openrouter: {
+      ...initialConfig.imageGen.openrouter!,
+      ...(imageGen.openrouter || {}),
+    },
+    openai: {
+      ...initialConfig.imageGen.openai!,
+      ...(imageGen.openai || {}),
+    },
+    google: {
+      ...initialConfig.imageGen.google!,
+      ...(imageGen.google || {}),
+    },
+    xai: {
+      ...initialConfig.imageGen.xai!,
+      ...(imageGen.xai || {}),
+    },
+  };
+
+  if (imageGen.baseURL || imageGen.model || imageGen.apiKey) {
+    switch (provider) {
+      case "openrouter":
+        migrated.openrouter = {
+          ...migrated.openrouter!,
+          baseURL: imageGen.baseURL || migrated.openrouter!.baseURL,
+          model: imageGen.model || migrated.openrouter!.model,
+          apiKey: imageGen.apiKey || migrated.openrouter!.apiKey,
+        };
+        break;
+      case "openai":
+        migrated.openai = {
+          ...migrated.openai!,
+          baseURL: imageGen.baseURL || migrated.openai!.baseURL,
+          model: imageGen.model || migrated.openai!.model,
+          apiKey: imageGen.apiKey || migrated.openai!.apiKey,
+        };
+        break;
+      case "google":
+        migrated.google = {
+          ...migrated.google!,
+          model: imageGen.model || migrated.google!.model,
+          apiKey: imageGen.apiKey || migrated.google!.apiKey,
+        };
+        break;
+      case "xai":
+        migrated.xai = {
+          ...migrated.xai!,
+          model: imageGen.model || migrated.xai!.model,
+          apiKey: imageGen.apiKey || migrated.xai!.apiKey,
+        };
+        break;
+    }
+  }
+
+  if (migrated.openrouter?.model === "sourceful/riverflow-v2-standard-preview") {
+    migrated.openrouter.model = initialConfig.imageGen.openrouter!.model;
+  }
+
+  delete (migrated as any).baseURL;
+  delete (migrated as any).model;
+  delete (migrated as any).apiKey;
+
+  return migrated;
+};
+
 export const useAppStore = create<AppState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -62,6 +135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isSettingsOpen: false,
   activeNodeId: null,
   config: initialConfig,
+  promptInput: "",
 
   // Actions
   addNode: (node: AppNode) => {
@@ -104,6 +178,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteEdge: (id: string) => {
     set((state) => ({
       edges: state.edges.filter((edge) => edge.id !== id),
+    }));
+  },
+
+  setPromptInput: (value: string) => {
+    set({ promptInput: value });
+  },
+
+  appendPromptInput: (value: string) => {
+    const prompt = value.trim();
+    if (!prompt) return;
+    set((state) => ({
+      promptInput: state.promptInput.trim()
+        ? `${state.promptInput}\n\n${prompt}`
+        : prompt,
     }));
   },
 
@@ -161,7 +249,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setConfig: (config: Partial<AppConfig>) => {
     set((state) => ({
-      config: { ...state.config, ...config },
+      config: {
+        ...state.config,
+        ...config,
+        imageGen: config.imageGen
+          ? mergeImageGenConfig({
+              ...state.config.imageGen,
+              ...config.imageGen,
+            })
+          : state.config.imageGen,
+      },
     }));
   },
 
@@ -172,63 +269,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       // This is necessary because the backend Config struct might not perfectly match the frontend AppConfig type
       // Specifically, the backend might not include all optional fields or might have different field types
 
-      // Handle backward compatibility for imageGen
-      let imageGen = (config as any).imageGen || initialConfig.imageGen;
-
-      // If the old format is used (flat structure), migrate to the new format
-      if (imageGen.baseURL || imageGen.model || imageGen.apiKey) {
-        switch (imageGen.provider) {
-          case "openrouter":
-            imageGen = {
-              provider: "openrouter",
-              downloadPath: imageGen.downloadPath,
-              openrouter: {
-                baseURL: imageGen.baseURL || "",
-                model: imageGen.model || "",
-                apiKey: imageGen.apiKey || "",
-              },
-            };
-            break;
-          case "openai":
-            imageGen = {
-              provider: "openai",
-              downloadPath: imageGen.downloadPath,
-              openai: {
-                baseURL: imageGen.baseURL || "",
-                model: imageGen.model || "",
-                apiKey: imageGen.apiKey || "",
-                size: "1024x1024",
-              },
-            };
-            break;
-          case "google":
-            imageGen = {
-              provider: "google",
-              downloadPath: imageGen.downloadPath,
-              google: {
-                model: imageGen.model || "",
-                apiKey: imageGen.apiKey || "",
-              },
-            };
-            break;
-          case "xai":
-            imageGen = {
-              provider: "xai",
-              downloadPath: imageGen.downloadPath,
-              xai: {
-                model: imageGen.model || "",
-                apiKey: imageGen.apiKey || "",
-              },
-            };
-            break;
-        }
-      }
-
       // Ensure the config object has all required properties
       const fullConfig: AppConfig = {
         llm: (config as any).llm || initialConfig.llm,
         generation: (config as any).generation || initialConfig.generation,
-        imageGen: imageGen,
+        imageGen: mergeImageGenConfig((config as any).imageGen),
       };
       set({ config: fullConfig });
     } catch (error) {
@@ -238,50 +283,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   saveConfig: async (config: AppConfig) => {
     try {
-      // Create a copy of the config to avoid modifying the original
-      const configToSave = { ...config };
-
-      // For backward compatibility, flatten the imageGen config if needed
-      if (configToSave.imageGen) {
-        const { provider, downloadPath, ...providerConfigs } =
-          configToSave.imageGen;
-        let flatConfig = {
-          provider,
-          downloadPath,
-        } as any;
-
-        // Add provider-specific fields to the flat structure
-        switch (provider) {
-          case "openrouter":
-            flatConfig.baseURL = providerConfigs.openrouter?.baseURL || "";
-            flatConfig.model = providerConfigs.openrouter?.model || "";
-            flatConfig.apiKey = providerConfigs.openrouter?.apiKey || "";
-            break;
-          case "openai":
-            flatConfig.baseURL = providerConfigs.openai?.baseURL || "";
-            flatConfig.model = providerConfigs.openai?.model || "";
-            flatConfig.apiKey = providerConfigs.openai?.apiKey || "";
-            break;
-          case "google":
-            flatConfig.model = providerConfigs.google?.model || "";
-            flatConfig.apiKey = providerConfigs.google?.apiKey || "";
-            break;
-          case "xai":
-            flatConfig.model = providerConfigs.xai?.model || "";
-            flatConfig.apiKey = providerConfigs.xai?.apiKey || "";
-            break;
-        }
-
-        configToSave.imageGen = flatConfig;
-      }
-
-      await AppBackend.SaveConfig(configToSave as any);
-      // Ensure the config object has all required properties
       const fullConfig: AppConfig = {
         llm: config.llm || initialConfig.llm,
         generation: config.generation || initialConfig.generation,
-        imageGen: config.imageGen || initialConfig.imageGen,
+        imageGen: mergeImageGenConfig(config.imageGen),
       };
+
+      await AppBackend.SaveConfig(fullConfig as any);
       set({ config: fullConfig });
     } catch (error) {
       console.error("Failed to save config:", error);
@@ -411,9 +419,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     context: string,
 
     refImages: string[],
+    provider?: string,
   ) => {
     try {
-      const result = await AppBackend.GenerateImage(prompt, context, refImages);
+      const result = provider
+        ? await AppBackend.GenerateImageWithProvider(
+            prompt,
+            context,
+            refImages,
+            provider,
+          )
+        : await AppBackend.GenerateImage(prompt, context, refImages);
 
       return result;
     } catch (error) {

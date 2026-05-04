@@ -33,6 +33,9 @@ export interface ImageNodeData extends Record<string, unknown> {
    */
   src: string;
   alt?: string; // 生成プロンプト等
+  prompt?: string;
+  provider?: string;
+  model?: string;
 }
 
 // Node Types
@@ -103,6 +106,8 @@ export interface AppConfig {
   };
 }
 
+export type ImageGenProvider = "openrouter" | "openai" | "google" | "xai";
+
 // アプリケーション上のノード定義（Runtime）
 // React Flow の Node 型を拡張
 export type AppNode = Node<NodeData, "customNode" | "imageNode">;
@@ -119,6 +124,7 @@ export interface AppState {
   isSettingsOpen: boolean;
   activeNodeId: string | null;
   config: AppConfig;
+  promptInput: string;
 
   // Actions
   addNode: (node: AppNode) => void;
@@ -134,6 +140,8 @@ export interface AppState {
   setConfig: (config: Partial<AppConfig>) => void;
   deleteNode: (id: string) => void;
   deleteEdge: (id: string) => void;
+  setPromptInput: (value: string) => void;
+  appendPromptInput: (value: string) => void;
 
   // Backend actions
   loadConfig: () => Promise<void>;
@@ -146,6 +154,7 @@ export interface AppState {
     prompt: string,
     context: string,
     refImages: string[],
+    provider?: string,
   ) => Promise<string>;
   getImageDataURL: (src: string) => Promise<string>;
   importFile: (filePath: string) => Promise<ImportFileResult>;

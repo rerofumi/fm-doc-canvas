@@ -14,6 +14,10 @@ export function GenerateImage(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateImage'](arg1, arg2, arg3);
 }
 
+export function GenerateImageWithProvider(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GenerateImageWithProvider'](arg1, arg2, arg3, arg4);
+}
+
 export function GenerateSummary(arg1) {
   return window['go']['main']['App']['GenerateSummary'](arg1);
 }

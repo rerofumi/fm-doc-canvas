@@ -86,11 +86,15 @@ func (a *App) GenerateImage(prompt string, contextData string, refImages []strin
 	return a.imageGenService.GenerateImage(prompt, contextData, refImages)
 }
 
+// GenerateImageWithProvider generates an image with a request-level provider override
+func (a *App) GenerateImageWithProvider(prompt string, contextData string, refImages []string, provider string) (string, error) {
+	return a.imageGenService.GenerateImageWithProvider(prompt, contextData, refImages, provider)
+}
+
 // GetImageDataURL converts a relative image path to a Data URL for display
 func (a *App) GetImageDataURL(src string) (string, error) {
 	return a.imageAssetService.GetImageDataURL(src)
 }
-
 
 // ImportFile handles importing a file (text or image) from a file path
 
@@ -108,7 +112,6 @@ func (a *App) ImportFile(filePath string) (backend.ImportFileResult, error) {
 func (a *App) GenerateTextWithImages(prompt string, contextData string, imageDataURLs []string) (string, error) {
 	return a.llmService.GenerateTextWithImages(prompt, contextData, imageDataURLs)
 }
-
 
 // ExportMarkdown opens a dialog and saves the markdown content
 func (a *App) ExportMarkdown(content string) (string, error) {
