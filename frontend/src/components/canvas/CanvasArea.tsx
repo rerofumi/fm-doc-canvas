@@ -23,6 +23,9 @@ const nodeTypes: NodeTypes = {
   imageNode: ImageNode as any, // 型の不一致を一時的に回避
 };
 
+const MIN_ZOOM = 0.1;
+const MAX_ZOOM = 4.0;
+
 const CanvasArea: React.FC = () => {
   const {
     nodes,
@@ -242,6 +245,8 @@ const CanvasArea: React.FC = () => {
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}
         nodeTypes={nodeTypes}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
         fitView
         // Enable file drop target
         // useDropTarget is not a valid prop in newer versions of React Flow

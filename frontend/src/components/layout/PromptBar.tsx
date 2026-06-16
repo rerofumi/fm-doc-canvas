@@ -172,6 +172,7 @@ const PromptBar: React.FC = () => {
           data: {
             content: generatedText,
             summary: summary,
+            originalPrompt: prompt,
           },
           width: 250,
           height: 150,
@@ -272,24 +273,6 @@ const PromptBar: React.FC = () => {
         };
 
         addNode(newNode);
-
-        // 6. Create a text node with the prompt used for image generation
-        const promptNode: AppNode = {
-          id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: "customNode",
-          position: {
-            x: position.x,
-            y: position.y + 250, // Position below the image node
-          },
-          data: {
-            content: `**Prompt used for image generation:**\n\n${prompt}`,
-            summary: "Image generation prompt",
-          },
-          width: 300,
-          height: 150,
-        };
-
-        addNode(promptNode);
       }
 
       setPromptInput("");

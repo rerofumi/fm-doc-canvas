@@ -52,10 +52,10 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
     fetchImage();
   }, [(data as ImageNodeData)?.src]);
 
-  const promptText =
-    ((data as ImageNodeData)?.prompt || (data as ImageNodeData)?.alt || "")
-      .toString()
-      .trim();
+  const promptText = ((data as ImageNodeData)?.prompt || "").toString().trim();
+  const altText = ((data as ImageNodeData)?.alt || "Generated image")
+    .toString()
+    .trim();
 
   return (
     <>
@@ -114,7 +114,7 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
           {imageSrc && !loading && !error && (
             <img
               src={imageSrc}
-              alt={(data as ImageNodeData)?.alt || "Generated image"}
+              alt={altText}
               className="max-w-full max-h-full object-contain"
             />
           )}

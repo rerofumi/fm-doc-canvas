@@ -62,6 +62,27 @@ const CustomNode = ({
                 ((data as TextNodeData).content.length > 100 ? "..." : "")
               : "No content")}
         </div>
+        {(data as TextNodeData).originalPrompt && (
+          <>
+            <div className="border-t border-gray-100 my-2 flex-shrink-0" />
+            <div className="flex-shrink-0">
+              <div className="text-[10px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">
+                Prompt
+              </div>
+              <div
+                className="text-[10px] text-gray-500 overflow-hidden break-words"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                }}
+                title={(data as TextNodeData).originalPrompt}
+              >
+                {(data as TextNodeData).originalPrompt}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Right Handle - Target (In) */}

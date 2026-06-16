@@ -21,6 +21,7 @@ import {
 export interface TextNodeData extends Record<string, unknown> {
   content: string; // 本文テキスト（Markdown）
   summary: string; // サマリー
+  originalPrompt?: string; // 元の質問プロンプト（テキスト生成時）
 }
 
 // Image Node Data (New)
