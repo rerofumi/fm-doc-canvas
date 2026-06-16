@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Review Board - fm-doc-canvas 改善計画</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+        color: #1f2937;
+        background: #f8fafc;
+      }
+      main {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      }
+      section {
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        padding: 16px;
+        background: #fff;
+      }
+      h1,
+      h2 {
+        margin-top: 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      th,
+      td {
+        border: 1px solid #d1d5db;
+        padding: 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      code {
+        background: #eef2ff;
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Review Board - fm-doc-canvas 改善計画</h1>
+    <main>
+      <section>
+        <h2>Decision Map</h2>
+        <table>
+          <tr>
+            <th>Decision</th>
+            <th>Options</th>
+            <th>Status</th>
+          </tr>
+          <tr>
+            <td>画像生成プロンプト表示</td>
+            <td>別ノード / カード下 / 非表示</td>
+            <td>カード下</td>
+          </tr>
+          <tr>
+            <td>画像生成ノード数</td>
+            <td>画像+プロンプト / 画像のみ</td>
+            <td>画像のみ</td>
+          </tr>
+          <tr>
+            <td>テキスト回答ノード</td>
+            <td>質問表示あり / なし</td>
+            <td>表示あり</td>
+          </tr>
+          <tr>
+            <td>ズーム範囲</td>
+            <td>変更なし / minZoom-maxZoom 拡張</td>
+            <td>拡張</td>
+          </tr>
+        </table>
+      </section>
+      <section>
+        <h2>Impact Map</h2>
+        <table>
+          <tr>
+            <th>Area</th>
+            <th>Impact</th>
+            <th>Owner</th>
+          </tr>
+          <tr>
+            <td>Frontend - PromptBar</td>
+            <td>
+              生成ノード data に prompt/originalPrompt を追加。画像生成時の
+              promptNode 追加を削除。
+            </td>
+            <td>Agent</td>
+          </tr>
+          <tr>
+            <td>Frontend - Node Components</td>
+            <td>CustomNode/ImageNode のカード下表示を追加。</td>
+            <td>Agent</td>
+          </tr>
+          <tr>
+            <td>Frontend - Canvas</td>
+            <td>ReactFlow の minZoom/maxZoom を拡張。</td>
+            <td>Agent</td>
+          </tr>
+          <tr>
+            <td>Backend</td>
+            <td>変更なし。</td>
+            <td>N/A</td>
+          </tr>
+        </table>
+      </section>
+      <section>
+        <h2>Risk Board</h2>
+        <table>
+          <tr>
+            <th>Risk</th>
+            <th>Mitigation</th>
+            <th>Residual Risk</th>
+          </tr>
+          <tr>
+            <td>カード下表示で本文/画像表示が狭くなる</td>
+            <td>line-clamp と overflow-hidden で制御する</td>
+            <td>中</td>
+          </tr>
+          <tr>
+            <td>長文プロンプトで UI が圧迫される</td>
+            <td>3 行程度で省略する</td>
+            <td>中</td>
+          </tr>
+          <tr>
+            <td>ズーム範囲拡張で操作感が悪化する</td>
+            <td>minZoom=0.1, maxZoom=4.0 程度の控えめな拡張にする</td>
+            <td>低</td>
+          </tr>
+        </table>
+      </section>
+      <section>
+        <h2>Review Lanes</h2>
+        <table>
+          <tr>
+            <th>Lane</th>
+            <th>Focus</th>
+            <th>Findings</th>
+          </tr>
+          <tr>
+            <td>Frontend</td>
+            <td>Node data, PromptBar, CustomNode, ImageNode</td>
+            <td>任意項目追加で実装可能</td>
+          </tr>
+          <tr>
+            <td>Canvas</td>
+            <td>ReactFlow zoom props</td>
+            <td>minZoom/maxZoom 指定で対応</td>
+          </tr>
+          <tr>
+            <td>Backend</td>
+            <td>API/保存処理</td>
+            <td>変更なし</td>
+          </tr>
+          <tr>
+            <td>QA</td>
+            <td>生成ノード数・表示有無・ズーム操作</td>
+            <td>手動確認中心</td>
+          </tr>
+        </table>
+      </section>
+      <section>
+        <h2>Traceability</h2>
+        <table>
+          <tr>
+            <th>Claim</th>
+            <th>Requirement</th>
+            <th>Specification</th>
+            <th>Test / Review</th>
+          </tr>
+          <tr>
+            <td>プロンプトノード停止</td>
+            <td>FR-1</td>
+            <td>PromptBar Image モード</td>
+            <td>手動確認</td>
+          </tr>
+          <tr>
+            <td>画像プロンプト表示</td>
+            <td>FR-2</td>
+            <td>ImageNode data.prompt</td>
+            <td>手動確認</td>
+          </tr>
+          <tr>
+            <td>質問プロンプト表示</td>
+            <td>FR-3</td>
+            <td>CustomNode data.originalPrompt</td>
+            <td>手動確認</td>
+          </tr>
+          <tr>
+            <td>ズーム拡張</td>
+            <td>FR-4</td>
+            <td>CanvasArea minZoom/maxZoom</td>
+            <td>手動確認</td>
+          </tr>
+        </table>
+      </section>
+      <section>
+        <h2>Open Questions / Go-No-Go</h2>
+        <table>
+          <tr>
+            <th>Question</th>
+            <th>Needed Before</th>
+            <th>Decision Condition</th>
+          </tr>
+          <tr>
+            <td>ラベル文言は <code>Prompt</code> か日本語か</td>
+            <td>実装前</td>
+            <td>UX を崩さない仮ラベルで先行可</td>
+          </tr>
+          <tr>
+            <td>表示行数は 3 行でよいか</td>
+            <td>実装前</td>
+            <td>長文でもカードを大きくしない条件を満たす</td>
+          </tr>
+          <tr>
+            <td>長文プロンプトの全文確認 UI を MVP に入れるか</td>
+            <td>実装前</td>
+            <td>MVP では 3 行省略で進める前提</td>
+          </tr>
+          <tr>
+            <td>既存の古いプロンプト専用ノードを自動整理するか</td>
+            <td>実装前</td>
+            <td>MVP では通常のテキストノードとして残す前提</td>
+          </tr>
+          <tr>
+            <td>長文プロンプトの全文確認 UI を MVP に入れるか</td>
+            <td>実装前</td>
+            <td>MVP では 3 行省略 + <code>title</code> 属性で暫定対応</td>
+          </tr>
+          <tr>
+            <td>React Flow の +/- ボタンが新ズーム範囲を尊重するか</td>
+            <td>実装後確認</td>
+            <td>手動確認で範囲外移動がないこと</td>
+          </tr>
+          <tr>
+            <td><code>fitView</code> と <code>minZoom=0.1</code> の初期表示</td>
+            <td>実装後確認</td>
+            <td>ノードが見失われず極端に縮小されないこと</td>
+          </tr>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>
