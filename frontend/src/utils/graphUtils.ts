@@ -67,6 +67,16 @@ export function traverseContextBackwards(
     
     // Move to the source node of the incoming edge
     const sourceNodeId = incomingEdges[0].source;
+
+    // Stop before adding a node already present in the traversal result. This
+    // keeps the stopping result unique while preserving the loop warning.
+    if (visitedNodeIds.has(sourceNodeId)) {
+      warning = {
+        kind: "loop",
+        message: "リンク構造にエラーがあります"
+      };
+      break;
+    }
     currentNodeId = sourceNodeId;
     
     // Add the source node to the beginning of the result (since we're traversing backwards)

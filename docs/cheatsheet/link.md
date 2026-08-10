@@ -44,3 +44,12 @@
 - Related local cheatsheet: `image_generation_providers.md`
 - Related local files: `backend/xai.go`
 - Reason: Confirms image generation parameters, `response_format`, `n`, and unsupported `quality` / `size` / `style` options.
+
+## Google Gemini Thought Signatures
+
+- URL: https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures
+- Source type: Official documentation
+- Confirmation date: 2026-08-11
+- Related local cheatsheet: `chat_tool_provider_compatibility.md`
+- Related local files: `backend/agent_types.go`, `backend/llm.go`, `backend/agent_loop.go`
+- Reason: Confirms that OpenAI-compatible function calls carry `extra_content.google.thought_signature` and that the signature must be preserved in subsequent tool-loop requests.

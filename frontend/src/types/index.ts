@@ -6,6 +6,7 @@ import {
   Edge,
   MarkerType,
 } from "@xyflow/react";
+import { ChatToolProposal } from "./chat";
 
 /**
  * NOTE: 実行時モデル（React Flow / Zustand で扱う形）と、
@@ -23,6 +24,8 @@ export interface TextNodeData extends Record<string, unknown> {
   summary: string; // サマリー
   originalPrompt?: string; // 元の質問プロンプト（テキスト生成時）
   revision?: number; // 競合検出用の content mutation counter
+  charCount?: number;
+  wordCount?: number;
 }
 
 export interface ArtifactNodeData extends Record<string, unknown> {
@@ -161,6 +164,7 @@ export interface AppState {
   deleteEdge: (id: string) => void;
   setPromptInput: (value: string) => void;
   appendPromptInput: (value: string) => void;
+  applyToolProposal: (proposal: ChatToolProposal) => { status: "applied" | "conflict" | "error"; error?: string };
 
   // Backend actions
   loadConfig: () => Promise<void>;

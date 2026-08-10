@@ -314,6 +314,8 @@ type ToolApplyProposal struct {
 7. 最大 10 tool round、または tool call のない assistant response で終了する。
 8. run ごとに `done/cancelled/error` のいずれか 1 件だけを送る。
 
+OpenAI-compatible response の `tool_calls[]` に provider 固有の拡張 metadata がある場合は、tool call の一部として JSON を透過保持し、assistant message を構成する際に無変更で次 round へ再送する。Google Gemini の thinking model では `extra_content.google.thought_signature` が tool loop 継続時に必須であり、欠落させない。アプリ内部の event correlation ID は provider の tool call ID/metadata を書き換えず、Frontend event 側だけに別途付与する。
+
 `ChatService` は active run を `map[runID]cancelFunc` で管理する。同一 session の同時 run は禁止し、別 session の run は `runId` で独立して route できる。
 
 ## Wails Bindings
@@ -404,7 +406,7 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 | --- | --- | --- |
 | Node model / Markdown / export | REQ-A01〜A14 | `types/index.ts`, node components, `EditorDrawer.tsx`, `useAppStore.ts`, `backend/file.go` |
 | Chat UI / focus / session | REQ-B01〜B10, REQ-B12 | `ChatDrawer.tsx`, `components/chat/*`, `useChatStore.ts`, `App.tsx` |
-| Tools / loop | REQ-C01〜C12, REQ-C18 | `backend/agent/*`, `chat_service.go`, `system_prompt.go` |
+| Tools / loop | REQ-C01〜C12, REQ-C18, REQ-C21 | `backend/agent/*`, `chat_service.go`, `system_prompt.go`, `llm.go` |
 | Direct / on-demand context | REQ-C13〜C15, REQ-C19 | `chatContext.ts`, `canvas_snapshot.go`, `list_canvas_nodes.go`, `read_canvas_node.go` |
 | Event correlation / conflict | REQ-C09, REQ-C16, REQ-C17, REQ-C20, REQ-B08 | `events.go`, `App.tsx`, `useAppStore.ts`, `chat_service.go` |
 | Compatibility / quality / persistence | REQ-N01〜N08, REQ-N10 | `backend/file.go`, `chat_session.go`, build and manual checks |
@@ -420,7 +422,7 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 | WP-B2 | REQ-N08, N10 | chat session backend/store | Canvas 別再起動復元 pass |
 | WP-C1 | REQ-C13〜C15, C19 | snapshot / context tools | direct/on-demand context test pass |
 | WP-C2 | REQ-C02, C03, C08, C18 | tools / prompt / run state | tool contract test pass |
-| WP-C3 | REQ-C01, C04〜C07, C12 | loop / provider / event | loop/cancel/event/実機確認 |
+| WP-C3 | REQ-C01, C04〜C07, C12, C21 | loop / provider / event | loop/cancel/event/provider metadata/実機確認 |
 | WP-C4 | REQ-B08, C09〜C11, C16, C17, C20 | acknowledgment / Frontend apply | apply/conflict/cancel test pass |
 | WP-QA | REQ-N02〜N07 | quality checks | plan-defined evidence recorded |
 
@@ -440,6 +442,7 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 - seven tool contracts and read-before-write rule
 - max round / context cancellation / terminal event uniqueness
 - run/session routing
+- provider tool call metadata の multi-round 保持
 - apply acknowledgment success / conflict / cancel / timeout
 - session persistence and canvasId isolation
 

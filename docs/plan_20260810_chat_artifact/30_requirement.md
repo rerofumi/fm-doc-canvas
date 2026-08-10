@@ -77,6 +77,7 @@
 | REQ-C18 | Text / Artifact を変更する前に、同じ run 内で `read_canvas_node` または `read_artifact` により同じ revision を読んでいなければ `apply_edit` / 対象あり `write_artifact` を拒否する | Tool registry / run state の unit test | E1 |
 | REQ-C19 | targetNodeId が null の時、全ノード本文を初期プロンプトへ含めず、一覧・検索・読込ツールで必要なノードだけ取得する | request builder unit test | E1 |
 | REQ-C20 | mutation tool は Frontend の applied / conflict / cancelled / error acknowledgment を待ち、applied の場合だけ LLM へ成功結果を返す | acknowledgment の統合 test | E1 |
+| REQ-C21 | OpenAI-compatible provider が tool call に返した provider 拡張 metadata（例: Gemini `extra_content.google.thought_signature`）を、同一 agent loop の次 request へ無変更で再送する | 2 round の request payload regression test | E1 |
 
 ## Non-Functional Requirements
 

@@ -90,7 +90,7 @@
 ## Open Questions / Pre-Implementation Checks
 
 1. Ollama の対象 version/model と、tool calling + streaming + image input の対応範囲を実機確認する。
-2. OpenAI-compatible provider ごとの streaming tool call delta の差を既存 `backend/llm.go` に合わせて確認する。
+2. [resolved 2026-08-11] Google Gemini OpenAI compatibility は tool call の `extra_content.google.thought_signature` を次 round へ再送する必要がある。`ToolCall` で provider metadata を透過保持し regression test を追加した。他 provider の未知 metadata も同じ JSON field 内で保持する。
 3. `chat:stream` の頻度が Wails event queue と React render に与える影響を測定し、必要なら chunk を batch する。
 4. 数万字 Markdown の node preview / EditorDrawer rendering 性能を測定する。
 5. Image node の `src` を vision request へ解決する既存 API 経路を確認する。
@@ -124,3 +124,4 @@
 - 2026-08-10: Full plan 初版。
 - 2026-08-10: Claim レビューを反映。論理 Markdown 文書、focus context、connected context、任意 node tool、event correlation、revision acknowledgment、canvasId session、検証可能性を 20 以降へ反映。
 - 2026-08-10: User decision を反映。Artifact の user-facing `version` は廃止し、内部競合検出用 `revision` のみ保持する。
+- 2026-08-11: Gemini OpenAI compatibility の tool-loop 400 を受け、REQ-C21 と provider metadata 透過保持仕様を追加した。

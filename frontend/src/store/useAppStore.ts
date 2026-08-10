@@ -22,6 +22,9 @@ import {
 } from "@xyflow/react";
 import * as AppBackend from "../../wailsjs/go/main/App";
 import { traverseContextBackwards } from "../utils/graphUtils";
+import { ChatToolProposal } from "../types/chat";
+import { normalizeTextData } from "../utils/text";
+import { applyToolProposalToNodes } from "../utils/toolApplication";
 import {
   createArtifactData,
   getContentStats,
@@ -168,6 +171,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       data: {
         content: "",
         summary: "New Node",
+        revision: 0,
+        ...getContentStats(""),
       },
       width: 250,
       height: 150,
@@ -227,6 +232,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  applyToolProposal: (proposal: ChatToolProposal) => {
+    const current = get();
+    const result = applyToolProposalToNodes(
+      current.nodes,
+      proposal,
+      () => `artifact-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
+      () => Date.now(),
+    );
+    if (result.status === "applied") {
+      set({
+        nodes: result.nodes,
+        ...(result.createdNodeId ? { activeNodeId: result.createdNodeId, isEditorOpen: true } : {}),
+      });
+    }
+    return { status: result.status, error: result.error };
+  },
+
   updateNodeContent: (id: string, content: string) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
@@ -236,6 +258,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               data: {
                 ...node.data,
                 content,
+                ...getContentStats(content),
                 revision: ((node.data as TextNodeData).revision || 0) + 1,
               },
             }
@@ -462,22 +485,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         nodesToSet = (data as CanvasFileV1_0).nodes.map((n: any) => ({
           ...n,
           type: "customNode" as const,
-          data: {
-            ...n.data,
-            revision:
-              typeof n.data?.revision === "number" ? n.data.revision : 0,
-          },
+          data: normalizeTextData(n.data || {}),
         })) as AppNode[];
       } else if ((data as CanvasFileV1_1).version === "1.1") {
         nodesToSet = (data as CanvasFileV1_1).nodes.map((n: any) =>
           n.type === "customNode"
             ? {
                 ...n,
-                data: {
-                  ...n.data,
-                  revision:
-                    typeof n.data?.revision === "number" ? n.data.revision : 0,
-                },
+                data: normalizeTextData(n.data || {}),
               }
             : n,
         ) as AppNode[];
@@ -488,11 +503,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (n.type === "customNode") {
             return {
               ...n,
-              data: {
-                ...n.data,
-                revision:
-                  typeof n.data?.revision === "number" ? n.data.revision : 0,
-              },
+              data: normalizeTextData(n.data || {}),
             };
           }
           if (n.type === "artifactNode") {

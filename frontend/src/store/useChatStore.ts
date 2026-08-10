@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { ActiveChatRuns, ChatMessage, ChatSession, ChatTarget } from "../types/chat";
+import { ActiveChatRuns, ChatMessage, ChatSession, ChatTarget, ChatToolEvent } from "../types/chat";
 
 const newId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -10,12 +10,14 @@ interface ChatState {
   canvasId: string | null;
   isLoaded: boolean;
   loadError: string | null;
+  contextWarning: string | null;
   sessions: ChatSession[];
   activeSessionId: string | null;
   activeRuns: ActiveChatRuns;
   setOpen: (isOpen: boolean) => void;
   setDrawerWidth: (width: number) => void;
   setTarget: (target: ChatTarget | null) => void;
+  setContextWarning: (message: string | null) => void;
   beginLoad: (canvasId: string) => void;
   hydrate: (canvasId: string, sessions: ChatSession[]) => void;
   failLoad: (canvasId: string, message: string) => void;
@@ -23,6 +25,8 @@ interface ChatState {
   setActiveSession: (sessionId: string) => void;
   appendMessage: (sessionId: string, message: ChatMessage) => void;
   replaceMessage: (sessionId: string, messageId: string, patch: Partial<ChatMessage>) => void;
+  appendStream: (sessionId: string, runId: string, text: string) => void;
+  upsertToolEvent: (sessionId: string, runId: string, event: ChatToolEvent) => void;
   beginRun: (sessionId: string, runId: string, assistantMessageId: string) => void;
   finishRun: (sessionId: string, runId: string) => void;
   cancelRun: (sessionId: string) => void;
@@ -35,16 +39,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
   canvasId: null,
   isLoaded: false,
   loadError: null,
+  contextWarning: null,
   sessions: [],
   activeSessionId: null,
   activeRuns: {},
   setOpen: (isOpen) => set({ isOpen }),
   setDrawerWidth: (drawerWidth) => set({ drawerWidth }),
-  setTarget: (target) => set({ target }),
+  setTarget: (target) => set({ target, contextWarning: null }),
+  setContextWarning: (contextWarning) => set({ contextWarning }),
   beginLoad: (canvasId) => set({
     canvasId,
     isLoaded: false,
     loadError: null,
+    contextWarning: null,
     sessions: [],
     activeSessionId: null,
     activeRuns: {},
@@ -86,6 +93,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   replaceMessage: (sessionId, messageId, patch) => set((state) => ({
     sessions: state.sessions.map((session) => session.id === sessionId
       ? { ...session, messages: session.messages.map((message) => message.id === messageId ? { ...message, ...patch } : message), updatedAt: Date.now() }
+      : session),
+  })),
+  appendStream: (sessionId, runId, text) => set((state) => ({
+    sessions: state.sessions.map((session) => session.id === sessionId
+      ? { ...session, messages: session.messages.map((message) => message.runId === runId && message.role === "assistant" ? { ...message, content: message.content + text, status: "streaming" } : message), updatedAt: Date.now() }
+      : session),
+  })),
+  upsertToolEvent: (sessionId, runId, event) => set((state) => ({
+    sessions: state.sessions.map((session) => session.id === sessionId
+      ? { ...session, messages: session.messages.map((message) => {
+          if (message.runId !== runId || message.role !== "assistant") return message;
+          const toolEvents = message.toolEvents ?? [];
+          const existing = toolEvents.findIndex((item) => item.toolCallId === event.toolCallId);
+          const nextEvents = existing >= 0 ? toolEvents.map((item, index) => index === existing ? { ...item, ...event } : item) : [...toolEvents, event];
+          return { ...message, toolEvents: nextEvents };
+        }), updatedAt: Date.now() }
       : session),
   })),
   beginRun: (sessionId, runId, assistantMessageId) => set((state) => ({

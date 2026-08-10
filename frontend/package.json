@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:sprint-c": "vite build --config vite.test.config.ts && node .test-dist/sprintC.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

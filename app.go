@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"fm-doc-canvas/backend"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
@@ -16,6 +17,7 @@ type App struct {
 	imageGenService    *backend.ImageGenService
 	imageAssetService  *backend.ImageAssetService
 	chatSessionService *backend.ChatSessionService
+	chatService        *backend.ChatService
 }
 
 // NewApp creates a new App application struct
@@ -42,6 +44,7 @@ func NewApp() *App {
 		imageGenService:    imageGenService,
 		imageAssetService:  imageAssetService,
 		chatSessionService: chatSessionService,
+		chatService:        backend.NewChatService(llmService),
 	}
 }
 
@@ -61,6 +64,31 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 	return a.chatSessionService.Save(canvasID, sessions)
 }
 
+// SendChat starts an asynchronous agent run. Progress is emitted as Wails
+// events named chat:stream, chat:tool_* and chat:done/cancelled/error.
+func (a *App) SendChat(req backend.ChatRequest) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service is unavailable")
+	}
+	return a.chatService.Send(req)
+}
+
+// CancelChat cancels only the requested run and is safe to call repeatedly.
+func (a *App) CancelChat(runID string) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service is unavailable")
+	}
+	return a.chatService.Cancel(runID)
+}
+
+// ResolveToolApplication acknowledges a mutation proposal from the Frontend.
+func (a *App) ResolveToolApplication(result backend.ToolApplicationResult) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service is unavailable")
+	}
+	return a.chatService.Resolve(result)
+}
+
 // GenerateChatReply returns an LLM response for the ChatDrawer.
 func (a *App) GenerateChatReply(prompt string, contextData string) (string, error) {
 	return a.llmService.GenerateChatReply(prompt, contextData)
@@ -71,6 +99,11 @@ func (a *App) GenerateChatReply(prompt string, contextData string) (string, erro
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.fileService.SetContext(ctx)
+	if a.chatService != nil {
+		a.chatService.SetEmitter(func(event backend.ChatEvent) {
+			runtime.EventsEmit(ctx, event.Type, event)
+		})
+	}
 }
 
 // GetConfig returns the application configuration

@@ -281,3 +281,58 @@ worklog: enabled
 - Purpose: Save JSON 後の再起動 Load による chat session 復帰を確認し、REQ-N08 を受入判定する。
 - Result: ユーザーが Save JSON を再起動後に Load することで chat session が復帰することを確認。REQ-N08 を `pass` とし、Sprint B の受入確認を完了した。
 - Scope boundary: REQ-B08 の Stop による Backend run cancel と未適用 edit 拒否は Sprint C/WP-C4 の対象。
+
+## WL-027 — Step 9: Sprint C agent/context/editing implementation
+
+- Date: 2026-08-11
+- Actor/session: Codex implementation session
+- Purpose: WP-C1〜C4 の agent loop、Canvas snapshot/context tools、Frontend acknowledgment/conflict apply を実装する。
+- Sources and checks: `30_requirement.md` / `40_specification.md` の REQ-C01〜C20、`90_status.md`。`mise install` 成功、`mise x -- go test ./...` 成功、`mise x -- npm --prefix frontend run build` 成功、`mise x -- wails build -nocolour` 成功。
+- Actions: Backend に request validation、7 tool contracts、最大10 round loop、OpenAI-compatible tool calling、context cancel、run/session event correlation、10秒 acknowledgment wait、冪等 cancel を追加。Frontend に direct context/snapshot builder、chat event listener、ToolCard、Text/Artifact の revision conflict apply、Wails bindings を追加。Go unit test で tool の一意一致、10 round 停止、cancel terminal event を確認した。
+- Decision and rationale: 既存 LLM 設定を維持し、OpenAI-compatible `/chat/completions` の tool calling を provider 共通経路として採用した。Canvas の正本は Frontend とし、Backend は mutation proposal のみを送って acknowledgment 後に tool success とする。
+- Open items: Ollama の記録済み version/model を使った実機 roundtrip（REQ-C12）、UI E2E、Sprint C acceptance は未実施。実装セッションとして `90_status.md` の Acceptance は未変更。
+
+## WL-028 — Step 9: Acknowledgment race repair
+
+- Date: 2026-08-11
+- Actor/session: Codex implementation session
+- Purpose: tool apply event と pending acknowledgment の登録順、および Stop 後の Frontend apply race を修正する。
+- Cause: proposal event を pending channel 登録前に送ると、即時の Frontend acknowledgment が `not pending` になり得た。Stop 後に遅着した proposal は UI 側で適用対象を再確認する必要があった。
+- Actions: Backend は pending 登録後に `chat:tool_apply` を emit。Frontend は active run と一致しない proposal を cancelled acknowledgment とし、Stop 時に message と active run を即時 settle する。
+- Verification: `TestChatServiceEmitsStreamToolEventsAndWaitsForAcknowledgment`、`TestChatServiceCancelEmitsOneTerminalEvent` が成功。Frontend build は再実行対象。
+
+## WL-029 — Step 9: Sprint C completeness audit and repair
+
+- Date: 2026-08-11
+- Actor/session: Codex implementation session
+- Purpose: Sprint C の実コードを要件単位で再監査し、名目上の実装済み状態に残っていた欠落を修正する。
+- Sources and checks: `30_requirement.md`、`40_specification.md`、`90_status.md`、Backend agent/service/LLM、Frontend context/store/ToolCard。`fm-dev-process` の implementation evidence 規則を適用した。
+- Findings: Cancel が他 run の pending apply まで解除する、失敗した `read_artifact` が read 済み扱いになる、graph warning が request から失われ loop 時に ID 重複する、HTTP response 全受信後の byte 分割を streaming としていた、system prompt・ToolCard target・Text count・create 意図判定・自動テストが不足していた。
+- Actions: pending apply を run/session に相関付け、read state を検証成功後だけ記録し、tool call ID を run/round 単位で一意化した。OpenAI-compatible SSE を逐次解析して UTF-8 delta と分割 tool call を組み立てる real streaming を実装した。context warning の request/UI 伝播、loop ID 重複防止、target 表示、Text revision/count 正規化、pure mutation helper、厳格な explicit creation 判定、必須 system prompt 指示を追加した。
+- Verification: `mise x -- go test ./...`、`mise x -- go vet ./...`、`mise x -- npm --prefix frontend run test:sprint-c`、`mise run build` はすべて exit 0。Wails bindings を再生成し Windows executable を作成した。
+- Live provider evidence: Ollama 0.32.7 / `qwen3.5:4b` に対し opt-in `TestOllamaAgentRoundTrip` を実行し、`read_artifact` → `apply_edit` → Frontend acknowledgment → tool 後の自然言語応答を 36.74 秒で完了した。
+- Decision and rationale: provider tool call ID は provider への tool response で保持し、アプリ内部 correlation ID だけを run/round/index で scope した。これにより provider protocol と複数 run の安全性を両立する。Frontend mutation を pure helper に分離し、Zustand を起動しない deterministic test を追加した。
+- Open questions / risks: Sprint C の UI E2E と Core E2E、性能・XSS・secret review を含む WP-QA、受入判定は未実施。実装セッションのため `90_status.md` の Acceptance 列と plan state は変更しない。
+- Handoff: Sprint C の人間 UI 受入と WP-QA を実施し、全 REQ の evidence/acceptance を確認して Step 11 closure へ進む。
+
+## WL-030 — Step 9: Gemini thought signature compatibility repair
+
+- Date: 2026-08-11
+- Actor/session: Codex repair session
+- Purpose: Google Gemini OpenAI compatibility endpoint で read-only tool 完了後の次 agent round が HTTP 400 になる問題を修正する。
+- Cause: Gemini が `tool_calls[].extra_content.google.thought_signature` を返すが、共通 `ToolCall` 型と SSE assembly が未知 metadata を破棄していたため、次 request の assistant tool call に必須署名が含まれなかった。
+- Research: Google 公式 thought signatures documentation で、OpenAI compatibility の署名形式と同一 tool loop 内での完全な再送要件を確認した。再利用可能な知見を `docs/cheatsheet/chat_tool_provider_compatibility.md` に記録した。
+- Actions: `ToolCall.ExtraContent` を opaque JSON として追加し、non-stream response と streaming delta の双方で保持して次 round へ再送する。REQ-C21、Agent Loop仕様、status evidence を追加した。
+- Verification: `TestAgentPreservesGeminiThoughtSignatureAcrossToolRound` が署名付き `list_canvas_nodes` response から tool result 後の2回目 requestまで同値保持されることを確認。targeted Go test は exit 0。
+- Handoff: 全 Go tests、vet、Wails production build を再実行後、ユーザー環境の同じ Google endpoint/model で UI chat を再試行する。
+
+## WL-031 — Step 10: Sprint C acceptance
+
+- Date: 2026-08-11
+- Actor/session: User acceptance + Codex acceptance session
+- Purpose: Sprint C の agent/context/editing/tool workflow を実機確認と自動証拠で受理する。
+- User evidence: Google OpenAI compatibility の修正版で Artifact作成を含む chat tool が動作し、ユーザーが Sprint C の受入完了を明示承認した。Canvas認識については、全snapshotをローカルBackendへ渡す一方、外部LLMの初期contextは単一focus targetと上流接続だけで、その他はon-demand tool readであることを確認した。複数選択chat contextは将来判断とし、現要件には追加しない。
+- Automated verification: `mise x -- go test ./...`、`mise x -- go vet ./...`、`mise x -- npm --prefix frontend run test:sprint-c`、`mise run build` がすべて exit 0。Ollama 0.32.7 / `qwen3.5:4b` の `TestOllamaAgentRoundTrip` も read→apply→ack→自然言語応答を 5.65 秒で再完了した。
+- Acceptance result: REQ-B08、REQ-C01〜C21、REQ-N04、REQ-N05、および該当 Plan Checks を pass とした。
+- Scope boundary: REQ-N01〜N03、N06、N07 と Core E2E は未実施。計画全体は `state: implementing` を維持し、Sprint C 受入だけを完了とする。
+- Handoff: 残るWP-QAとCore E2Eを別途実施し、全要件がpassした時点で計画全体のclosureを判断する。
