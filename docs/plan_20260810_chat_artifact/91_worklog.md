@@ -120,3 +120,164 @@ worklog: enabled
 - Artifacts updated: `91_worklog.md`（本記録）。
 - Open questions / risks: Go / No-Go 前に `50_review_notes.md` の provider/model 検証項目を完了する必要がある。
 - Handoff: Step 9 implementation は `40_specification.md` と `90_status.md` に従い、実装証拠だけを更新する。
+
+## WL-010 — Step 9: Sprint A implementation
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: WP-A1〜A3 の Artifact / Markdown / migration / Image prompt 機能を実装する。
+- Sources and checks: `30_requirement.md`, `40_specification.md`, `90_status.md`, existing `frontend/src`、`mise.toml`、`frontend/package.json`。
+- Actions: `ArtifactNode`、Artifact data/stat utility、Zustand actions、Canvas V1.2 save/load、旧版 revision migration、EditorDrawer 分岐、Text/Artifact Markdown preview、Image prompt copy を追加した。
+- Verification: `npm --prefix frontend run build` は TypeScript/Vite build 成功（2324 modules）。`mise`/`jj` は Windows の実行リンクが壊れており起動できなかったため、実装の確認は直接の Frontend build で代替した。
+- Decision and rationale: Canvas の正本は既存どおり Frontend Zustand とし、Artifact の `revision` と表示用 `version`、`charCount`/`wordCount` を runtime data に保持する。保存形式は V1.2、旧版は load 時に非破壊 migration する。
+- Open questions / risks: UI 操作（新規/既存 load、Markdown preview、clipboard、接続）と count/migration roundtrip の自動 fixture test は未受理。Artifact export の save dialog 既定 filename は既存 Wails `ExportMarkdown(content)` binding の制約により次の確認対象とする。
+- Handoff: ユーザーは Sprint A の UI 確認を行い、問題なければ Sprint B の ChatDrawer 実装へ進む。`90_status.md` の Acceptance は未記入のまま。
+
+## WL-011 — Step 9: Artifact export filename correction
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: Artifact の `filename` を Markdown export の保存ダイアログ既定名へ接続する。
+- Sources and checks: `40_specification.md` の Artifact filename 定義、既存 `backend/file.go`、ルート `app.go`、Wails generated binding、`useAppStore.exportNode`。
+- Actions: `ExportMarkdownWithFilename` を Backend/App/binding に追加し、Artifact export が `filename` を渡すように変更した。空名・拡張子なし・path 形式の filename は Backend で安全な `.md` 既定名へ正規化する。
+- Decision and rationale: 保存先は従来どおりユーザーが選択し、Artifact filename は保存ダイアログの DefaultFilename だけに利用する。filename を filesystem path として扱わない。
+- Open questions / risks: Wails CLI が利用できないため generated binding は手動同期した。Go build と実際の save dialog は Wails 環境で確認が必要。
+- Handoff: Frontend build と Go/Wails build を確認し、Artifact export の既定名を受理対象とする。
+
+## WL-012 — Step 9: Export filename verification
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: filename correction の静的・自動検証を完了する。
+- Actions: `backend/file_test.go` に filename 正規化のケースを追加し、gofmt を適用した。
+- Verification: `npm --prefix frontend run build` 成功、managed mise Go 1.26.1 の `go test ./...` 成功（backend package tests pass）。`mise` 本体のリンクは引き続き利用不能だが、同じ mise 管理インストールの Go 実体で検証した。
+- Handoff: ユーザーの Wails UI 上で Artifact を export し、保存ダイアログの既定名が `chapter.md` になることを確認する。
+
+## WL-013 — Step 9: Artifact filename editing
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: Export の既定名に使う Artifact filename をユーザーが編集できるようにする。
+- Actions: `useAppStore.updateArtifactFilename` と `EditorDrawer` ヘッダーの filename input を追加した。Enter または blur で確定でき、空欄は `chapter.md` に戻す。仕様書と status evidence を同期した。
+- Decision and rationale: filename は本文の content/revision/version とは別の metadata として更新し、入力中の filename をそのまま保持する。export 時の `.md` 付与・path 除去は Backend の既存正規化に任せる。
+- Handoff: Frontend build 後、入力した filename が node 表示と export の既定名に反映されることを UI で確認する。
+
+## WL-014 — Step 9: Remove Artifact user-facing version
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: 1 文字ごとに増える Artifact version 表示を廃止し、revision のみを内部管理する。
+- Actions: `ArtifactNodeData.version`、version increment action、ArtifactNode/EditorDrawer の version 表示を削除した。既存データの version は load normalization で無視し、revision は従来どおり保持・更新する。Claim/Requirements/Specification/Review Notes/Status を amend した。
+- Decision and rationale: version は編集確定単位を別途定義しない限りユーザー価値がなく、revision だけで stale edit の競合検出を満たせるため、MVP から外した。
+- Handoff: Frontend build と既存 Go tests を再実行し、UI で filename/count のみ表示されることを確認する。
+
+## WL-015 — Step 9: Artifact summary footer
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: EditorDrawer で設定した Artifact summary を Canvas 上でも常時確認できるようにする。
+- Actions: `ArtifactNode` のカード下部に Summary footer を追加し、2 行まで表示して長文は tooltip で確認できるようにした。App Requirements、Specification、Status を同期した。
+- Decision and rationale: Image prompt と同じくカード下部の補助情報として表示し、本文 Markdown の可読領域を圧迫しないよう固定 footer とした。
+- Handoff: Frontend build 後、summary 編集結果が Canvas カード下部へ反映されることを UI で確認する。
+
+## WL-016 — Step 9: Restore Text node card summary
+
+- Date: 2026-08-10
+- Actor/session: Codex repair session
+- Purpose: Text node の Canvas カードが本文を表示するようになった回帰を修正する。
+- Cause: Artifact の Markdown preview 対応時に `CustomNode` まで ReactMarkdown 表示へ変更していた。
+- Actions: `CustomNode` を従来の Summary 表示へ戻し、Markdown preview は ArtifactNode と EditorDrawer に限定した。Requirements/Specification/Status を実際の UI 挙動へ同期した。
+- Handoff: Frontend build 後、検索結果を含む Text node は Summary、Artifact node は Markdown 本文＋Summary footer になることを確認する。
+
+## WL-017 — Step 9: Summary character-count suffix cleanup
+
+- Date: 2026-08-10
+- Actor/session: Codex repair session
+- Purpose: Summary 末尾に LLM が付ける `（80文字）` のようなメタ情報を表示しない。
+- Cause: Summary prompt が文字数上限を伝えるだけで、出力形式として文字数表記を禁止していなかった。
+- Actions: Summary prompt に本文のみ・文字数表記禁止を追加し、Backend で日本語/英語の文字数 suffix を安全に除去する `sanitizeSummary` と unit test を追加した。
+- Handoff: Summary 再生成時に本文だけが表示され、通常の括弧表現は保持されることを確認する。
+
+## WL-019 — Step 10: Sprint A acceptance
+
+- Date: 2026-08-10
+- Actor/session: User acceptance
+- Purpose: Sprint A の Artifact / Markdown / export / summary / Text 表示を受入確認する。
+- Result: User confirmed Sprint A acceptance complete. `90_status.md` の REQ-A01〜REQ-A14 を `pass` に更新した。
+- Scope boundary: Sprint B ChatDrawer と Sprint C Agent loop は未受理で、plan state は `implementing` を維持する。
+
+## WL-018 — Step 9: Align node creation button labels
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: Artifact の `+ Artifact` と揃うよう、既存 Text node 追加ボタンの表示を `+ Node` にする。
+- Actions: `App.tsx` の表示文言を `New Node` から `Node` へ変更した。クリック動作と既存 action は変更していない。
+
+## WL-020 — Step 9: Sprint B chat UI and session persistence
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: WP-B1/B2 の ChatDrawer、対象選択、明示 session、Canvas 別履歴保存の実装を開始する。
+- Sources and checks: `30_requirement.md` の REQ-B01〜B10/B12/N08/N10、`40_specification.md` の ChatDrawer/persistence 定義、既存 `App.tsx` / Zustand / Wails binding。
+- Actions: `useChatStore`、ChatDrawer と header/message/input/toggle components、target識別 utility、`ChatSessionService` と Wails API を追加した。Editor open 中の node だけを target とし、target/session の state を分離した。履歴は `chat-sessions.json` に canvasId ごとに保存する。Sprint C 接続前の transport seam として短い stub response を使用する。
+- Verification: `go test ./...` 成功（chat session の Canvas 分離・malformed JSON 非上書きを含む）。`npm --prefix frontend run build` 成功。UI E2 と再起動復元は未実施のため該当 REQ は in_progress に留めた。
+- Decision and rationale: agent loop・実ストリーム・Backend cancel は Sprint C の責務として残し、Sprint B は UI/state/persistence の境界を先に固定した。Stop は stub response を UI 側で破棄できるが、実 run の中断保証は REQ-B08/WP-C4 で実装する。
+- Handoff: Wails UI で Drawer、3種 target、session switch、入力キー、再起動復元を確認後に Sprint B を受入する。次の実装は Sprint C の snapshot/agent event protocol。
+
+## WL-021 — Step 9: Wails generated ChatSession type repair
+
+- Date: 2026-08-10
+- Actor/session: Codex repair session
+- Purpose: Wails 再生成後の class-based `backend.ChatSession` と Frontend store の UI 型の TypeScript 不一致を解消する。
+- Cause: Backend session API の生成 binding が `backend.ChatSession[]` を要求する一方、store は `role` を union 型、表示専用 `status` を含む `ChatSession[]` を保持していた。
+- Actions: `utils/chatSession.ts` に transport ↔ UI の明示変換を追加し、`App.tsx` の load/save 境界だけで利用した。保存時は表示専用 `status` を送らない。
+- Verification: `npm --prefix frontend run build` 成功（TypeScript/Vite）。
+- Handoff: Wails binding を再生成しても、generated model の型を UI store に直接持ち込まない。
+
+## WL-022 — Step 9: Chat startup runtime repair
+
+- Date: 2026-08-10
+- Actor/session: Codex repair session
+- Purpose: Wails 起動時の React effect cleanup error と初回 chat history load error を解消する。
+- Cause: `MessageList` の effect が `scrollIntoView` の戻り値を暗黙 return していた。また、履歴のない Canvas に対する Go の nil slice が JSON `null` になり、Frontend が配列として `map` していた。
+- Actions: effect callback を cleanup 値を返さない block body に変更した。Backend は未知 Canvas に non-nil empty slice を返し、Frontend transport converter も null/undefined を空配列として扱うようにした。空履歴の regression test を追加した。
+- Verification: `npm --prefix frontend run build` 成功、`go test ./...` 成功。
+- Handoff: Wails を再起動し、React cleanup warning と `fromBackendChatSessions` の null error が消えることを UI runtime で確認する。
+
+## WL-023 — Step 9: Sprint B completion repair
+
+- Date: 2026-08-10
+- Actor/session: Codex implementation session
+- Purpose: Sprint B再検査で見つかったtarget、session routing、Canvas切替、永続化形式の不足を修正し、WP-B1/B2を受入可能な状態にする。
+- Actions: ChatHeaderへtarget typeを追加し、Image clickをchat targetとして扱えるようにした。active runをsession別へ分離し、resize listener cleanupとviewport clampを修正した。Canvas切替開始時に旧sessionをUIから外し、入力を無効化して旧履歴をflushするようにした。履歴load errorを表示し、終了時flushを追加した。
+- Persistence: `chat-sessions.json` を仕様の `canvases[canvasId].sessions` 形式へ変更し、一時配列形式のmigration、空slice、Canvas分離、malformed非上書きのtestsを追加・維持した。
+- Verification: `npm --prefix frontend run build`、managed Goの `go test ./...`、mise shim環境の `wails build -nocolour` がすべて成功した。
+- Scope boundary: REQ-B08のBackend run cancelと未適用edit拒否は、仕様どおりWP-C4のagent acknowledgment実装で完了する。Sprint Bではsession別のUI run破棄とCanvas切替時の未完了表示settleまで実装した。
+- Handoff: Wails UIでB01〜B07/B09/B10/B12とN08の再起動復元を人間受入し、問題なければSprint Cへ進む。
+
+## WL-024 — Step 9: Replace Sprint B echo with real LLM reply
+
+- Date: 2026-08-10
+- Actor/session: Codex repair session
+- Purpose: ChatDrawerの質問にecho文しか返らず、通常回答に見えない問題を解消する。
+- Cause: 廃止済みREQ-B11のsmoke-test用 `SendChatStub` が製品経路に残っていた。
+- Actions: stubを削除し、既存LLM設定を使う `GenerateChatReply` をBackend/Wailsへ追加した。Frontendは選択中ノード本文（Imageはprompt）と同一sessionの直近12 messageをcontextとして送る。targetなしでは会話履歴だけを送り、全Canvasは送らない。
+- Verification: Chat completion mock serverでcontext/promptとassistant responseを検証するGo testを追加。Frontend build、`go test ./...`、Wails production buildが成功した。
+- Scope boundary: Sprint Bは非streamingの通常LLM回答と待機indicatorまで。tool calling、逐次chunk、Backend cancel、Canvas編集はSprint Cで実装する。
+- Handoff: Wails上で設定済みLLMへ `Hello` 等を送信し、echoではなくモデル回答が返ることを確認する。
+
+## WL-025 — Step 10: Sprint B ChatDrawer/chat acceptance
+
+- Date: 2026-08-10
+- Actor/session: User acceptance
+- Purpose: Sprint B の ChatDrawer とチャット操作を受入確認し、受入状況を記録する。
+- Result: ユーザーが ChatDrawer とそこでのチャットを確認済み。REQ-B01〜B07、REQ-B09、REQ-B10、REQ-B12 を `pass` とした。REQ-N10 は Canvas 別分離テストの証拠により `pass` とした。
+- Residual: 再起動後の履歴復元（REQ-N08）は今回の発言では明示確認されていないため未受入。Stop による Backend run cancel と未適用 edit 拒否（REQ-B08）は Sprint C/WP-C4 の対象。
+
+## WL-026 — Step 10: Confirm chat session restore acceptance
+
+- Date: 2026-08-10
+- Actor/session: User acceptance
+- Purpose: Save JSON 後の再起動 Load による chat session 復帰を確認し、REQ-N08 を受入判定する。
+- Result: ユーザーが Save JSON を再起動後に Load することで chat session が復帰することを確認。REQ-N08 を `pass` とし、Sprint B の受入確認を完了した。
+- Scope boundary: REQ-B08 の Stop による Backend run cancel と未適用 edit 拒否は Sprint C/WP-C4 の対象。

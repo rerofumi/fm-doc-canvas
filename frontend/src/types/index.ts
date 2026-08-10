@@ -22,6 +22,19 @@ export interface TextNodeData extends Record<string, unknown> {
   content: string; // 本文テキスト（Markdown）
   summary: string; // サマリー
   originalPrompt?: string; // 元の質問プロンプト（テキスト生成時）
+  revision?: number; // 競合検出用の content mutation counter
+}
+
+export interface ArtifactNodeData extends Record<string, unknown> {
+  filename: string;
+  language: "markdown" | "text";
+  content: string;
+  summary: string;
+  revision: number;
+  charCount: number;
+  wordCount: number;
+  lastEditSummary?: string;
+  lastEditedAt?: number;
 }
 
 // Image Node Data (New)
@@ -40,7 +53,7 @@ export interface ImageNodeData extends Record<string, unknown> {
 }
 
 // Node Types
-export type NodeData = TextNodeData | ImageNodeData;
+export type NodeData = TextNodeData | ArtifactNodeData | ImageNodeData;
 
 // Import File Result (Backend interaction)
 export interface ImportFileResult {
@@ -111,7 +124,7 @@ export type ImageGenProvider = "openrouter" | "openai" | "google" | "xai";
 
 // アプリケーション上のノード定義（Runtime）
 // React Flow の Node 型を拡張
-export type AppNode = Node<NodeData, "customNode" | "imageNode">;
+export type AppNode = Node<NodeData, "customNode" | "artifactNode" | "imageNode">;
 
 // ライン（エッジ）定義（Runtime）
 // React Flow の Edge 型を拡張
@@ -121,6 +134,7 @@ export type AppEdge = Edge;
 export interface AppState {
   nodes: AppNode[];
   edges: AppEdge[];
+  canvasId: string;
   isEditorOpen: boolean;
   isSettingsOpen: boolean;
   activeNodeId: string | null;
@@ -130,7 +144,11 @@ export interface AppState {
   // Actions
   addNode: (node: AppNode) => void;
   addEmptyNode: () => void;
+  addArtifactNode: () => void;
   updateNodeContent: (id: string, content: string) => void;
+  updateArtifactContent: (id: string, content: string) => void;
+  updateArtifactFilename: (id: string, filename: string) => void;
+  setArtifactLastEditSummary: (id: string, summary: string) => void;
   updateNodeSummary: (id: string, summary: string) => void;
   updateNodeDimensions: (id: string, width: number, height: number) => void;
   setNodes: (nodes: AppNode[]) => void;
@@ -174,7 +192,7 @@ export interface AppState {
  *  永続化モデル（Persisted）
  *  ========================= */
 
-export type CanvasFileVersion = "1.0" | "1.1";
+export type CanvasFileVersion = "1.0" | "1.1" | "1.2";
 
 export interface PersistedTextNode {
   id: string;
@@ -194,7 +212,19 @@ export interface PersistedImageNode {
   height?: number;
 }
 
-export type PersistedNode = PersistedTextNode | PersistedImageNode;
+export interface PersistedArtifactNode {
+  id: string;
+  type: "artifactNode";
+  position: { x: number; y: number };
+  data: ArtifactNodeData;
+  width?: number;
+  height?: number;
+}
+
+export type PersistedNode =
+  | PersistedTextNode
+  | PersistedArtifactNode
+  | PersistedImageNode;
 
 export interface PersistedEdge {
   id: string;
@@ -234,4 +264,18 @@ export interface CanvasFileV1_1 {
   edges: PersistedEdge[];
 }
 
-export type CanvasFile = CanvasFileV1_0 | CanvasFileV1_1;
+export interface CanvasFileV1_2 {
+  version: "1.2";
+  metadata: {
+    canvasId: string;
+    lastOpened?: string;
+  };
+  llm?: {
+    baseURL?: string;
+    model?: string;
+  };
+  nodes: PersistedNode[];
+  edges: PersistedEdge[];
+}
+
+export type CanvasFile = CanvasFileV1_0 | CanvasFileV1_1 | CanvasFileV1_2;

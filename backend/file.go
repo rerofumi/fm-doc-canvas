@@ -121,7 +121,7 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 		}
 		result.Type = "text"
 		result.Content = string(content)
-	
+
 	case ".png", ".jpg", ".jpeg", ".webp":
 		// Resolve the download path
 		downloadPath, err := s.configService.ResolveDownloadPath()
@@ -156,7 +156,7 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 		result.Type = "image"
 		// Return the relative path from the downloadPath (use forward slashes for web compatibility)
 		result.Content = "Import/" + targetFilename
-	
+
 	default:
 		return result, fmt.Errorf("unsupported file type: %s", ext)
 	}
@@ -200,13 +200,21 @@ func (s *FileService) SaveCanvasToFile(jsonData string) (string, error) {
 
 // ExportMarkdown opens a save dialog and writes the markdown content to the selected path
 func (s *FileService) ExportMarkdown(content string) (string, error) {
+	return s.ExportMarkdownWithFilename(content, "export.md")
+}
+
+// ExportMarkdownWithFilename opens a save dialog using the supplied filename
+// as the default while leaving the destination directory under user control.
+func (s *FileService) ExportMarkdownWithFilename(content string, defaultFilename string) (string, error) {
 	if s.ctx == nil {
 		return "", fmt.Errorf("context not initialized")
 	}
 
+	defaultFilename = normalizeMarkdownFilename(defaultFilename)
+
 	options := runtime.SaveDialogOptions{
 		Title:           "Export Markdown",
-		DefaultFilename: "export.md",
+		DefaultFilename: defaultFilename,
 		Filters: []runtime.FileFilter{
 			{
 				DisplayName: "Markdown Files (*.md)",
@@ -230,6 +238,23 @@ func (s *FileService) ExportMarkdown(content string) (string, error) {
 	}
 
 	return filePath, nil
+}
+
+func normalizeMarkdownFilename(filename string) string {
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return "export.md"
+	}
+
+	// filename is a display/default name, never a destination path.
+	filename = filepath.Base(strings.ReplaceAll(filename, "/", string(filepath.Separator)))
+	if filename == "." || filename == string(filepath.Separator) || filename == "" {
+		return "export.md"
+	}
+	if strings.EqualFold(filepath.Ext(filename), ".md") {
+		return filename
+	}
+	return filename + ".md"
 }
 
 // GetImageFileURL converts a relative image path to an absolute file URL

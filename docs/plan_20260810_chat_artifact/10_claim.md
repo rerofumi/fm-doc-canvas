@@ -105,7 +105,7 @@
 - `ArtifactNodeData` 型を `frontend/src/types/index.ts` に追加
 - `ArtifactNode.tsx` を新規作成（`CustomNode.tsx` を踏襲）
 - `CanvasArea.tsx` の `nodeTypes` に `artifactNode` を登録
-- `useAppStore.ts` に `addArtifactNode`, `updateArtifactContent`, `incrementArtifactVersion`, `setArtifactLastEditSummary` アクションを追加
+- `useAppStore.ts` に `addArtifactNode`, `updateArtifactContent`, `updateArtifactFilename`, `setArtifactLastEditSummary` アクションを追加
 - `EditorDrawer.tsx` に artifact モード分岐を追加（ヘッダーにファイル名表示、フッターに文字数表示）
 - `App.tsx` ヘッダーに「+ Artifact」ボタンを追加
 - `CanvasFileV1_2` への後方互換のある save/load 対応
@@ -116,9 +116,9 @@
 - `ChatDrawer.tsx` を新規作成（`EditorDrawer` の構造を踏襲: resize / transform / z-index / ヘッダー / フッター）
 - `ChatHeader.tsx`, `MessageList.tsx`, `MessageBubble.tsx`, `ToolCard.tsx`, `ChatInput.tsx` を新規作成
 - `App.tsx` に `ChatDrawer` を配置し、`activeNodeId` 連動の `setTarget` useEffect を追加
-- チャット送信時に、編集中ノードとその接続元ノードから直接コンテキストを構成する
+- Sprint B では編集中ノードと直近の同一 session 会話を直接コンテキストとして通常の LLM 応答を返す。接続元 traversal は Sprint C で追加する
 - `ChatToggleButton.tsx` を新規作成（ヘッダーの 💬 ボタン）
-- Wails `SendChat` のスタブ実装（まだ LLM は呼ばず echo するだけ）
+- Wails `GenerateChatReply` から既存 LLM 設定を使って通常回答を返す。tool calling、逐次 stream、Canvas mutation は Sprint C で追加する
 
 ### Sprint C: エージェントループ導入
 

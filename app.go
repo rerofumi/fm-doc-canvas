@@ -9,12 +9,13 @@ import (
 
 // App struct
 type App struct {
-	ctx               context.Context
-	configService     *backend.ConfigService
-	fileService       *backend.FileService
-	llmService        *backend.LLMService
-	imageGenService   *backend.ImageGenService
-	imageAssetService *backend.ImageAssetService
+	ctx                context.Context
+	configService      *backend.ConfigService
+	fileService        *backend.FileService
+	llmService         *backend.LLMService
+	imageGenService    *backend.ImageGenService
+	imageAssetService  *backend.ImageAssetService
+	chatSessionService *backend.ChatSessionService
 }
 
 // NewApp creates a new App application struct
@@ -29,14 +30,40 @@ func NewApp() *App {
 	llmService := backend.NewLLMService(configService)
 	imageGenService := backend.NewImageGenService(configService)
 	imageAssetService := backend.NewImageAssetService(configService)
+	chatSessionService, err := backend.NewChatSessionService()
+	if err != nil {
+		fmt.Printf("Error initializing ChatSessionService: %v\n", err)
+	}
 
 	return &App{
-		configService:     configService,
-		fileService:       fileService,
-		llmService:        llmService,
-		imageGenService:   imageGenService,
-		imageAssetService: imageAssetService,
+		configService:      configService,
+		fileService:        fileService,
+		llmService:         llmService,
+		imageGenService:    imageGenService,
+		imageAssetService:  imageAssetService,
+		chatSessionService: chatSessionService,
 	}
+}
+
+// LoadChatSessions returns the sessions associated with one Canvas.
+func (a *App) LoadChatSessions(canvasID string) ([]backend.ChatSession, error) {
+	if a.chatSessionService == nil {
+		return nil, fmt.Errorf("chat session service is unavailable")
+	}
+	return a.chatSessionService.Load(canvasID)
+}
+
+// SaveChatSessions persists the sessions associated with one Canvas.
+func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) error {
+	if a.chatSessionService == nil {
+		return fmt.Errorf("chat session service is unavailable")
+	}
+	return a.chatSessionService.Save(canvasID, sessions)
+}
+
+// GenerateChatReply returns an LLM response for the ChatDrawer.
+func (a *App) GenerateChatReply(prompt string, contextData string) (string, error) {
+	return a.llmService.GenerateChatReply(prompt, contextData)
 }
 
 // startup is called when the app starts. The context is saved
@@ -116,6 +143,11 @@ func (a *App) GenerateTextWithImages(prompt string, contextData string, imageDat
 // ExportMarkdown opens a dialog and saves the markdown content
 func (a *App) ExportMarkdown(content string) (string, error) {
 	return a.fileService.ExportMarkdown(content)
+}
+
+// ExportMarkdownWithFilename opens a Markdown save dialog with a suggested filename.
+func (a *App) ExportMarkdownWithFilename(content string, defaultFilename string) (string, error) {
+	return a.fileService.ExportMarkdownWithFilename(content, defaultFilename)
 }
 
 // ExportImage opens a dialog and copies the image to the selected path

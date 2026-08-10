@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { X, Edit3, Eye, Zap, Loader2, GripVertical } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
+import { ArtifactNodeData } from "../../types";
 
 const EditorDrawer: React.FC = () => {
   const {
@@ -10,6 +11,8 @@ const EditorDrawer: React.FC = () => {
     activeNodeId,
     nodes,
     updateNodeContent,
+    updateArtifactContent,
+    updateArtifactFilename,
     updateNodeSummary,
     setEditorOpen,
     setActiveNode,
@@ -25,6 +28,10 @@ const EditorDrawer: React.FC = () => {
 
   // Find the currently active node
   const activeNode = nodes.find((n) => n.id === activeNodeId);
+  const isArtifact = activeNode?.type === "artifactNode";
+  const artifactData = isArtifact
+    ? (activeNode?.data as ArtifactNodeData)
+    : undefined;
 
   const handleClose = () => {
     setActiveNode(null);
@@ -118,8 +125,37 @@ const EditorDrawer: React.FC = () => {
       <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 shrink-0">
         <h2 className="font-bold text-gray-700 flex items-center gap-2">
           <Edit3 size={18} />
-          Node Editor
+          {isArtifact ? "Artifact Editor" : "Node Editor"}
         </h2>
+        {artifactData && (
+          <div className="mx-3 min-w-0 flex-1">
+            <input
+              type="text"
+              aria-label="Artifact filename"
+              value={artifactData.filename}
+              spellCheck={false}
+              onChange={(event) =>
+                activeNodeId &&
+                updateArtifactFilename(activeNodeId, event.target.value)
+              }
+              onBlur={(event) => {
+                if (activeNodeId && !event.target.value.trim()) {
+                  updateArtifactFilename(activeNodeId, "chapter.md");
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                }
+              }}
+              className="w-full rounded border border-purple-200 bg-white px-2 py-1 text-xs font-semibold text-purple-700 outline-none transition-colors placeholder:text-gray-400 focus:border-purple-400 focus:ring-1 focus:ring-purple-300"
+              placeholder="chapter.md"
+            />
+            <div className="text-[10px] text-gray-400">
+              {artifactData.charCount.toLocaleString()} chars
+            </div>
+          </div>
+        )}
         <button
           onClick={handleClose}
           className="p-1 hover:bg-gray-200 rounded-full transition-colors"
@@ -162,7 +198,10 @@ const EditorDrawer: React.FC = () => {
             placeholder="Write your markdown here..."
             value={(activeNode as any)?.data.content || ""}
             onChange={(e) =>
-              activeNodeId && updateNodeContent(activeNodeId, e.target.value)
+              activeNodeId &&
+              (isArtifact
+                ? updateArtifactContent(activeNodeId, e.target.value)
+                : updateNodeContent(activeNodeId, e.target.value))
             }
           />
         ) : (
@@ -197,6 +236,11 @@ const EditorDrawer: React.FC = () => {
             {isSummarizing ? "Generating..." : "Regenerate"}
           </button>
         </div>
+        {artifactData && (
+          <div className="mb-2 text-right text-[10px] text-gray-400">
+            {artifactData.charCount.toLocaleString()} characters · {artifactData.wordCount.toLocaleString()} words
+          </div>
+        )}
         <textarea
           className="w-full p-2 text-sm border border-gray-200 rounded bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-300 resize-none h-20"
           placeholder="Summary will appear here..."

@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useState } from "react";
 import { Handle, Position, NodeProps, NodeResizer } from "@xyflow/react";
+import { Check, Copy } from "lucide-react";
 import { ImageNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
 import * as AppBackend from "../../../wailsjs/go/main/App";
@@ -11,6 +12,7 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
+  const [isPromptCopied, setIsPromptCopied] = useState(false);
 
   useEffect(() => {
     if (!selected && isOverlayOpen) {
@@ -121,16 +123,17 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
         </div>
 
         {promptText && (
-          <button
-            type="button"
-            title={promptText}
-            onClick={(event) => {
-              event.stopPropagation();
-              appendPromptInput(promptText);
-            }}
-            onDoubleClick={(event) => event.stopPropagation()}
-            className="absolute bottom-0 left-0 right-0 h-10 border-t border-gray-200 bg-white/95 px-2 text-left text-[10px] leading-4 text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-          >
+          <div className="absolute bottom-0 left-0 right-0 flex h-10 border-t border-gray-200 bg-white/95">
+            <button
+              type="button"
+              title={promptText}
+              onClick={(event) => {
+                event.stopPropagation();
+                appendPromptInput(promptText);
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="min-w-0 flex-1 px-2 text-left text-[10px] leading-4 text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
             <span
               className="block overflow-hidden break-words"
               style={{
@@ -141,7 +144,26 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
             >
               {promptText}
             </span>
-          </button>
+            </button>
+            <button
+              type="button"
+              title="Copy prompt"
+              onClick={async (event) => {
+                event.stopPropagation();
+                try {
+                  await navigator.clipboard.writeText(promptText);
+                  setIsPromptCopied(true);
+                  window.setTimeout(() => setIsPromptCopied(false), 1200);
+                } catch (copyError) {
+                  console.error("Failed to copy image prompt:", copyError);
+                }
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="flex w-8 shrink-0 items-center justify-center border-l border-gray-200 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              {isPromptCopied ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+          </div>
         )}
 
         {/* Right Handle - Target (In) */}

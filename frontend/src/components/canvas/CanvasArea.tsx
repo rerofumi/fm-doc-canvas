@@ -13,6 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { useAppStore } from "../../store/useAppStore";
 import CustomNode from "./CustomNode";
 import ImageNode from "./ImageNode";
+import ArtifactNode from "./ArtifactNode";
 import ContextMenu from "../ui/ContextMenu";
 import { AppNode, AppEdge } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
@@ -21,6 +22,7 @@ import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime";
 const nodeTypes: NodeTypes = {
   customNode: CustomNode,
   imageNode: ImageNode as any, // 型の不一致を一時的に回避
+  artifactNode: ArtifactNode as any,
 };
 
 const MIN_ZOOM = 0.1;
@@ -125,12 +127,12 @@ const CanvasArea: React.FC = () => {
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: AppNode) => {
-      // Only set active node for text nodes (customNode)
-      // Image nodes cannot be edited, so don't set them as active
-      if (node.type === "customNode") {
+      // Text / Artifact nodes are editable; images remain preview-only.
+      if (node.type === "customNode" || node.type === "artifactNode") {
         setActiveNode(node.id);
       } else {
-        setActiveNode(null);
+        // Images do not open EditorDrawer, but can still be the chat target.
+        setActiveNode(node.id);
         setEditorOpen(false);
       }
       setMenu(null);
@@ -140,9 +142,7 @@ const CanvasArea: React.FC = () => {
 
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: AppNode) => {
-      // Only open drawer for text nodes (customNode)
-      // Image nodes cannot be edited, so don't open the drawer
-      if (node.type === "customNode") {
+      if (node.type === "customNode" || node.type === "artifactNode") {
         setActiveNode(node.id);
         setEditorOpen(true);
       }

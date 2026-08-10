@@ -1,6 +1,6 @@
 # Status
 
-state: planned
+state: implementing
 worklog: enabled
 
 tier: Full
@@ -12,36 +12,36 @@ plan: plan_20260810_chat_artifact
 
 | ID | Requirement summary | Verification method | Evidence class | WP | Implementer state | Evidence | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| REQ-A01 | 「+ Artifact」で Artifact を追加 | UI 操作 | E2 | WP-A1 | todo | - | - |
-| REQ-A02 | Artifact data に version/revision/count 等を保持 | 生成・roundtrip test | E1 | WP-A1 | todo | - | - |
-| REQ-A03 | EditorDrawer で Markdown source を編集 | UI 操作 | E2 | WP-A1 | todo | - | - |
-| REQ-A04 | Edit / Preview を切替 | UI 操作・screenshot | E2 | WP-A1 | todo | - | - |
-| REQ-A05 | filename/version/charCount を表示 | screenshot | E2 | WP-A1 | todo | - | - |
-| REQ-A06 | charCount/wordCount を再計算 | unit test | E1 | WP-A1 | todo | - | - |
-| REQ-A07 | V1.2 で Artifact と canvasId を永続化 | roundtrip test | E1 | WP-A2 | todo | - | - |
-| REQ-A08 | V1.0/V1.1 を読込・編集 | fixture test | E1 | WP-A2 | todo | - | - |
-| REQ-A09 | 空の新規 Canvas だけ初期 Artifact を生成 | 新規/既存 UI 確認 | E2 | WP-A1 | todo | - | - |
-| REQ-A10 | Artifact と Text/Image を接続 | UI 操作 | E2 | WP-A1 | todo | - | - |
-| REQ-A11 | Text/Artifact 上で Markdown を render | UI 操作 | E2 | WP-A1 | todo | - | - |
-| REQ-A12 | Text/Artifact を `.md` export | file 内容確認 | E2 | WP-A2 | todo | - | - |
-| REQ-A13 | Image prompt を表示・copy | UI/clipboard 確認 | E2 | WP-A3 | todo | - | - |
-| REQ-A14 | Text revision を移行・更新 | migration/store test | E1 | WP-A1 | todo | - | - |
+| REQ-A01 | 「+ Artifact」で Artifact を追加 | UI 操作 | E2 | WP-A1 | implemented | `App.tsx` のボタン、`useAppStore.addArtifactNode` | pass |
+| REQ-A02 | Artifact data に revision/count 等を保持 | 生成・roundtrip test | E1 | WP-A1 | implemented | `types/index.ts`, `utils/artifact.ts`, `useAppStore.ts` | pass |
+| REQ-A03 | EditorDrawer で Markdown source を編集 | UI 操作 | E2 | WP-A1 | implemented | `EditorDrawer.tsx` の Artifact 分岐と `updateArtifactContent` | pass |
+| REQ-A04 | Edit / Preview を切替 | UI 操作・screenshot | E2 | WP-A1 | implemented | `EditorDrawer.tsx` の既存 Edit/Preview を Artifact に適用 | pass |
+| REQ-A05 | filename/summary/charCount を表示 | screenshot | E2 | WP-A1 | implemented | `ArtifactNode.tsx` の summary footer、`EditorDrawer.tsx` の filename 編集欄・count 表示 | pass |
+| REQ-A06 | charCount/wordCount を再計算 | unit test | E1 | WP-A1 | implemented | `utils/artifact.ts:getContentStats`, `updateArtifactContent` | pass |
+| REQ-A07 | V1.2 で Artifact と canvasId を永続化 | roundtrip test | E1 | WP-A2 | implemented | `CanvasFileV1_2`, `saveCanvas`, `loadCanvas` | pass |
+| REQ-A08 | V1.0/V1.1 を読込・編集 | fixture test | E1 | WP-A2 | implemented | `loadCanvas` の V1.0/V1.1 migration 分岐 | pass |
+| REQ-A09 | 空の新規 Canvas だけ初期 Artifact を生成 | 新規/既存 UI 確認 | E2 | WP-A1 | implemented | `App.tsx` の初期 Artifact 生成、load 時の既存 nodes 維持 | pass |
+| REQ-A10 | Artifact と Text/Image を接続 | UI 操作 | E2 | WP-A1 | implemented | `ArtifactNode.tsx` の React Flow handles | pass |
+| REQ-A11 | Artifact 上で Markdown を render、Text は Summary 表示 | UI 操作 | E2 | WP-A1 | implemented | `ArtifactNode.tsx` の ReactMarkdown、`CustomNode.tsx` の Summary 表示 | pass |
+| REQ-A12 | Text/Artifact を `.md` export | file 内容確認 | E2 | WP-A2 | implemented | `useAppStore.exportNode` → `ExportMarkdownWithFilename`、Backend `DefaultFilename` に Artifact filename を設定 | pass |
+| REQ-A13 | Image prompt を表示・copy | UI/clipboard 確認 | E2 | WP-A3 | implemented | `ImageNode.tsx` の prompt footer/copy button | pass |
+| REQ-A14 | Text revision を移行・更新 | migration/store test | E1 | WP-A1 | implemented | `TextNodeData.revision`, `updateNodeContent`, V1 migration | pass |
 
 ### Sprint B: ChatDrawer / Session
 
 | ID | Requirement summary | Verification method | Evidence class | WP | Implementer state | Evidence | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| REQ-B01 | ChatDrawer を開閉・resize | UI 操作 | E2 | WP-B1 | todo | - | - |
-| REQ-B02 | node type 別 target 表示 | 3 node type の UI 確認 | E2 | WP-B1 | todo | - | - |
-| REQ-B03 | target なしでは全 Canvas を自動送信しない | UI/payload 確認 | E2 | WP-B1 | todo | - | - |
-| REQ-B04 | session を明示切替 | UI 操作 | E2 | WP-B1 | todo | - | - |
-| REQ-B05 | Canvas に紐づく session を作成 | UI/保存データ確認 | E2 | WP-B1 | todo | - | - |
-| REQ-B06 | Enter 送信・Shift+Enter 改行 | UI 操作 | E2 | WP-B1 | todo | - | - |
-| REQ-B07 | streaming 進行中表示 | screenshot | E2 | WP-B1 | todo | - | - |
+| REQ-B01 | ChatDrawer を開閉・resize | UI 操作 | E2 | WP-B1 | implemented | `ChatDrawer.tsx`, `ChatToggleButton.tsx`。default 420px、320px〜viewport 80% clamp、listener cleanup | pass |
+| REQ-B02 | node type 別 target 表示 | 3 node type の UI 確認 | E2 | WP-B1 | implemented | `chatContext.ts:describeChatTarget`, `ChatHeader.tsx`。type + Artifact filename/Text先頭/Image promptを表示 | pass |
+| REQ-B03 | target なしでは全 Canvas を自動送信しない | UI/payload 確認 | E2 | WP-B1 | implemented | targetなしは「対象未選択」。`buildChatRequestContext` は同一session履歴だけを `GenerateChatReply` へ渡し、全Canvasを送らない | pass |
+| REQ-B04 | session を明示切替 | UI 操作 | E2 | WP-B1 | implemented | `ChatHeader.tsx` select、`useChatStore.setActiveSession`、session別 activeRuns | pass |
+| REQ-B05 | Canvas に紐づく session を作成 | UI/保存データ確認 | E2 | WP-B1 | implemented | `+ New`、Canvas load中の操作無効化、canvasId別 `ChatSessionService` 保存 | pass |
+| REQ-B06 | Enter 送信・Shift+Enter 改行 | UI 操作 | E2 | WP-B1 | implemented | `ChatInput.tsx` の keyboard handler | pass |
+| REQ-B07 | streaming 進行中表示 | screenshot | E2 | WP-B1 | implemented | `GenerateChatReply` 待機中のindicator、session別run routing。逐次agent chunkはREQ-C05 | pass |
 | REQ-B08 | Stop で run cancel、未適用 edit を拒否 | integration test | E1 | WP-C4 | todo | - | - |
-| REQ-B09 | focus 変更で target を更新 | UI 操作 | E2 | WP-B1 | todo | - | - |
-| REQ-B10 | EditorDrawer close で target null | UI 操作 | E2 | WP-B1 | todo | - | - |
-| REQ-B12 | target 変更で session を自動切替しない | UI 操作 | E2 | WP-B1 | todo | - | - |
+| REQ-B09 | focus 変更で target を更新 | UI 操作 | E2 | WP-B1 | implemented | Text/Artifact Editor focusとImage Canvas clickを `App.tsx` でtargetへ同期 | pass |
+| REQ-B10 | EditorDrawer close で target null | UI 操作 | E2 | WP-B1 | implemented | `EditorDrawer.handleClose` と `App.tsx` のisEditorOpen同期 | pass |
+| REQ-B12 | target 変更で session を自動切替しない | UI 操作 | E2 | WP-B1 | implemented | `setTarget` と `setActiveSession` を独立actionとして保持 | pass |
 
 `REQ-B11` は廃止済み。ID は再利用しない。
 
@@ -81,8 +81,8 @@ plan: plan_20260810_chat_artifact
 | REQ-N05 | Frontend TypeScript/Vite build 成功 | command output | E1 | WP-QA | todo | - | - |
 | REQ-N06 | secret 実値を source/evidence に保存しない | rg/diff review | E3 | WP-QA | todo | - | - |
 | REQ-N07 | Markdown XSS payload が実行されない | UI payload test | E2 | WP-QA | todo | - | - |
-| REQ-N08 | chat history を backend 経由で再起動復元 | UI 再起動確認 | E2 | WP-B2 | todo | - | - |
-| REQ-N10 | session を canvasId で分離 | 2 Canvas persistence test | E1 | WP-B2 | todo | - | - |
+| REQ-N08 | chat history を backend 経由で再起動復元 | UI 再起動確認 | E2 | WP-B2 | implemented | `App.tsx` のload/debounce/切替flush、`ChatSessionService`、load error表示。Save JSON後の再起動Loadで復帰をユーザー確認 | pass |
+| REQ-N10 | session を canvasId で分離 | 2 Canvas persistence test | E1 | WP-B2 | implemented | Canvas切替時beginLoad、`TestChatSessionServiceSeparatesCanvases`、JSON wrapper/migration tests、`go test ./...` exit 0 | pass |
 
 `REQ-N09` は廃止済み。ID は再利用しない。
 
@@ -90,9 +90,9 @@ plan: plan_20260810_chat_artifact
 
 | Check | Expected evidence | Implementer state | Evidence | Acceptance |
 | --- | --- | --- | --- | --- |
-| Build | `mise run build` exit 0 | todo | - | - |
-| Frontend build | `mise x -- npm --prefix frontend run build` exit 0 | todo | - | - |
-| Go tests | `mise x -- go test ./...` exit 0 | todo | - | - |
+| Build | `mise run build` exit 0 | implemented | mise shim環境の `wails build -nocolour` exit 0、`build/bin/fm-doc-canvas.exe` 生成 | - |
+| Frontend build | `mise x -- npm --prefix frontend run build` exit 0 | implemented | Direct `npm --prefix frontend run build` exit 0（TypeScript/Vite） | - |
+| Go tests | `mise x -- go test ./...` exit 0 | implemented | Managed mise Go 1.26.1 の `go test ./...` exit 0 | - |
 | Core E2E | `30_requirement.md` の 1〜9 | todo | - | - |
 
 ## Evidence Class Notes
@@ -107,7 +107,8 @@ plan: plan_20260810_chat_artifact
 
 | Date | Actor/session | Result | Notes |
 | --- | --- | --- | --- |
-| - | - | - | 受理未実施 |
+| 2026-08-10 | User acceptance | Sprint A accepted | REQ-A01〜REQ-A14 を確認済み。Sprint B/C は未受理。 |
+| 2026-08-10 | User acceptance | Sprint B ChatDrawer/chat accepted | REQ-B01〜B07、REQ-B09、REQ-B10、REQ-B12、REQ-N08、REQ-N10 を確認済み。REQ-B08 は Sprint C/WP-C4。 |
 
 ## Abandoned / No-Go Reason
 

@@ -55,6 +55,7 @@
 ### Retired IDs
 
 - `REQ-B11`: echo stub は最終プロダクト要件ではなく WP-B の一時的 smoke check だったため廃止。ID は再利用しない。
+- Sprint B の UI 受入で echo が通常回答に見えて混乱を生んだため、stub は製品コードから削除し、既存 LLM service を使う `GenerateChatReply` に置換した。agent tool/stream/cancel は Sprint C の責務を維持する。
 - `REQ-N09`: `REQ-C01` の max tool round と重複していたため廃止。ID は再利用しない。
 
 ## Decisions and Rationale
@@ -70,12 +71,11 @@
 
 既存 Canvas は Zustand が保持し、保存時に JSON 化して Backend へ渡す構造である。Backend に別の常設 ArtifactManager を正本として追加すると二重管理になるため採用しない。Backend は run 単位 snapshot と tool run state だけを持つ。
 
-### Revision と Version を分離
+### Revision のみを内部管理
 
-- `revision`: 全 content mutation で増え、競合検出に使う。
-- `version`: UI に表示する確定編集 version。
+- `revision`: 全 content mutation で増え、競合検出に使う。UI には表示しない。
 
-手動入力中の変更検出を user-facing version だけで行うと stale edit を見逃すため、内部 revision を追加した。
+手動入力のたびに user-facing version を増やすと意味のないカウンターになるため、Artifact の version はデータモデルと UI から削除した。revision は stale edit 検出のために保持する。
 
 ## Rejected Options
 
@@ -123,3 +123,4 @@
 
 - 2026-08-10: Full plan 初版。
 - 2026-08-10: Claim レビューを反映。論理 Markdown 文書、focus context、connected context、任意 node tool、event correlation、revision acknowledgment、canvasId session、検証可能性を 20 以降へ反映。
+- 2026-08-10: User decision を反映。Artifact の user-facing `version` は廃止し、内部競合検出用 `revision` のみ保持する。

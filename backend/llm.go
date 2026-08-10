@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -79,6 +80,31 @@ func (s *LLMService) GenerateText(prompt string, contextData string) (string, er
 	return s.callChatAPI(cfg, messages)
 }
 
+// GenerateChatReply answers a conversational request using the selected Canvas
+// context and recent session history supplied by the Frontend.
+func (s *LLMService) GenerateChatReply(prompt string, contextData string) (string, error) {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return "", fmt.Errorf("prompt is required")
+	}
+	cfg := s.configService.GetConfig()
+
+	systemPrompt := cfg.LLM.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "You are a helpful assistant working with the user's document canvas. Answer the current question directly and naturally. Use the supplied Canvas node and recent conversation when relevant. Do not claim to have edited the Canvas unless a tool confirms the edit."
+	}
+	userMessage := prompt
+	if strings.TrimSpace(contextData) != "" {
+		userMessage = fmt.Sprintf("Context:\n%s\n\nCurrent user message:\n%s", contextData, prompt)
+	}
+
+	messages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userMessage},
+	}
+	return s.callChatAPI(cfg, messages)
+}
+
 // GenerateTextWithImages sends a prompt, context and images to the LLM and returns the generated content
 func (s *LLMService) GenerateTextWithImages(prompt string, contextData string, imageDataURLs []string) (string, error) {
 	cfg := s.configService.GetConfig()
@@ -91,13 +117,13 @@ func (s *LLMService) GenerateTextWithImages(prompt string, contextData string, i
 
 	// Create content parts for the user message
 	contentParts := make([]ContentPart, 0, 1+len(imageDataURLs))
-	
+
 	// Add text content
 	contentParts = append(contentParts, ContentPart{
 		Type: "text",
 		Text: userMessageText,
 	})
-	
+
 	// Add image content parts
 	for _, dataURL := range imageDataURLs {
 		contentParts = append(contentParts, ContentPart{
@@ -126,8 +152,8 @@ func (s *LLMService) GenerateSummary(text string) (string, error) {
 		maxChars = 100
 	}
 
-	systemPrompt := fmt.Sprintf("Summarize the following text in approximately %d characters or less. Focus on the core message.", maxChars)
-	
+	systemPrompt := fmt.Sprintf("Summarize the following text in approximately %d characters or less. Focus on the core message. Return only the summary text. Do not include a character count, labels, quotation marks, or meta commentary.", maxChars)
+
 	messages := []ChatMessage{}
 	if cfg.LLM.SystemPrompt != "" {
 		messages = append(messages, ChatMessage{Role: "system", Content: cfg.LLM.SystemPrompt})
@@ -135,7 +161,22 @@ func (s *LLMService) GenerateSummary(text string) (string, error) {
 	messages = append(messages, ChatMessage{Role: "system", Content: systemPrompt})
 	messages = append(messages, ChatMessage{Role: "user", Content: text})
 
-	return s.callChatAPI(cfg, messages)
+	summary, err := s.callChatAPI(cfg, messages)
+	if err != nil {
+		return "", err
+	}
+	return sanitizeSummary(summary), nil
+}
+
+var summaryCountSuffixPattern = regexp.MustCompile(`(?i)\s*[（(]\s*(?:約|およそ|approximately|approx\.?|about|~)?\s*\d+\s*(?:文字|字|chars?|characters?)(?:程度|以内|くらい|or less)?\s*[）)]\s*[。．.!！]?\s*$`)
+
+func sanitizeSummary(summary string) string {
+	original := strings.TrimSpace(summary)
+	cleaned := strings.TrimSpace(summaryCountSuffixPattern.ReplaceAllString(original, ""))
+	if cleaned == "" {
+		return original
+	}
+	return cleaned
 }
 
 func (s *LLMService) callChatAPI(cfg Config, messages []ChatMessage) (string, error) {
@@ -147,7 +188,7 @@ func (s *LLMService) callChatAPI(cfg Config, messages []ChatMessage) (string, er
 			Content: fmt.Sprintf("%v", msg.Content),
 		}
 	}
-	
+
 	return s.callChatAPIWithContentParts(cfg, stringMessages)
 }
 
@@ -169,7 +210,7 @@ func (s *LLMService) callChatAPIWithContentParts(cfg Config, messages []ChatMess
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	// Only set Authorization header if APIKey is provided (required for local providers like Ollama)
 	if cfg.LLM.APIKey != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cfg.LLM.APIKey))

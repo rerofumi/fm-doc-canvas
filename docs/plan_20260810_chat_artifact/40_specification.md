@@ -17,7 +17,7 @@ Artifact 編集は次の hand-shake で処理する。
 1. Backend tool が snapshot 内で read 済みの `baseRevision` から編集案を作る。
 2. Backend は `chat:tool_apply` event で `runId`, `toolCallId`, `nodeId`, `baseRevision`, diff, proposed content を送る。
 3. Frontend は現在の node revision と比較する。
-4. 一致すれば Zustand state に適用し、revision/version/count を更新する。不一致または run cancel 済みなら適用しない。
+4. 一致すれば Zustand state に適用し、revision/count を更新する。不一致または run cancel 済みなら適用しない。
 5. Frontend は `ResolveToolApplication` で applied / conflict / cancelled / error を Backend へ返す。
 6. Backend は acknowledgment を受けて初めて tool result を LLM へ返し、`chat:tool_done` を送る。
 
@@ -101,7 +101,6 @@ export interface ArtifactNodeData extends Record<string, unknown> {
   language: "markdown" | "text";
   content: string;
   summary: string;
-  version: number;   // UI に表示する確定編集 version
   revision: number;  // 全 content mutation で増える競合検出用 counter
   charCount: number;
   wordCount: number;
@@ -110,11 +109,10 @@ export interface ArtifactNodeData extends Record<string, unknown> {
 }
 ```
 
-既存 `TextNodeData` には `revision?: number` を追加する。旧 Canvas で欠落している場合は runtime load 時に 0 として扱う。Text は user-facing version を持たず、全 content mutation で revision を増加する。
+既存 `TextNodeData` には `revision?: number` を追加する。旧 Canvas で欠落している場合は runtime load 時に 0 として扱う。Text / Artifact ともに user-facing version は持たず、全 content mutation で revision を増加する。
 
 - `revision` は手動入力を含む全 content mutation で単調増加する。
-- `version` は EditorDrawer の編集確定または agent edit の適用成功時に増加する。
-- agent event の競合判定には `revision` を使い、表示用 `version` だけでは判定しない。
+- agent event の競合判定には内部 `revision` を使う。revision は UI に表示しない。
 - `filename` は Canvas 内表示名兼 export の既定名であり、外部ファイル path ではない。
 
 ### Canvas file
@@ -143,7 +141,6 @@ type NodeSnapshot struct {
     ID       string `json:"id"`
     Type     string `json:"type"` // text | artifact | image
     Revision int64  `json:"revision"`
-    Version  int64  `json:"version"`
     Filename string `json:"filename,omitempty"`
     Markdown string `json:"markdown,omitempty"`
     ImageRef string `json:"imageRef,omitempty"`
@@ -230,7 +227,7 @@ type ToolApplyProposal struct {
 }
 ```
 
-各 message は送信時の `runId`, `targetNodeId`, `targetVersion` を任意項目として保持する。
+各 message は送信時の `runId`, `targetNodeId`, `targetRevision` を任意項目として保持する。
 
 ## Context Construction
 
@@ -251,7 +248,7 @@ type ToolApplyProposal struct {
 `list_artifacts`, `search_artifact`, `list_canvas_nodes`, `read_canvas_node` は request-local snapshot を読む。tool が読んだ内容だけを tool result として LLM へ追加する。
 
 - `list_canvas_nodes`: 全 node の nodeId、type、短い識別情報。本文と画像 binary は返さない
-- `read_canvas_node(text/artifact)`: nodeId、type、Markdown、version/revision
+- `read_canvas_node(text/artifact)`: nodeId、type、Markdown、revision
 - `read_canvas_node(image)`: nodeId、type、imageRef、prompt。vision 非対応 model では prompt と `imageIncluded=false` を返す
 - snapshot は run 中に固定し、Frontend の後続変更は取り込まない
 
@@ -262,7 +259,7 @@ type ToolApplyProposal struct {
 ### `read_artifact`
 
 - Input: `node_id`
-- Success: filename、content、version、revision
+- Success: filename、content、revision
 - Error: node 不存在、artifact 以外
 - 成功時に run state へ read revision を記録する。
 
@@ -284,7 +281,7 @@ type ToolApplyProposal struct {
 ### `list_artifacts`
 
 - Input: なし
-- Output: nodeId、filename、version、charCount
+- Output: nodeId、filename、charCount
 - content 全文は返さない。
 
 ### `search_artifact`
@@ -324,6 +321,7 @@ type ToolApplyProposal struct {
 ルート `app.go` に追加する。
 
 ```go
+func (a *App) GenerateChatReply(prompt string, contextData string) (string, error) // Sprint B basic reply
 func (a *App) SendChat(req backend.ChatRequest) error
 func (a *App) CancelChat(runID string) error
 func (a *App) ResolveToolApplication(result backend.ToolApplicationResult) error
@@ -331,6 +329,7 @@ func (a *App) LoadChatSessions(canvasID string) ([]backend.ChatSession, error)
 func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) error
 ```
 
+- `GenerateChatReply` は Sprint B の通常会話用で、選択中ノードと直近 session 履歴を使う。echo は返さない。Sprint C の `SendChat` 導入後は agent event 経路へ置き換える。
 - `SendChat` は request validation 後に非同期 run を開始する。
 - `CancelChat` は指定 run だけを冪等に中断する。
 - `ResolveToolApplication` は待機中の toolCallId に 1 回だけ応答できる。
@@ -340,9 +339,9 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 
 ### ArtifactNode / CustomNode
 
-- `react-markdown` + `remark-gfm` で本文 preview を表示する。
+- Artifact は `react-markdown` + `remark-gfm` で本文 preview を表示する。既存 Text node のカード表示は Summary を維持する。
 - 大きい本文は表示文字数を制限し、全内容は EditorDrawer で扱う。
-- Artifact は filename/version/charCount を追加表示する。
+- Artifact は filename/summary/charCount を追加表示する。summary は Image prompt と同様にカード下部へ表示する。EditorDrawer の filename 欄から filename を変更でき、空欄で確定した場合は `chapter.md` に戻す。revision は内部値として保持し UI には表示しない。
 
 ### ImageNode
 
@@ -352,7 +351,10 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 
 - default 420px、min 320px、max viewport 80%。
 - ChatHeader は target type に応じた識別情報を表示する。
+- Text / Artifact は EditorDrawer でフォーカス中だけ target とし、EditorDrawer を持たない Image は Canvas クリックで直接 target にできる。
 - session switch と target switch は独立させる。
+- active run は sessionId ごとに保持し、背景 session の応答・Stop 状態を現在 session と混在させない。
+- Sprint B の通常回答は選択中ノード本文（Image は prompt）と直近 12 message を既存 LLM service へ渡す。target なしでは会話履歴だけを渡し、全 Canvas は送らない。
 - event は `runId/sessionId` が一致する message にだけ反映する。
 - 背景 session の run event は対応 session に保存し、現在表示中 session へ混入させない。
 
@@ -375,6 +377,8 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 - 保存先は Wails のアプリ設定ディレクトリ配下 `chat-sessions.json` とし、`~` の文字列連結ではなく OS API /既存 config path 解決を使う。
 - Backend が JSON encode/decode と filesystem I/O を担当する。
 - Canvas ごとに `canvasId` で分離する。
+- Canvas 切替開始時は旧 session を即座に UI から外して入力を無効化し、旧 Canvas の debounce 待ち更新を flush してから新 Canvas の履歴を hydrate する。
+- 初期 Sprint B 実装で一時的に保存された `canvases[canvasId] = []` 形式は読み込み時に `canvases[canvasId].sessions` 形式へ移行可能とする。
 - malformed JSON はエラーとして返し、空履歴として黙って上書きしない。
 
 ## Error Handling
@@ -431,7 +435,7 @@ func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) 
 ### Required tests
 
 - Canvas V1 fixtures / V1.2 roundtrip
-- Artifact count / revision / version
+- Artifact count / revision
 - graph context order / branch / loop
 - seven tool contracts and read-before-write rule
 - max round / context cancellation / terminal event uniqueness

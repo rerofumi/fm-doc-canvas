@@ -6,6 +6,10 @@ export function ExportImage(arg1:string):Promise<string>;
 
 export function ExportMarkdown(arg1:string):Promise<string>;
 
+export function ExportMarkdownWithFilename(arg1:string,arg2:string):Promise<string>;
+
+export function GenerateChatReply(arg1:string,arg2:string):Promise<string>;
+
 export function GenerateImage(arg1:string,arg2:string,arg3:Array<string>):Promise<string>;
 
 export function GenerateImageWithProvider(arg1:string,arg2:string,arg3:Array<string>,arg4:string):Promise<string>;
@@ -28,6 +32,10 @@ export function ImportFile(arg1:string):Promise<backend.ImportFileResult>;
 
 export function LoadCanvasFromFile():Promise<string>;
 
+export function LoadChatSessions(arg1:string):Promise<Array<backend.ChatSession>>;
+
 export function SaveCanvasToFile(arg1:string):Promise<string>;
+
+export function SaveChatSessions(arg1:string,arg2:Array<backend.ChatSession>):Promise<void>;
 
 export function SaveConfig(arg1:backend.Config):Promise<void>;

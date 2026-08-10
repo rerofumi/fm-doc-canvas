@@ -38,18 +38,18 @@
 ### UX1: Text / Artifact / Image ノード
 
 1. Text ノードと Artifact ノードは Markdown の source text をノード内に保持する。
-2. ノード上では Markdown 装飾をレンダリングして内容を読める。
+2. Artifact ノード上では Markdown 装飾をレンダリングして内容を読める。Text ノードのカードは従来どおり Summary を表示する。
 3. `EditorDrawer` では Markdown を pure text として直接編集し、Preview へ切り替えられる。
 4. Text / Artifact ノードの内容は Markdown ファイルとしてエクスポートできる。
 5. Text / Artifact ノードの Markdown source text はチャットから差分編集・更新できる。
-6. Artifact ノードは論理 Markdown 文書として `filename`, `version`, `charCount`, `lastEditSummary` を表示する。`filename` は Canvas 内の表示名兼エクスポート時の既定名であり、外部 `.md` ファイルとの常時同期を意味しない。
+6. Artifact ノードは論理 Markdown 文書として `filename`, `summary`, `charCount`, `lastEditSummary` を表示する。`summary` は Canvas カード下部に表示する。`filename` は Canvas 内の表示名兼エクスポート時の既定名であり、外部 `.md` ファイルとの常時同期を意味しない。競合検出用の `revision` は内部値として保持し、UI には表示しない。
 7. 新規の空キャンバスを開始した時だけ、`# 新しいチャプター` を持つ Artifact ノードを 1 個生成する。既存 Canvas の読込時には追加しない。
 8. Image ノードは画像と生成プロンプトを保持し、ノード上でプロンプトを表示・コピーできる。
 
 ### UX2: 右ドロワーチャット
 
 1. ユーザーはヘッダーのチャットボタンで `ChatDrawer` を開閉できる。
-2. ノードを編集対象としてフォーカスすると、ChatHeader に対象ノードの種別と識別情報を表示する。Artifact は `filename` と `version`、Text は本文の短い先頭表示、Image はプロンプトの短い先頭表示を使う。
+2. ノードを編集対象としてフォーカスすると、ChatHeader に対象ノードの種別と識別情報を表示する。Artifact は `filename`、Text は本文の短い先頭表示、Image はプロンプトの短い先頭表示を使う。
 3. `EditorDrawer` を閉じた場合はフォーカスを解除し、`targetNodeId` を null にする。この状態では任意ノードを自動送信せず、エージェントが一覧・読込ツールで必要なノードを取得する。
 4. フォーカス対象を変更しても、現在のチャットセッションは自動で切り替えない。セッション切替はユーザーが明示的に行う。
 5. チャット送信時には、フォーカス中ノードと `traverseContextBackwards` で取得した接続元ノードを直接コンテキストとして渡す。
@@ -61,7 +61,7 @@
 
 エージェントは次のツールを利用する。
 
-- `read_artifact`: Artifact の source text と version/revision を読む。既存 Artifact は `read_artifact` または `read_canvas_node` で同じ revision を読んだ後だけ編集できる。
+- `read_artifact`: Artifact の source text と revision を読む。既存 Artifact は `read_artifact` または `read_canvas_node` で同じ revision を読んだ後だけ編集できる。
 - `apply_edit`: read 済みの Text / Artifact に対して、一意に一致する search/replace で差分編集する。
 - `write_artifact`: ユーザーが明示的に新規文書を求めた場合の作成、または read 済み対象 Artifact の全体置換を行う。対象がなく作成指示もない場合は勝手に新規作成しない。
 - `list_artifacts`: Artifact の一覧と識別情報を取得する。
@@ -75,7 +75,7 @@
 
 - チャットセッションは Canvas 本体とは別のアプリ設定領域へ保存する。
 - セッションには `canvasId` を持たせ、Canvas を再読込した時に同じ Canvas の会話だけを復元する。
-- メッセージには送信時の `targetNodeId` と version を記録し、後から対象を確認できるようにする。
+- メッセージには送信時の `targetNodeId` と target revision を記録し、後から対象を確認できるようにする。
 
 ### UX5: 既存 UI の温存
 
@@ -92,7 +92,7 @@
 | F-A1 | Artifact ノードの作成 | P0 |
 | F-A2 | Markdown の表示・pure text 編集・Preview | P0 |
 | F-A3 | Markdown export | P0 |
-| F-A4 | Artifact の filename / version / charCount 表示 | P0 |
+| F-A4 | Artifact の filename / charCount 表示 | P0 |
 | F-A5 | Image のプロンプト表示・コピー | P0 |
 | F-A6 | CanvasFile V1.2 の save/load と旧版読込 | P0 |
 | F-A7 | 空キャンバスだけに初期 Artifact を生成 | P1 |

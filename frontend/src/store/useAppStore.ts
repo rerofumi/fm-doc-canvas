@@ -6,7 +6,9 @@ import {
   AppConfig,
   CanvasFileV1_0,
   CanvasFileV1_1,
+  CanvasFileV1_2,
   TextNodeData,
+  ArtifactNodeData,
   ImageNodeData,
   CanvasFile,
 } from "../types";
@@ -20,6 +22,18 @@ import {
 } from "@xyflow/react";
 import * as AppBackend from "../../wailsjs/go/main/App";
 import { traverseContextBackwards } from "../utils/graphUtils";
+import {
+  createArtifactData,
+  getContentStats,
+  normalizeArtifactData,
+} from "../utils/artifact";
+
+const createCanvasId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
 const initialConfig: AppConfig = {
   llm: {
@@ -131,6 +145,7 @@ const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
 export const useAppStore = create<AppState>((set, get) => ({
   nodes: [],
   edges: [],
+  canvasId: createCanvasId(),
   isEditorOpen: false,
   isSettingsOpen: false,
   activeNodeId: null,
@@ -156,6 +171,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
       width: 250,
       height: 150,
+    };
+    set((state) => ({
+      nodes: [...state.nodes, newNode],
+      activeNodeId: id,
+      isEditorOpen: true,
+    }));
+  },
+
+  addArtifactNode: () => {
+    const id = `artifact-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const newNode: AppNode = {
+      id,
+      type: "artifactNode",
+      position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
+      data: createArtifactData(),
+      width: 300,
+      height: 220,
     };
     set((state) => ({
       nodes: [...state.nodes, newNode],
@@ -199,7 +231,59 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       nodes: state.nodes.map((node) =>
         node.id === id && node.type === "customNode"
-          ? { ...node, data: { ...node.data, content } }
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                content,
+                revision: ((node.data as TextNodeData).revision || 0) + 1,
+              },
+            }
+          : node,
+      ),
+    }));
+  },
+
+  updateArtifactContent: (id: string, content: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) => {
+        if (node.id !== id || node.type !== "artifactNode") return node;
+        const data = node.data as ArtifactNodeData;
+        return {
+          ...node,
+          data: {
+            ...data,
+            content,
+            ...getContentStats(content),
+            revision: data.revision + 1,
+            lastEditedAt: Date.now(),
+          },
+        };
+      }),
+    }));
+  },
+
+  updateArtifactFilename: (id: string, filename: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === id && node.type === "artifactNode"
+          ? {
+              ...node,
+              data: { ...(node.data as ArtifactNodeData), filename },
+            }
+          : node,
+      ),
+    }));
+  },
+
+  setArtifactLastEditSummary: (id: string, summary: string) => {
+    set((state) => ({
+      nodes: state.nodes.map((node) =>
+        node.id === id && node.type === "artifactNode"
+          ? {
+              ...node,
+              data: { ...(node.data as ArtifactNodeData), lastEditSummary: summary },
+            }
           : node,
       ),
     }));
@@ -208,7 +292,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateNodeSummary: (id: string, summary: string) => {
     set((state) => ({
       nodes: state.nodes.map((node) =>
-        node.id === id && node.type === "customNode"
+        node.id === id && (node.type === "customNode" || node.type === "artifactNode")
           ? { ...node, data: { ...node.data, summary } }
           : node,
       ),
@@ -297,10 +381,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveCanvas: async () => {
-    const { nodes, edges } = get();
-    // Version 1.1 として保存
-    const canvasData: CanvasFile = {
-      version: "1.1",
+    const { nodes, edges, canvasId } = get();
+    const canvasData: CanvasFileV1_2 = {
+      version: "1.2",
+      metadata: {
+        canvasId,
+        lastOpened: new Date().toISOString(),
+      },
       nodes: nodes.map((n) => {
         if (n.type === "customNode") {
           return {
@@ -308,6 +395,15 @@ export const useAppStore = create<AppState>((set, get) => ({
             type: "customNode" as const,
             position: n.position,
             data: n.data as TextNodeData,
+            width: n.width,
+            height: n.height,
+          };
+        } else if (n.type === "artifactNode") {
+          return {
+            id: n.id,
+            type: "artifactNode" as const,
+            position: n.position,
+            data: n.data as ArtifactNodeData,
             width: n.width,
             height: n.height,
           };
@@ -361,26 +457,63 @@ export const useAppStore = create<AppState>((set, get) => ({
       const data = JSON.parse(jsonString) as CanvasFile;
 
       let nodesToSet: AppNode[] = [];
+      let loadedCanvasId = createCanvasId();
       if ((data as CanvasFileV1_0).version === "1.0") {
-        // Version 1.0: Only text nodes
         nodesToSet = (data as CanvasFileV1_0).nodes.map((n: any) => ({
           ...n,
           type: "customNode" as const,
+          data: {
+            ...n.data,
+            revision:
+              typeof n.data?.revision === "number" ? n.data.revision : 0,
+          },
         })) as AppNode[];
       } else if ((data as CanvasFileV1_1).version === "1.1") {
-        // Version 1.1: Mixed nodes (text and image)
-        nodesToSet = (data as CanvasFileV1_1).nodes as AppNode[];
+        nodesToSet = (data as CanvasFileV1_1).nodes.map((n: any) =>
+          n.type === "customNode"
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  revision:
+                    typeof n.data?.revision === "number" ? n.data.revision : 0,
+                },
+              }
+            : n,
+        ) as AppNode[];
+      } else if ((data as CanvasFileV1_2).version === "1.2") {
+        const v1_2Data = data as CanvasFileV1_2;
+        loadedCanvasId = v1_2Data.metadata?.canvasId || loadedCanvasId;
+        nodesToSet = v1_2Data.nodes.map((n: any) => {
+          if (n.type === "customNode") {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                revision:
+                  typeof n.data?.revision === "number" ? n.data.revision : 0,
+              },
+            };
+          }
+          if (n.type === "artifactNode") {
+            return { ...n, data: normalizeArtifactData(n.data || {}) };
+          }
+          return n;
+        }) as AppNode[];
       } else {
-        // Unknown version - try to load as v1.1, but filter out unknown types for safety
         console.warn(`Unknown canvas file version: ${data.version}`);
         const v1_1Data = data as CanvasFileV1_1;
         nodesToSet = v1_1Data.nodes.filter(
-          (n: any) => n.type === "customNode" || n.type === "imageNode",
+          (n: any) =>
+            n.type === "customNode" ||
+            n.type === "artifactNode" ||
+            n.type === "imageNode",
         ) as AppNode[];
       }
 
       set({
         nodes: nodesToSet,
+        canvasId: loadedCanvasId,
         edges: ((data as CanvasFileV1_1).edges || []).map((e: any) => ({
           ...e,
           sourceHandle: e.sourceHandle || "right-source",
@@ -461,6 +594,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (node.type === "customNode") {
         const content = (node.data as TextNodeData).content;
         return await AppBackend.ExportMarkdown(content);
+      } else if (node.type === "artifactNode") {
+        const content = (node.data as ArtifactNodeData).content;
+        const filename = (node.data as ArtifactNodeData).filename;
+        return await AppBackend.ExportMarkdownWithFilename(content, filename);
       } else if (node.type === "imageNode") {
         const src = (node.data as ImageNodeData).src;
         return await AppBackend.ExportImage(src);
@@ -542,6 +679,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (node.type === "customNode") {
         slideContent = (node.data as TextNodeData).content;
+      } else if (node.type === "artifactNode") {
+        slideContent = (node.data as ArtifactNodeData).content;
       } else if (node.type === "imageNode") {
         try {
           const fileURL = await AppBackend.GetImageFileURL(
@@ -568,7 +707,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const title =
         node.type === "customNode"
           ? (node.data as TextNodeData).summary
-          : "Image";
+          : node.type === "artifactNode"
+            ? (node.data as ArtifactNodeData).filename
+            : "Image";
       marpSlides.push(`# ${title}`);
       marpSlides.push(slideContent);
       marpSlides.push("");

@@ -10,6 +10,14 @@ export function ExportMarkdown(arg1) {
   return window['go']['main']['App']['ExportMarkdown'](arg1);
 }
 
+export function ExportMarkdownWithFilename(arg1, arg2) {
+  return window['go']['main']['App']['ExportMarkdownWithFilename'](arg1, arg2);
+}
+
+export function GenerateChatReply(arg1, arg2) {
+  return window['go']['main']['App']['GenerateChatReply'](arg1, arg2);
+}
+
 export function GenerateImage(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateImage'](arg1, arg2, arg3);
 }
@@ -54,8 +62,16 @@ export function LoadCanvasFromFile() {
   return window['go']['main']['App']['LoadCanvasFromFile']();
 }
 
+export function LoadChatSessions(arg1) {
+  return window['go']['main']['App']['LoadChatSessions'](arg1);
+}
+
 export function SaveCanvasToFile(arg1) {
   return window['go']['main']['App']['SaveCanvasToFile'](arg1);
+}
+
+export function SaveChatSessions(arg1, arg2) {
+  return window['go']['main']['App']['SaveChatSessions'](arg1, arg2);
 }
 
 export function SaveConfig(arg1) {
