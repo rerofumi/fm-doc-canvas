@@ -2,138 +2,149 @@
 
 ## Purpose
 
-`fm-doc-canvas` に「Artifact ノード」「右ドロワーチャット (ChatDrawer)」「エージェントループ」を導入し、思考整理・小説執筆・プロット作成を 1 つのキャンバスで完結できるようにする。既存 `fm-doc-canvas` のキャンバスパラダイム（ノード配置 + 接続による文脈トラバース）は維持したまま、編集体験を拡張する。
+`fm-doc-canvas` に「Artifact ノード」「右ドロワーチャット (ChatDrawer)」「エージェントループ」を導入し、接続関係で表した思考構造と、チャットによる Markdown の反復編集を 1 つのキャンバスで往復できるようにする。
+
+編集対象としてフォーカス中のノードは常に直接コンテキストへ含める。接続元ノードは前提文脈として含め、それ以外のノードはエージェントが必要な場合だけツールで読み込む。キャンバス全体を毎回 LLM へ送信しない。
 
 ## Target Environment
 
 ### Runtime
 
-- **OS**: Windows 10/11 + PowerShell（既存 AGENTS.md と同一）
-- **Framework**: Wails v2（既存）
-- **Backend**: Go（既存 `app.go`, `backend/llm.go`, `backend/openrouter.go` 等の構造を継承）
-- **Frontend**: React 18 + TypeScript + Zustand + Tailwind CSS + `@xyflow/react` 12.x（既存）
+- **OS**: Windows 10/11 + PowerShell
+- **Framework**: Wails v2
+- **Backend**: Go（既存のルート `app.go` と `backend/` の構造を継承）
+- **Frontend**: React 18 + TypeScript + Zustand 5.x + Tailwind CSS + `@xyflow/react` 12.x
 
 ### Toolchain
 
-- `mise` 経由で Go, Node.js, Wails CLI を管理（既存 AGENTS.md）
-- パッケージマネージャ: `go mod`, `npm`
-- VCS: `jj`（既存リポジトリ）
+- `mise` 経由で Go、Node.js、Wails CLI を利用する。
+- Go は `go mod`、Frontend は既存の `npm` / `package-lock.json` を利用する。
+- VCS は既存の `jj` を利用する。
 
 ### LLM Provider
 
-- OpenAI 互換 API（既存設定済み）: OpenRouter, OpenAI, Google Generative Language, xAI
-- Ollama native tool calling（`fm-image-assistant` の `docs/cheatsheet/ollama-tool-calling.md` で `meromero-26b-vision:latest` 動作確認済み）
+- MVP は既存の OpenAI 互換 API 経路と Ollama tool calling 経路を利用する。
+- tool calling とストリーミングの実機確認対象となる provider / model / version は、実装前調査と受理時の証拠に記録する。
+- Image ノードのコンテキストは画像参照とプロンプトを対で保持する。選択モデルが画像入力非対応の場合はプロンプトのみを渡し、画像未送信を UI またはログで確認可能にする。
 
 ### External Integrations（将来）
 
-- `fm-link-stash` MCP サーバー（`POST /mcp/bookmark`）- JSON-RPC 2.0
-- `fm-memo-chunk` MCP サーバー - JSON-RPC 2.0
-- `fm-image-assistant` `comfyui_generate` tool（HTTP 経由）
+- `fm-link-stash` MCP サーバー
+- `fm-memo-chunk` MCP サーバー
+- `fm-image-assistant` の画像生成 tool
 
 ## User Experience
 
-### UX1: Artifact ノードの作成・編集
+### UX1: Text / Artifact / Image ノード
 
-1. ユーザーがアプリ起動すると、最初の空 Artifact ノードが 1 個だけ自動生成される（`# 新しいチャプター` テンプレート入り）。
-2. ユーザーは「+ Artifact」ボタンまたはコンテキストメニューから新しい Artifact ノードを追加できる。
-3. Artifact ノードをクリックすると、左の `EditorDrawer` が開いて Markdown を編集できる。
-4. `EditorDrawer` の Edit / Preview 切替で、編集とレンダリング済みプレビューを切り替えられる（既存 `react-markdown` + `remark-gfm`）。
-5. Artifact ノードカードには `filename`, `version`, `charCount`, 末尾 100 字の `summary` が表示される。
+1. Text ノードと Artifact ノードは Markdown の source text をノード内に保持する。
+2. ノード上では Markdown 装飾をレンダリングして内容を読める。
+3. `EditorDrawer` では Markdown を pure text として直接編集し、Preview へ切り替えられる。
+4. Text / Artifact ノードの内容は Markdown ファイルとしてエクスポートできる。
+5. Text / Artifact ノードの Markdown source text はチャットから差分編集・更新できる。
+6. Artifact ノードは論理 Markdown 文書として `filename`, `version`, `charCount`, `lastEditSummary` を表示する。`filename` は Canvas 内の表示名兼エクスポート時の既定名であり、外部 `.md` ファイルとの常時同期を意味しない。
+7. 新規の空キャンバスを開始した時だけ、`# 新しいチャプター` を持つ Artifact ノードを 1 個生成する。既存 Canvas の読込時には追加しない。
+8. Image ノードは画像と生成プロンプトを保持し、ノード上でプロンプトを表示・コピーできる。
 
 ### UX2: 右ドロワーチャット
 
-1. ユーザーはヘッダーの � ボタンで右ドロワーの ChatDrawer を開閉できる。
-2. ChatDrawer を開いた状態でノードをクリックすると、チャットヘッダー上部にそのノードのファイル名（例: `📝 chapter_01.md`）と version が表示される。
-3. チャット入力欄にメッセージを入力して送信すると、右ドロワー内でメッセージが縦に積み上がる。
-4. ストリーミング中は、チャットペインの assistant メッセージだけ typewriter 効果で伸びる。キャンバス上のノードは**触らない**。
-5. ストリーム完了時に `apply_edit` / `write_artifact` ツールが走った場合、ToolCard がチャットに表示され、その**完了後**にキャンバス上の対象ノードが更新される。
-6. `EditorDrawer`（左）が閉じている（`isEditorOpen === false`）時は、`targetNodeId` は null になり、チャットはキャンバス全体に対する対話になる。
+1. ユーザーはヘッダーのチャットボタンで `ChatDrawer` を開閉できる。
+2. ノードを編集対象としてフォーカスすると、ChatHeader に対象ノードの種別と識別情報を表示する。Artifact は `filename` と `version`、Text は本文の短い先頭表示、Image はプロンプトの短い先頭表示を使う。
+3. `EditorDrawer` を閉じた場合はフォーカスを解除し、`targetNodeId` を null にする。この状態では任意ノードを自動送信せず、エージェントが一覧・読込ツールで必要なノードを取得する。
+4. フォーカス対象を変更しても、現在のチャットセッションは自動で切り替えない。セッション切替はユーザーが明示的に行う。
+5. チャット送信時には、フォーカス中ノードと `traverseContextBackwards` で取得した接続元ノードを直接コンテキストとして渡す。
+6. ストリーミング中は assistant メッセージだけを更新し、キャンバス上のノードは変更しない。
+7. `apply_edit` / `write_artifact` の結果は ToolCard で diff または概要を表示した後、対象ノードの内部 revision が送信時から変わっていない場合だけ適用する。
+8. revision が変わっている場合は自動上書きせず、ToolCard に競合を表示する。
 
 ### UX3: エージェント編集
 
-1. チャット送信後、エージェントはツールを使って次の操作を実行する:
-   - `read_artifact`: 既存ファイルの内容を読む（編集前に必ず呼ぶ）
-   - `apply_edit`: search/replace で差分編集
-   - `write_artifact`: 新規ファイル作成または全体書き換え
-   - `list_artifacts`: ファイル一覧の取得
-   - `search_artifact`: 全文検索
-2. 各ツール呼び出しはチャット内に ToolCard として可視化される:
-   - `apply_edit` の場合は赤緑ハイライトの diff が表示される
-   - `write_artifact` の場合は作成されたファイルの概要が表示される
-3. ユーザーはストリーミング中に **Stop ボタン**で中断できる。
+エージェントは次のツールを利用する。
 
-### UX4: 既存 UI の温存
+- `read_artifact`: Artifact の source text と version/revision を読む。既存 Artifact は `read_artifact` または `read_canvas_node` で同じ revision を読んだ後だけ編集できる。
+- `apply_edit`: read 済みの Text / Artifact に対して、一意に一致する search/replace で差分編集する。
+- `write_artifact`: ユーザーが明示的に新規文書を求めた場合の作成、または read 済み対象 Artifact の全体置換を行う。対象がなく作成指示もない場合は勝手に新規作成しない。
+- `list_artifacts`: Artifact の一覧と識別情報を取得する。
+- `search_artifact`: Artifact の source text を全文検索する。
+- `list_canvas_nodes`: Canvas 内の全ノードについて nodeId、種別、短い識別情報だけを一覧する。本文や画像 binary は返さない。
+- `read_canvas_node`: 一覧で選んだ任意の Text / Artifact / Image ノードを追加コンテキストとして読む。Text / Artifact は Markdown source text、Image は画像参照とプロンプトを返す。
 
-- `EditorDrawer`（左）、`PromptBar`（下）、`SettingsDrawer` は**変更しない**。
-- `PromptBar` は「シンプル送信」として残し、「エージェント重い、ライトに送信したい」時の逃げ道とする。
+ツール呼び出しは ToolCard として可視化する。ユーザーは実行中に Stop できる。Stop 後に未適用の編集結果がキャンバスへ反映されてはならない。
+
+### UX4: セッション継続
+
+- チャットセッションは Canvas 本体とは別のアプリ設定領域へ保存する。
+- セッションには `canvasId` を持たせ、Canvas を再読込した時に同じ Canvas の会話だけを復元する。
+- メッセージには送信時の `targetNodeId` と version を記録し、後から対象を確認できるようにする。
+
+### UX5: 既存 UI の温存
+
+- `EditorDrawer` は Artifact 対応を追加するが、既存 Text / Image ノードの公開挙動を維持する。
+- `PromptBar` は既存のシンプル送信経路として維持する。
+- `SettingsDrawer` の既存設定と保存形式を壊さない。
 
 ## MVP Features
 
-### MVP-Sprint A: Artifact ノード（必須）
+### MVP-Sprint A: ノード編集
 
 | ID | 機能 | 優先度 |
-|---|---|---|
-| F-A1 | Artifact ノードの作成（`+ Artifact` ボタン） | P0 |
-| F-A2 | Artifact ノードのクリックで EditorDrawer を開く | P0 |
-| F-A3 | EditorDrawer での Markdown 編集・プレビュー切替 | P0 |
-| F-A4 | Artifact ノードカードに filename, version, charCount 表示 | P0 |
-| F-A5 | CanvasFile V1.2 への save/load 対応（後方互換） | P0 |
-| F-A6 | 起動時の最初の空 Artifact ノード自動生成 | P1 |
+| --- | --- | --- |
+| F-A1 | Artifact ノードの作成 | P0 |
+| F-A2 | Markdown の表示・pure text 編集・Preview | P0 |
+| F-A3 | Markdown export | P0 |
+| F-A4 | Artifact の filename / version / charCount 表示 | P0 |
+| F-A5 | Image のプロンプト表示・コピー | P0 |
+| F-A6 | CanvasFile V1.2 の save/load と旧版読込 | P0 |
+| F-A7 | 空キャンバスだけに初期 Artifact を生成 | P1 |
 
-### MVP-Sprint B: 右ドロワーチャット（必須）
-
-| ID | 機能 | 優先度 |
-|---|---|---|
-| F-B1 | ChatDrawer（右ドロワー）の開閉 | P0 |
-| F-B2 | ChatHeader に編集中ノードのファイル名表示 | P0 |
-| F-B3 | MessageList, MessageBubble, ChatInput の動作 | P0 |
-| F-B4 | チャットセッションの作成・切替 | P1 |
-| F-B5 | ノードクリック時の targetNode 自動連動 | P0 |
-| F-B6 | Wails SendChat スタブ（echo） | P0 |
-
-### MVP-Sprint C: エージェントループ（必須）
+### MVP-Sprint B: ChatDrawer
 
 | ID | 機能 | 優先度 |
-|---|---|---|
-| F-C1 | エージェントループ（最大 10 ステップ） | P0 |
-| F-C2 | 5 種類のツール実装（write/apply/read/list/search） | P0 |
-| F-C3 | ストリーミングイベント送出（Wails EventsEmit） | P0 |
-| F-C4 | フロントエンド側 EventsOn フック | P0 |
-| F-C5 | apply_edit 完了時のキャンバス反映 | P0 |
-| F-C6 | CancellationToken による中断 | P0 |
-| F-C7 | システムプロンプト（役割+ツール指示+応答形式） | P0 |
+| --- | --- | --- |
+| F-B1 | ChatDrawer の開閉・入力・メッセージ表示 | P0 |
+| F-B2 | フォーカス中ノードとの target 自動連動 | P0 |
+| F-B3 | フォーカス中ノードと接続元ノードの直接コンテキスト化 | P0 |
+| F-B4 | セッションの作成・明示的な切替 | P1 |
+| F-B5 | run / session / target を識別できるストリーム表示 | P0 |
+| F-B6 | Canvas ごとのチャット履歴永続化 | P0 |
+
+### MVP-Sprint C: エージェントループ
+
+| ID | 機能 | 優先度 |
+| --- | --- | --- |
+| F-C1 | 最大 10 ステップのエージェントループ | P0 |
+| F-C2 | Text / Artifact 編集と Artifact 検索の 5 ツール | P0 |
+| F-C3 | 任意ノードを発見・取得する `list_canvas_nodes` / `read_canvas_node` | P0 |
+| F-C4 | Wails ストリームイベントと ToolCard | P0 |
+| F-C5 | revision 照合と Frontend acknowledgment による競合防止 | P0 |
+| F-C6 | `context.Context` による中断 | P0 |
+| F-C7 | 役割・ツール指示・自然文応答形式を含むシステムプロンプト | P0 |
 
 ## Future Candidates
 
-### Post-MVP（Sprint D 以降）
-
 | ID | 機能 | 備考 |
-|---|---|---|
-| F-D1 | 文体プリセット（ラノベ調 / 文芸調 / 脚本調 / カスタム） | Settings に追記、ChatInput にセレクタ追加 |
-| F-D2 | Mindmap 整列トグル | `fm-mindmap` の `alignNodes` 移植、`graphUtils.ts` に `autoLayoutAsMindmap` 追加 |
-| F-D3 | 進捗カウンター（Artifact ノードカードの文字数目標%） | `ArtifactNodeData` に `targetChars` 追加 |
-| F-D4 | キャラクター相関図 | 色分けキャラクターノード + ラベル付き関係エッジ |
-| F-D5 | `fm-link-stash` MCP クライアントツール | Web URL の取り込み |
-| F-D6 | `fm-memo-chunk` MCP クライアントツール | テキストメモバックエンド |
-| F-D7 | `fm-image-assistant` `comfyui_generate` tool 統合 | チャプター挿絵の自動生成 |
-| F-D8 | 多言語 UI（英語版） | 既存 `fm-my-canvas/README.en.md` パターンを踏襲 |
-| F-D9 | Consistency Check ツール（章またぎ整合性） | 別 LLM での検証、`fm-image-assistant` の `DreamSim` パターンを参考 |
-
-### Out of Scope
-
-- モバイル / タッチ UI
-- リアルタイム共同編集（複数ユーザー）
-- クラウド同期
-- 音声入力・読み上げ
-- Web 版（Wails デスクトップのみ）
+| --- | --- | --- |
+| F-D1 | 文体プリセット | Settings / ChatInput |
+| F-D2 | Mindmap 整列トグル | `fm-mindmap` の整列処理を検討 |
+| F-D3 | 進捗カウンター | 目標文字数 |
+| F-D4 | キャラクター相関図 | 関係エッジ |
+| F-D5 | `fm-link-stash` MCP 連携 | Web 情報源 |
+| F-D6 | `fm-memo-chunk` MCP 連携 | メモ情報源 |
+| F-D7 | `fm-image-assistant` 連携 | 挿絵生成 |
+| F-D8 | 多言語 UI | 英語版 |
+| F-D9 | 複数 Artifact の整合性検査・一括編集 | 章またぎ編集 |
 
 ## Initial Non-Goals
 
-### 短期的にやらないこと
+- 外部 `.md` ファイルとの常時同期
+- 複数 Artifact への原子的な一括編集
+- チャットセッションの Canvas JSON への埋め込み
+- モバイル / タッチ UI
+- リアルタイム共同編集
+- クラウド同期
+- 音声入力・読み上げ
+- HTML / CSS / JS Artifact の iframe プレビュー
+- チャット UI からの画像生成
+- Web 版
 
-- **チャットセッションのキャンバスファイルへの埋め込み**: セッションは別ファイル（`~/.config/fm-doc-canvas/chat-sessions.json`）に保存する。
-- **複数 Artifact ノード横断編集の自動最適化**: 「章 1 と章 3 の整合性を取って」は F-D9 の将来課題。
-- **リアルタイム Markdown 共同編集**: シングルユーザー前提。
-- **iFrame プレビュー**: ChatGPT Artifact の HTML プレビュー相当は将来候補だが、本 MVP では Markdown レンダリングのみ。
-- **チャット UI からの画像生成トリガ**: 別途 PromptBar の `image` モードで実現済み。新規実装しない。
-- **チャット UI からのノード新規作成のトリガ**: エージェントループの `write_artifact` で新規 artifact ノードを作成できるが、チャット UI からの明示的な「ノードを作って」コマンドは将来課題。
+チャットからの新規 Artifact 作成は `write_artifact` で許可するが、専用のコマンド UI は MVP に含めない。

@@ -1,0 +1,122 @@
+# Planning Worklog
+
+worklog: enabled
+
+この worklog は、ユーザーが計画文書のレビュー後に作成を有効化したため、Step 0〜8 を既存 artifact と実施済みチェックから遡及記録したものである。今後の Step 9〜11 は各 step 完了時に追記する。
+
+## WL-001 — Step 0: Tier and active plan
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session + user decision
+- Purpose: 計画 tier、active plan、E2E、worklog 選択を確定する。
+- Sources and checks: `docs/plan_index.md`, `10_claim.md`〜`90_status.md`, `jj status`。
+- Actions: 既存 `plan_20260810_chat_artifact` を amend 対象として継続し、ユーザー指定により worklog を enabled にした。
+- Decision and rationale: UI、Canvas data、chat session、agent tool、Frontend/Backend 間の mutation protocol にまたがるため Full tier を維持する。Core E2E は scope 内とする。
+- Alternatives rejected or deferred: Patch / Light は変更範囲と architecture 判断を収容できないため不採用。新規 plan は既存 scope 内の amend なので作成しない。
+- Artifacts updated: `90_status.md`, `91_worklog.md`。
+- Open questions / risks: なし。
+- Handoff: Claim の価値命題とノード体験を確定する。
+
+## WL-002 — Step 1: Claim
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session + user review
+- Purpose: 「思考のワークベンチ」としての中心体験を、実装部品ではなくノード・文脈・編集の関係で表す。
+- Sources and checks: `docs/claim.md`, 既存 `10_claim.md`, ユーザーが確定した Text / Image / chat context の振る舞い。
+- Actions: Artifact を Canvas 内の論理 Markdown 文書と定義し、Text / Artifact の表示・pure text 編集・export、Image の画像+prompt、focus/connected/on-demand context を追記した。
+- Decision and rationale: focus node は直接 context、接続元は前提文脈、その他は agent tool で必要時に読む三層構成とした。全 Canvas の自動送信を避けつつ接続構造を活かせるため。
+- Alternatives rejected or deferred: 「外部 `.md` file と常時同期する Artifact」は MVP 外。複数 Artifact の同時 mutation は deferred。
+- Artifacts updated: `10_claim.md`。
+- Open questions / risks: provider/model ごとの tool calling と image input、複数 node mutation。
+- Handoff: Claim を product behavior と MVP feature に展開する。
+
+## WL-003 — Step 2: App Requirements
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session
+- Purpose: Claim をユーザーが観察できる node / chat / session behavior に変換する。
+- Sources and checks: `10_claim.md`, current `frontend/src/types/index.ts`, node/editor/export の既存挙動。
+- Actions: Text / Artifact / Image の UX、focus と session の独立、直接 context、revision conflict、Canvas ごとの session 復元、既存 UI の維持範囲を定義した。
+- Decision and rationale: target 変更で session は自動切替せず、ユーザーの明示操作にした。Artifact filename は表示名兼 export 既定名とし、file path にはしない。
+- Alternatives rejected or deferred: target 連動による session 自動切替、Canvas JSON への chat 埋込み、専用の新規 Artifact command UI は不採用または deferred。
+- Artifacts updated: `20_app_requirement.md`。
+- Open questions / risks: vision 非対応 model へ Image context を渡す際の fallback 表示。
+- Handoff: 各 behavior を検証可能な REQ と evidence class に分解する。
+
+## WL-004 — Step 3: Domain Primer assessment
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session
+- Purpose: 実装語彙とは別に domain primer が必要か判定する。
+- Sources and checks: `docs/claim.md`, `10_claim.md`, `20_app_requirement.md`, current project docs。
+- Actions: 新規 `docs/cheatsheet/domain_primer.md` は作成しなかった。
+- Decision and rationale: 対象は既存プロジェクトの Canvas/node/context/Markdown 編集を拡張するもので、外部 domain の追加ではない。必要な domain invariant は Claim と App Requirements に明示されている。
+- Alternatives rejected or deferred: 今回の plan 固有の UI/API 判断を domain primer に複製する案は、document role が重複するため不採用。
+- Artifacts updated: なし。
+- Open questions / risks: 将来、創作 workflow 固有の用語や完了条件が増えた場合は primer 作成を再評価する。
+- Handoff: local runtime と既存 API/型を確認し、未検証事項を分離する。
+
+## WL-005 — Step 4: Pre-implementation research
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session
+- Purpose: 詳細要件・仕様に使う既存 stack、file path、context traversal、検証 command を確認する。
+- Sources and checks: `mise.toml`, `frontend/package.json`, `frontend/src/types/index.ts`, `frontend/src/utils/graphUtils.ts`, ルート `app.go`, `backend/`, `jj status`。
+- Actions: Zustand 5.x、Frontend build script、root Wails binding、Frontend Zustand が Canvas state を保持する構造、`traverseContextBackwards` の順序/branch/loop behaviorを確認した。存在しない lint command と誤った `backend/app.go` path を計画から除いた。
+- Decision and rationale: 新規外部依存を追加せず、Canvas state は Frontend を正本、Backend は request-local snapshot を使う方針とした。
+- Alternatives rejected or deferred: 常設 Backend ArtifactManager を正本にする案は二重管理になるため不採用。
+- Artifacts updated: 確認結果を `30_requirement.md`, `40_specification.md`, `50_review_notes.md` に反映。新規 cheatsheet は未作成。
+- Open questions / risks: Ollama / OpenAI-compatible provider の tool calling、streaming delta、image input は本 repo で未検証。実装前に version/model/command/result を cheatsheet へ記録する必要がある。
+- Handoff: 検証可能な requirement と Core E2E を定義する。
+
+## WL-006 — Step 5: Requirements
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session
+- Purpose: Claim と App Requirements を、単一 evidence class を持つ受理可能な REQ にする。
+- Sources and checks: `10_claim.md`, `20_app_requirement.md`, current package/task 定義、既存 Canvas version。
+- Actions: Node/Markdown、Chat/Session、Agent/Context/Editing、Non-functional の 54 REQ を定義した。Text revision、7 tools、event correlation、Frontend acknowledgment、canvasId session、旧版 load→次回 save を要件化した。
+- Decision and rationale: `apply_edit` は read 済み Text / Artifact の一意一致だけを変更し、stale revision は拒否する。UI E2 と state/event E1 を分け、Core E2E 1〜9 を定義した。
+- Alternatives rejected or deferred: `REQ-B11` echo stub と重複 `REQ-N09` は廃止し、ID を再利用しない。`E1 or E2` は廃止した。
+- Artifacts updated: `30_requirement.md`。
+- Open questions / risks: 実機依存の `REQ-C12`, 性能計測 `REQ-N02/N03` は受理環境の証拠が必要。
+- Handoff: REQ を data model、protocol、tool contract、WP に trace する。
+
+## WL-007 — Step 6: Specification
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session
+- Purpose: Frontend/Backend 間で安全に context 読込と node mutation を行う実装設計を確定する。
+- Sources and checks: `30_requirement.md`, existing Zustand/Wails/file/context structures。
+- Actions: request-local Canvas snapshot、direct context IDs、7 tool contracts、run/session/tool correlation、revision/version 分離、mutation proposal → Frontend acknowledgment、Canvas/chat persistence、WP-A1〜WP-QA を定義した。
+- Decision and rationale: Backend は mutation proposal を送り、Frontend が revision 照合後に applied/conflict/cancelled/error を返す。Backend は acknowledgment 後だけ LLM へ tool success を返すため、LLM と Canvas の状態不一致を防げる。
+- Alternatives rejected or deferred: 一方向 `tool_done` 後の無条件適用、filename identity、全 Canvas 本文の初期 prompt 送信は不採用。
+- Artifacts updated: `40_specification.md`。
+- Open questions / risks: acknowledgment timeout、event batching、node/tool result size 上限は実装前検証で再確認する。
+- Handoff: 採用・却下・未検証事項を review notes に集約し、status を同期する。
+
+## WL-008 — Step 7: Review Notes and Status
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session
+- Purpose: review finding、採用判断、廃止 ID、受理表の traceability を揃える。
+- Sources and checks: `20_app_requirement.md`, `30_requirement.md`, `40_specification.md`, `frontend/package.json`, `mise.toml`。
+- Actions: `50_review_notes.md` を整理し、`90_status.md` に54 REQ、WP、plan checks を初期化した。Requirements/Status の ID 集合、重複、evidence class、WP 集合、旧用語、末尾空白を機械確認した。
+- Decision and rationale: plan state は実装未着手の `planned`、全 implementer state は `todo`、acceptance は未記入とした。
+- Alternatives rejected or deferred: 実装前に acceptance を埋めること、implementer 自身が done を宣言することは行わない。
+- Artifacts updated: `50_review_notes.md`, `90_status.md`。
+- Open questions / risks: pre-implementation provider research と性能 baseline が未実施。
+- Handoff: reviewer material の必要量を判定する。
+
+## WL-009 — Step 8: Reviewer material
+
+- Date: 2026-08-10
+- Actor/session: Codex planning session + user review
+- Purpose: 現在の review 形態に必要な reviewer material を判定する。
+- Sources and checks: ユーザーによる Claim/Requirements review、`50_review_notes.md`, `90_status.md`。
+- Actions: 独立した `60_review_packet.md` は作成せず、単一 reviewer の対話レビュー結果を Claim、Requirements、Specification、Review Notes、Status へ直接反映した。
+- Decision and rationale: 現時点は一人の reviewer が同じ plan set を確認しており、lane 分割や presentation 用 artifact は重複になる。`50_review_notes.md` が決定・risk・Open Questions の入口を担う。
+- Alternatives rejected or deferred: split review brief/board/checklist は multi-reviewer review が必要になった時まで deferred。実装開始前に compact review packet が必要になれば追加する。
+- Artifacts updated: `91_worklog.md`（本記録）。
+- Open questions / risks: Go / No-Go 前に `50_review_notes.md` の provider/model 検証項目を完了する必要がある。
+- Handoff: Step 9 implementation は `40_specification.md` と `90_status.md` に従い、実装証拠だけを更新する。

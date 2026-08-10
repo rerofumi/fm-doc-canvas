@@ -2,13 +2,36 @@
 
 ## Purpose
 
-`fm-doc-canvas` に「**思考のワークベンチ**」化と「**ChatGPT Artifact 風のエディタ統合**」を一気通貫で導入する。具体的には以下の 3 つを縦串で実装する:
+`fm-doc-canvas` に「**思考のワークベンチ**」化と「**ChatGPT Artifact 風のエディタ統合**」を一気通貫で導入する。接続ノードを前提文脈として利用し、対象 Artifact をチャットから安全に反復編集でき、保存・再読込後も成果物と会話を継続できる執筆ワークベンチを提供する。具体的には以下の 3 つを縦串で実装する:
 
-1. **Artifact ノード**: 1 ノード = 1 ファイル の Markdown ファイルを扱う新しいキャンバスノードタイプ。小説 / プロット / 長文ドキュメントをチャプターごとに構造化できる。
-2. **右ドロワーチャット (ChatDrawer)**: 既存 `EditorDrawer`（左）と対称な右ドロワー。編集中ノード（`activeNode`）がチャット対象として自動連動する。
-3. **エージェントループ**: 既存の `backend/llm.go` を tool calling 対応に拡張し、`write_artifact` / `apply_edit` / `read_artifact` / `list_artifacts` / `search_artifact` のツールを提供する。`fm-image-assistant` の `docs/cheatsheet/ollama-tool-calling.md` で確立された「役割 + ツール使用指示 + 結果後の応答形式（自然文、JSON 禁止）」のシステムプロンプト設計を継承する。
+1. **Artifact ノード**: 1 ノード = 1 論理 Markdown 文書として内容をノード内に保持する新しいキャンバスノードタイプ。Markdown としてエクスポートでき、ノード上では Markdown 装飾をレンダリングし、EditorDrawer では pure text の Markdown として編集できる。小説 / プロット / 長文ドキュメントをチャプターごとに構造化する。
+2. **右ドロワーチャット (ChatDrawer)**: 既存 `EditorDrawer`（左）と対称な右ドロワー。編集中（フォーカス中）のノードはチャット対象として自動連動し、そのノードが保持する情報を直接コンテキストへ渡す。
+3. **エージェントループ**: 既存の `backend/llm.go` を tool calling 対応に拡張し、`write_artifact` / `apply_edit` / `read_artifact` / `list_artifacts` / `search_artifact` の編集・検索ツールに加え、キャンバス上の任意ノードを必要に応じてコンテキストへ取り込むツールを提供する。`fm-image-assistant` の `docs/cheatsheet/ollama-tool-calling.md` で確立された「役割 + ツール使用指示 + 結果後の応答形式（自然文、JSON 禁止）」のシステムプロンプト設計を継承する。
 
-これにより、コードエディタ + コーディングエージェントで作っていた小説執筆・プロット作成を `fm-doc-canvas` で代替可能にし、思考の入口の摩擦をゼロに保ちながら、エージェントに編集を任せられる統合キャンバスに進化させる。
+これにより、コードエディタ + コーディングエージェントで行っていた小説執筆・プロット作成を、キャンバスの構造とチャットによる反復編集を往復できる体験へ置き換える。思考の入口をチャットに置きながら、得られた内容をノードとして構造化し、エージェントに編集を任せられる統合キャンバスへ進化させる。
+
+## Target Experience / Core Behavior
+
+### Text / Artifact ノード
+
+- ノード自身が Markdown の source text を保持する。
+- ノード上では Markdown 装飾をレンダリングして内容を読める。
+- EditorDrawer では Markdown を pure text として直接編集できる。
+- 内容は Markdown ファイルとしてエクスポートできる。
+- チャットからの `write_artifact` / `apply_edit` により内容を編集・更新できる。
+
+### Image ノード
+
+- ノード自身が画像と、その画像に対応する生成プロンプトを保持する。
+- ノード上でプロンプトを確認し、コピーして再利用できる。
+- チャットのコンテキストとして渡す場合は、画像とプロンプトを対になる情報として扱う。
+
+### Chat / Agent Context
+
+- 編集中（フォーカス中）のノードは、ユーザーが追加指定しなくてもチャットの直接コンテキストへ含める。
+- ノードの接続関係は、そのノードに至る前提文脈を構成するために利用する。
+- フォーカス中ノードと接続文脈だけでは不足する場合、エージェントはキャンバス上の任意ノードを読み込むツールを使い、必要な情報だけを追加コンテキストとして取得する。
+- テキスト系ノードからは Markdown source text、Image ノードからは画像とプロンプトを取得する。
 
 ## Background
 
@@ -93,6 +116,7 @@
 - `ChatDrawer.tsx` を新規作成（`EditorDrawer` の構造を踏襲: resize / transform / z-index / ヘッダー / フッター）
 - `ChatHeader.tsx`, `MessageList.tsx`, `MessageBubble.tsx`, `ToolCard.tsx`, `ChatInput.tsx` を新規作成
 - `App.tsx` に `ChatDrawer` を配置し、`activeNodeId` 連動の `setTarget` useEffect を追加
+- チャット送信時に、編集中ノードとその接続元ノードから直接コンテキストを構成する
 - `ChatToggleButton.tsx` を新規作成（ヘッダーの 💬 ボタン）
 - Wails `SendChat` のスタブ実装（まだ LLM は呼ばず echo するだけ）
 
@@ -106,6 +130,7 @@
   - `read_artifact`
   - `list_artifacts`
   - `search_artifact`
+  - キャンバス上の任意ノードを追加コンテキストとして読み込むツール（名称・入出力は Requirements / Specification で確定）
 - Wails `EventsEmit` でストリームイベント送信（`chat:stream`, `chat:tool_start`, `chat:tool_done`, `chat:done`, `chat:cancelled`）
 - フロントエンドの `EventsOn` フックを完成
 - `apply_edit` 完了時のキャンバス反映ロジックを完成（ToolCard 表示後にノード更新）
@@ -131,7 +156,7 @@
 ### 設計的不確実性
 
 4. **チャットセッションの永続化先**: 既存の `CanvasFile` には含めず、別ファイル（`~/.config/fm-doc-canvas/chat-sessions.json`）に保存するのが綺麗だが、Canvas ファイルと chat session を 1 つの「プロジェクト」として扱う需要が発生する可能性がある。
-5. **複数 Artifact ノードにまたがる編集**: 1 ノード = 1 ファイルが基本だが、「章 1 と章 3 の整合性を取って」のような複数 artifact 編集を `apply_edit` でどう表現するかは要検討。
+5. **複数 Artifact ノードにまたがる編集**: 1 ノード = 1 論理 Markdown 文書が基本だが、「章 1 と章 3 の整合性を取って」のような複数 artifact 編集を `apply_edit` でどう表現するかは要検討。任意ノードの読み込みはコンテキスト取得までとし、複数ノードへの同時書き込みを許可するかは Requirements / Specification で決定する。
 6. **ストリーミング中の `apply_edit` 競合**: ストリーム完了前の `chat:tool_done` で部分的に `apply_edit` が走った場合に、キャンバス上のノード更新が連鎖してレースコンディションが起きないか要検証。
 
 ### ユーザビリティ不確実性
