@@ -83,13 +83,13 @@
 
 | ID | Requirement | Verification method | Evidence class |
 | --- | --- | --- | --- |
-| REQ-N01 | V1.0 / V1.1 は読込時にそのまま runtime node へ変換し、次回保存時に V1.2 と `canvasId` を付与する。元ファイルを読込だけで書き換えない | fixture の load → save test | E1 |
-| REQ-N02 | 同一 PC・同一 build で cold start を各 5 回測定した中央値が変更前の 1.5 倍を超えない | 測定手順・結果表 | E2 |
-| REQ-N03 | 30 秒のチャットストリーミング中にノード移動と Drawer 開閉を行い、100ms を超える main-thread Long Task を新規に発生させない | DevTools Performance 記録 | E2 |
+| REQ-N01 | V1.0 / V1.1 は読込時にそのまま runtime node へ変換し、次回保存時に V1.2 と `canvasId` を付与する。元ファイルを読込だけで書き換えない | REQ-A07 / A08 の受理結果を代替証拠とし、専用 fixture test は closure waiver | EX |
+| REQ-N02 | 同一 PC・同一 build で cold start を各 5 回測定した中央値が変更前の 1.5 倍を超えない | 専用測定は closure waiver。通常利用で問題が生じた場合に再計測 | EX |
+| REQ-N03 | 30 秒のチャットストリーミング中にノード移動と Drawer 開閉を行い、100ms を超える main-thread Long Task を新規に発生させない | 専用測定は closure waiver。操作の引っ掛かりが生じた場合に再計測 | EX |
 | REQ-N04 | `mise run build` が exit code 0 で完了する | コマンド出力 | E1 |
 | REQ-N05 | `mise x -- npm --prefix frontend run build` が exit code 0 で完了し、TypeScript 型検査と Vite build が成功する | コマンド出力 | E1 |
-| REQ-N06 | API key は既存 `backend/config.go` の設定経路だけで扱い、source / test fixture / plan evidence に実値を保存しない | `rtk rg` と差分レビュー | E3 |
-| REQ-N07 | Markdown に script、event handler、javascript URL を入力しても実行されない | 既知 payload の UI 確認 | E2 |
+| REQ-N06 | API key は既存 `backend/config.go` の設定経路だけで扱い、source / test fixture / plan evidence に実値を保存しない | 専用 secret scan は closure waiver。credential 経路変更時に再検証 | EX |
+| REQ-N07 | Markdown に script、event handler、javascript URL を入力しても実行されない | 専用 payload test は closure waiver。外部由来の未信頼本文を扱う計画で再検証 | EX |
 | REQ-N08 | チャット履歴を Wails backend 経由でアプリ設定領域へ保存し、再起動後に復元できる | 保存 → アプリ再起動 → 復元の UI 確認 | E2 |
 | REQ-N10 | セッションは `canvasId` で分離し、別 Canvas のセッションを表示・送信対象にしない | 2 Canvas を使った persistence test | E1 |
 
@@ -130,7 +130,7 @@
 - `mise x -- go test ./...`
 - Tool、agent loop、event routing、snapshot、revision conflict、persistence の plan-defined unit / integration test
 
-### Core E2E in scope: yes
+### Core E2E: closure waiver（当初 in scope）
 
 1. 新規 Canvas を開き、初期 Artifact と Text を Markdown 表示・pure text 編集・export する。
 2. Text と Image を Artifact の上流へ接続し、Artifact をフォーカスして送信する。
@@ -143,6 +143,8 @@
 9. V1.0 / V1.1 fixture を読み、編集後に V1.2 として保存する。
 
 E2E framework は本計画では追加せず、UI 操作は手動 E2、ロジックと event routing は E1 test で補完する。
+
+2026-08-11 の closure 判断により、上記 1〜9 を一続きにした追加の Core E2E は実施しない。Sprint A〜C の個別受理と自動検証を代替証拠とし、横断回帰が疑われる場合に再導入する。
 
 ## Out of Scope
 
@@ -162,4 +164,4 @@ E2E framework は本計画では追加せず、UI 操作は手動 E2、ロジッ
 - 各 REQ に verification method と単一の evidence class がある。
 - 実装セッションは implementer state と evidence だけを更新する。
 - 別の受理セッションまたは人間が証拠を確認し、acceptance を記録する。
-- 全ての有効な REQ が pass した場合だけ `state: done` とする。
+- 全ての有効な REQ が pass、または理由・代替証拠・残余リスク・再検討条件を記録した EX として人間に受理された場合だけ `state: done` とする。

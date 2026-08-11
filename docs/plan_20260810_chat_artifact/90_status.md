@@ -1,6 +1,6 @@
 # Status
 
-state: implementing
+state: done
 worklog: enabled
 
 tier: Full
@@ -75,13 +75,13 @@ plan: plan_20260810_chat_artifact
 
 | ID | Requirement summary | Verification method | Evidence class | WP | Implementer state | Evidence | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| REQ-N01 | 旧版は load 時非破壊、次回 save で V1.2 | fixture load/save test | E1 | WP-A2 | todo | - | - |
-| REQ-N02 | cold start 中央値が既存の 1.5 倍以内 | 5 回測定結果 | E2 | WP-QA | todo | - | - |
-| REQ-N03 | streaming 操作中に新規 100ms 超 Long Task なし | DevTools 記録 | E2 | WP-QA | todo | - | - |
+| REQ-N01 | 旧版は load 時非破壊、次回 save で V1.2 | closure waiver | EX | WP-A2 | implemented | REQ-A07 / A08 の V1.2 save と旧版 load を受理済み。専用 fixture の load-only 非破壊確認は省略 | EX accepted — 専用テスト未実施。形式変更または旧版読込問題の報告時に再検証 |
+| REQ-N02 | cold start 中央値が既存の 1.5 倍以内 | closure waiver | EX | WP-QA | implemented | 日常利用で起動性能の課題を感じていないというユーザー判断。5 回測定は未実施 | EX accepted — 定量的な性能退行を見逃す残余リスク。体感悪化時に再計測 |
+| REQ-N03 | streaming 操作中に新規 100ms 超 Long Task なし | closure waiver | EX | WP-QA | implemented | 日常利用で操作応答の課題を感じていないというユーザー判断。DevTools 計測は未実施 | EX accepted — Long Task の定量証拠なし。引っ掛かり発生時に再計測 |
 | REQ-N04 | `mise run build` 成功 | command output | E1 | WP-QA | implemented | 受入セッションで `mise run build` exit 0、Wails bindings 生成・Windows executable 作成（2026-08-11） | pass |
 | REQ-N05 | Frontend TypeScript/Vite build 成功 | command output | E1 | WP-QA | implemented | 受入セッションで Wails production Frontend compile と `test:sprint-c` の Vite build が exit 0 | pass |
-| REQ-N06 | secret 実値を source/evidence に保存しない | rg/diff review | E3 | WP-QA | todo | - | - |
-| REQ-N07 | Markdown XSS payload が実行されない | UI payload test | E2 | WP-QA | todo | - | - |
+| REQ-N06 | secret 実値を source/evidence に保存しない | closure waiver | EX | WP-QA | implemented | 既存の config 経路を維持。専用 secret scan / 差分監査は未実施 | EX accepted — 見落としの残余リスク。credential 経路変更または公開前に再検証 |
+| REQ-N07 | Markdown XSS payload が実行されない | closure waiver | EX | WP-QA | implemented | 現行 Markdown 表示を維持。専用 payload test は未実施 | EX accepted — 未信頼本文の安全性を実証していない。外部 Context 取込前に再検証 |
 | REQ-N08 | chat history を backend 経由で再起動復元 | UI 再起動確認 | E2 | WP-B2 | implemented | `App.tsx` のload/debounce/切替flush、`ChatSessionService`、load error表示。Save JSON後の再起動Loadで復帰をユーザー確認 | pass |
 | REQ-N10 | session を canvasId で分離 | 2 Canvas persistence test | E1 | WP-B2 | implemented | Canvas切替時beginLoad、`TestChatSessionServiceSeparatesCanvases`、JSON wrapper/migration tests、`go test ./...` exit 0 | pass |
 
@@ -95,7 +95,15 @@ plan: plan_20260810_chat_artifact
 | Frontend build | `mise x -- npm --prefix frontend run build` exit 0 | implemented | Wails production build の TypeScript/Vite compile exit 0 | pass |
 | Frontend Sprint C tests | `mise x -- npm --prefix frontend run test:sprint-c` exit 0 | implemented | graph/context/mutation/count/conflict/create tests pass（2026-08-11） | pass |
 | Go tests / vet | `mise x -- go test ./...`; `mise x -- go vet ./...` exit 0 | implemented | 両 command exit 0（2026-08-11）。Ollama live test も受入セッションで pass | pass |
-| Core E2E | `30_requirement.md` の 1〜9 | todo | - | - |
+| Core E2E | `30_requirement.md` の 1〜9 | implemented | Sprint A〜C の個別ユーザー受理、Go/Frontend tests、build、Ollama/Gemini tool loop を代替証拠とする。一続きの 1〜9 は未実施 | EX accepted — 横断回帰の残余リスク。関連不具合または大きなフロー変更時に再導入 |
+
+## Closure Waivers
+
+2026-08-11、ユーザーは残存していた追加 QA を、現時点で課題を感じておらず計測・実施の便益が低いものとして closure 条件から除外し、本計画を閉じる判断を行った。
+
+- `EX accepted` は試験合格を意味しない。未実施内容、代替証拠、残余リスク、再検討条件を各行へ記録した closure waiver である。
+- REQ-N01 は REQ-A07 / A08、Core E2E は Sprint A〜C の個別受理と既存自動検証を代替証拠とする。
+- 性能問題、旧版読込問題、credential 経路変更、未信頼 Markdown の取込、横断フロー変更が生じた場合は該当項目を新しい計画で再検証する。
 
 ## Evidence Class Notes
 
@@ -112,6 +120,7 @@ plan: plan_20260810_chat_artifact
 | 2026-08-10 | User acceptance | Sprint A accepted | REQ-A01〜REQ-A14 を確認済み。Sprint B/C は未受理。 |
 | 2026-08-10 | User acceptance | Sprint B ChatDrawer/chat accepted | REQ-B01〜B07、REQ-B09、REQ-B10、REQ-B12、REQ-N08、REQ-N10 を確認済み。REQ-B08 は Sprint C/WP-C4。 |
 | 2026-08-11 | User acceptance + Codex acceptance session | Sprint C accepted | ユーザーが tool の実動作を確認し承認。REQ-B08、REQ-C01〜C21 を pass。Go/Frontend tests、vet、Wails build、Ollama `qwen3.5:4b` roundtrip を再実行し成功。 |
+| 2026-08-11 | User closure decision | Plan closed with explicit EX waivers | 残存 QA に現時点の課題を感じていないため、REQ-N01〜N03、N06、N07 と Core E2E を未実施のまま EX として受理。全機能 Sprint は受理済みのため `state: done`。 |
 
 ## Abandoned / No-Go Reason
 

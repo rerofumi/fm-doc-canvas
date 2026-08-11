@@ -40,3 +40,8 @@
 - Keep future feature plans, rejected options, and phase history under `docs/plan_*`.
 - Keep external API facts under `docs/cheatsheet/` with source links and confirmation dates.
 
+## 2026-08-11 Chat / Artifact Plan Closure
+
+- `docs/plan_20260810_chat_artifact/` の Sprint A〜C はユーザー受理と自動検証を完了し、plan state を `done` とした。
+- Artifact、CanvasFile V1.2、ChatDrawer、Canvas 別 session、request-local snapshot、agent tool、revision acknowledgment の確定挙動を current docs へ反映した。
+- 残存していた性能測定、専用 compatibility/secret/XSS 検証、横断 Core E2E は、現時点で実利用上の課題を感じていないというユーザー判断により EX waiver とした。試験合格を意味せず、詳細な残余リスクと再検討条件は同計画の `90_status.md` に残す。

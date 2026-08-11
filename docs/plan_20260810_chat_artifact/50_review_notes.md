@@ -94,6 +94,14 @@
 3. `chat:stream` の頻度が Wails event queue と React render に与える影響を測定し、必要なら chunk を batch する。
 4. 数万字 Markdown の node preview / EditorDrawer rendering 性能を測定する。
 5. Image node の `src` を vision request へ解決する既存 API 経路を確認する。
+
+## Closure Decision — 2026-08-11
+
+- ユーザー判断により、残存していた REQ-N01〜N03、N06、N07 と Core E2E は追加実施せず、本計画を閉じる。
+- これらは `pass` と偽装せず、`90_status.md` で未実施内容・代替証拠・残余リスク・再検討条件を持つ `EX accepted` として記録する。
+- 性能や操作応答は現時点の実利用で課題を感じていない。専用測定は体感悪化が生じた場合に行う。
+- 旧版互換は REQ-A07 / A08、横断動作は Sprint A〜C の個別受理と自動検証を代替証拠とする。
+- secret / XSS の専用検証は省略するが、credential 経路変更、公開前確認、外部由来の未信頼 Markdown 取込を行う際は新しい計画で再検証する。
 6. `read_canvas_node` の tool result size 上限と search snippet 上限を実装前に確定する。
 7. worklog を enabled / disabled のどちらにするかユーザー確認待ち。
 
@@ -125,3 +133,4 @@
 - 2026-08-10: Claim レビューを反映。論理 Markdown 文書、focus context、connected context、任意 node tool、event correlation、revision acknowledgment、canvasId session、検証可能性を 20 以降へ反映。
 - 2026-08-10: User decision を反映。Artifact の user-facing `version` は廃止し、内部競合検出用 `revision` のみ保持する。
 - 2026-08-11: Gemini OpenAI compatibility の tool-loop 400 を受け、REQ-C21 と provider metadata 透過保持仕様を追加した。
+- 2026-08-11: ユーザーの closure 判断を反映。残存 QA を EX waiver として受理し、計画を `done` とした。

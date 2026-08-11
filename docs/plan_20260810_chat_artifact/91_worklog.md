@@ -336,3 +336,13 @@ worklog: enabled
 - Acceptance result: REQ-B08、REQ-C01〜C21、REQ-N04、REQ-N05、および該当 Plan Checks を pass とした。
 - Scope boundary: REQ-N01〜N03、N06、N07 と Core E2E は未実施。計画全体は `state: implementing` を維持し、Sprint C 受入だけを完了とする。
 - Handoff: 残るWP-QAとCore E2Eを別途実施し、全要件がpassした時点で計画全体のclosureを判断する。
+
+## WL-032 — Steps 10–11: Plan closure and documentation feedback
+
+- Date: 2026-08-11
+- Actor/session: User closure decision + Codex acceptance/documentation session
+- Purpose: 残存 QA の扱いを明示し、`plan_20260810_chat_artifact` を閉じて現行文書へ確定挙動を反映する。
+- Inputs: ユーザーは残存項目に実利用上の課題を感じておらず、追加計測・検証を行わず close してよいと判断した。Sprint A〜C は既に個別受理済み。
+- Actions: REQ-N01〜N03、N06、N07 と Core E2E を未実施の `pass` ではなく、代替証拠・残余リスク・再検討条件を持つ `EX accepted` として記録した。`90_status.md` と `docs/plan_index.md` を `done` へ同期し、現行 app requirements / requirements / specification / review notes と次期 roadmap を更新した。
+- Decision and rationale: 現時点で価値の低い測定を closure のためだけに実施しない。一方で試験済みとは扱わず、性能悪化、旧版読込問題、credential 経路変更、未信頼 Markdown 取込、横断回帰が生じた場合の再検証条件を残す。
+- Result: 本計画は `state: done`。次の改善は `docs/plan_20260811_1/05_roadmap.md` 上で独立計画として検討する。
