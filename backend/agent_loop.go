@@ -258,6 +258,14 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 }
 
 func awaitApproval(ctx context.Context, state *agentRunState, proposal *ToolApplyProposal) toolResult {
+	// Carry the immutable request scope through the human acknowledgement
+	// handshake. The frontend must echo it, otherwise a late decision cannot
+	// be correlated safely with the run that produced the proposal.
+	proposal.WorkspaceID = state.request.WorkspaceID
+	proposal.CanvasID = state.request.CanvasID
+	proposal.RuntimeGeneration = state.request.RuntimeGeneration
+	proposal.ScopeEpoch = state.request.ScopeEpoch
+	proposal.RunEpoch = state.request.RunEpoch
 	result := state.approve(ctx, proposal)
 	switch result.Status {
 	case "applied":

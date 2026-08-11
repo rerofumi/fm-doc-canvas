@@ -157,3 +157,103 @@ worklog: enabled
 - Artifacts updated: `20_app_requirement.md`、`30_requirement.md`、`40_specification.md`、`50_review_notes.md`、`60_review_packet.md`、`90_status.md`、`91_worklog.md`。
 - Open questions / risks: humanのDecisions Needed、Playwright / Wails binding / cleanup実測、native WebView2 smokeは未実施で、statusはplanned / todoのまま。
 - Handoff to next step: `60_review_packet.md`でhuman reviewし、承認後に`40_specification.md` WP-0からimplementationを開始する。
+
+## WL-013 — Step 9: Implementation session (F-1 foundation)
+
+- Date: 2026-08-11
+- Actor/session: Oz implementation session
+- Purpose: WP-0 seams + WP-1/2/3 foundation code for D-12 / D-02 / F-1 without self-acceptance.
+- Sources and checks: `40_specification.md` WP-0〜4, `30_requirement.md`, domain primer, cheatsheet wails_playwright_e2e. Commands: `go test -count=1 ./...` pass, `go vet ./...` pass, `npm --prefix frontend run test` pass (sprint-c + domainFoundation), `npm --prefix frontend run build` pass. Toolchain: Go 1.26.1, Node 24.14.1, npm 11.11.0, Wails v2.12.0.
+- Actions: Added backend ports/composition options, frontend domain model/commands/persistence/context resolver/projection, domain-backed store, blank start UI, Folder/breadcrumb/ContextPreview, import filename, mise pin, domain tests. Playwright E2E remains HOLD with failing `mise run e2e` stub.
+- Decision and concise rationale: Proceeded with logic-testable domain/UI while keeping Core E2E non-waived and runner HOLD. Acceptance columns left blank.
+- Alternatives rejected or deferred: Waiving CE2E, marking Playwright adopted without browser smoke, filling Acceptance in implementer session.
+- Artifacts updated: backend/ports*.go, app.go, frontend/src/domain/*, store, App/UI components, mise.toml, package scripts, 90_status.md, cheatsheet.
+- Open questions / risks: WP-0 Playwright/Wails smoke; full scoped Chat/Proposal DTO path; Wails production build re-run; native smoke; human UX review.
+- Handoff to next step: Complete WP-0 runner Go or amend runner; finish WP-4 proposal protocol; run `mise run build`; acceptance session only after CE2E path exists or plan amend.
+
+## WL-014 — Step 9: WP-0 Playwright Go
+
+- Date: 2026-08-11
+- Actor/session: Oz implementation session
+- Purpose: Complete WP-0 runner Go criteria with real browser + Wails binding smoke.
+- Sources and checks: `mise run e2e` exit 0; Playwright 1.62.1; channel msedge; `Greet("WP0")` via `window.go`; process-tree cleanup; temp root removed; go test + frontend test still pass afterward.
+- Actions: Added `@playwright/test@1.62.1`, `playwright.config.ts`, `e2e/wp0-binding-smoke.spec.ts`, orchestrator `e2e/run-e2e.mjs`, `FM_E2E` composition root in `app.go`, ConfigStore adapter. Regenerated Wails bindings include `GetRuntimeEnvironment`.
+- Decision and concise rationale: Adopt Playwright 1.62.1 as Core E2E runner. Product CE2E-01〜05 still required; native WebView2 smoke remains REQ-17.
+- Alternatives rejected or deferred: EX waiver for Core E2E; pure logic tests as E2E substitute.
+- Artifacts updated: frontend e2e/*, package.json/lockfile, app.go, backend config adapter, cheatsheet, 90_status, worklog.
+- Open questions / risks: Wails still opens native window during `wails dev`; external browser shows `runtime:ready` unknown-message noise; full CE2E scenarios not yet automated.
+- Handoff to next step: Implement CE2E-01〜05 on this harness; finish WP-4 proposal path; run Wails production build before acceptance.
+
+## WL-015 — Step 9: CE2E-01〜05 product scenarios
+
+- Date: 2026-08-11
+- Actor/session: Oz implementation session
+- Purpose: Implement and green Core E2E product scenarios on the WP-0 Playwright harness.
+- Sources and checks: `mise run e2e` → 7 passed (wp0-binding-smoke + CE2E-01〜05 + keyboard). Frontend build and go test remain green.
+- Actions: Added `frontend/src/runtime/e2eBridge.ts` (mode=e2e only), FixedDialog path injection in FileService, CE2E helpers/specs, New Workspace clears memory-only Dialogue via workspace generation effect. Orchestrator runs full `e2e/` suite with temp fixtures.
+- Decision and concise rationale: Use a narrow `__E2E__` bridge for deterministic domain/file operations while keeping real Wails Go bindings for Greet/Save/Load/Export. Native dialogs bypassed only under FM_E2E fixed paths.
+- Alternatives rejected or deferred: Mocking away Go bindings entirely; EX waiver for CE2E.
+- Artifacts updated: e2e/*, e2eBridge, App.tsx, backend/file.go, app.go, 90_status, worklog.
+- Open questions / risks: Wails native window still opens during dev-server E2E; `runtime:ready` noise; REQ-17 native smoke and human UX (REQ-19) still separate; full proposal Stop/race matrix is lighter than CE2E-04 ideal wording.
+- Handoff to next step: Acceptance session re-runs `mise run e2e`, `mise run build`, native smoke; finish remaining WP-4 depth if acceptance requires fuller proposal protocol.
+
+## WL-016 — Step 10: Acceptance session
+
+- Date: 2026-08-11
+- Actor/session: Codex acceptance session
+- Purpose: 実装者の自己申告と分離して、F1 の要求表・自動検証・未完了リスクを受入判定する。
+- Sources and checks: `30_requirement.md`、`40_specification.md`、更新後 `90_status.md`、実装コード、`frontend/e2e/`。`mise run test`、`mise exec -- go vet ./...`、`mise run build`、`mise run e2e` を受入側で再実行。
+- Actions: Go test、Frontend logic test/build、Wails production build、WP-0 binding smoke + CE2E-01〜05 + keyboard smoke の7件を確認し、`90_status.md` の Acceptance 列と Acceptance Log を更新した。
+- Decision and concise rationale: 自動検証は全て pass。ただし REQ-04/06〜11/13/15 は実装または検証範囲が不足し、REQ-17 native WebView2 smoke と REQ-19 human UX review は未実施のため、F1 全体は `done` としない。計画状態は `accepting` とする。
+- Alternatives rejected or deferred: E2E 7件の passだけで全REQを受入済みとすること、CE2E-05の弱いundo assertionをREQ-13の十分な証拠とすること、native smoke / human reviewを自動E2Eで代替すること。
+- Artifacts updated: `docs/plan_20260811_collaborative_workspace/90_status.md`。
+- Open questions / risks: Chat DTO/history bounded context、proposal reject/Stop/two-phase ack、Backend stale-result compare-and-apply、cross-canvas Relation projection、strict undo failure assertion、native WebView2操作、human UX review。
+- Handoff to next step: 未受入REQを実装・テスト補完後、同じ受入表を再実行し、REQ-17/19の別証拠を追加する。
+
+## WL-017 — Step 9: Implementation handoff completion
+
+- Date: 2026-08-12
+- Actor/session: Codex implementation handoff
+- Purpose: 前回受入で残った自動検証可能な不備を実装し、受入可能な証拠へ補完する。
+- Sources and checks: 前回の受入表、`30_requirement.md`、`40_specification.md`、Context Resolver、Chat/Proposal DTO、既存CE2E。
+- Actions: PromptBarのDirect Actionを共有resolver/allowlist経路へ統一。Proposal decision APIをaccept/modify/reject/cancelへ統合し、ToolCardのModify/Reject/Stop UI、相関情報付きResolveを実装。Go側scope envelope/Resolve相関検証、cross-canvas/Dialogue history/undo/proposalの受入テストを補完。CE2Eに実際のModify/Reject/Stop操作を追加。
+- Decision and concise rationale: 未確認の旧Direct traversalとUIだけの見せかけのproposal操作を残さず、同じstate machineを画面・ドメイン・backend ackで通す。native WebView2と人手UXは自動E2Eの証拠とは分離する。
+- Artifacts updated: PromptBar、ToolCard、useAppStore、proposal/runScope/chat DTO、backend canvas/chat scope、`frontend/e2e/`、`frontend/src/tests/acceptanceGaps.test.ts`、`90_status.md`。
+- Open questions / risks: REQ-17 native smoke、REQ-19 human UX review、native app終了を含むREQ-06は未確認。
+- Handoff to next step: 受入セッションで全コマンドを再実行し、90_statusのAcceptanceを更新する。
+
+## WL-018 — Step 10: Acceptance session
+
+- Date: 2026-08-12
+- Actor/session: Codex acceptance session
+- Purpose: 引き継ぎ後のコード、テスト、Wails build、Core E2Eを独立に再確認する。
+- Sources and checks: 更新後の実装コード、`frontend/e2e/`、`backend/*_test.go`、`90_status.md`。`mise run test`、`mise exec -- go vet ./...`、`mise run build`、`mise run e2e`を再実行。
+- Actions: Go tests/backend scope tests、frontend sprint-c/domain/acceptance-gap tests、Go vet、Windows/amd64 Wails production build、Playwright/msedge Core E2Eを確認。最終E2EはWP0 + CE2E + gap suiteの11/11 pass、temp root cleanupを確認。
+- Decision and concise rationale: REQ-04/07〜11/13/15/16は自動受入pass。REQ-06/17/19はnative app終了・WebView2 native smoke・human UX判断が未実施のため、F1のstateは`accepting`のままとする。
+- Artifacts updated: `90_status.md`、`91_worklog.md`。
+- Open questions / risks: E2EログにWails devの`runtime:ready` unknown-message noise、Node shell deprecation warning、Browserslist stale noticeが残るが、テスト結果とcleanupはpass。REQ-17/19の実施条件は各protocol文書に残す。
+- Handoff to next step: Windows native smokeとhuman UX reviewを実施できる担当者へ引き継ぐ。両方の証拠が揃えば最終受入を再判定する。
+
+## WL-019 — Step 10: REQ-06 acceptance update
+
+- Date: 2026-08-12
+- Actor/session: User acceptance session
+- Purpose: REQ-06 の native app 終了・再起動時の Dialogue lifetime を確認する。
+- Sources and checks: `30_requirement.md` REQ-06、`40_specification.md` §11、`90_status.md`、実装済み Windows アプリ。
+- Actions: Dialogue session を作成後、アプリを終了・再起動し、Dialogue session が復元されないことを確認した。
+- Decision and concise rationale: Dialogue は memory-only として扱われ、アプリ終了後に残存・復元しないため REQ-06 を accept とする。
+- Artifacts updated: `90_status.md`、`91_worklog.md`。
+- Open questions / risks: REQ-17 native WebView2 smoke と REQ-19 human UX review は別要件として未実施。
+- Handoff to next step: REQ-17/19の確認後、F1全体の最終受入を再判定する。
+
+## WL-020 — Step 10: Final acceptance
+
+- Date: 2026-08-12
+- Actor/session: User acceptance session
+- Purpose: REQ-17 native smoke と REQ-19 human UX review を実施し、F1全体の受入判定を確定する。
+- Sources and checks: `native_smoke_req17.md`、`human_ux_req19.md`、`90_status.md`、`mise run build` で生成した native app。
+- Actions: Native app の全REQ-17手順、Dialogue終了・再起動、REQ-19の代表journeyと判断項目を確認した。
+- Decision and concise rationale: 全機能が動作することを確認。細かいUI挙動は既知の非ブロッカーとして受容し、REQ-17/REQ-19をpass、F1を`done`とする。
+- Artifacts updated: `native_smoke_req17.md`、`human_ux_req19.md`、`90_status.md`、`91_worklog.md`。
+- Open questions / risks: 既知の細かいUI挙動は受入後の改善候補だが、F1受入を妨げない。
+- Handoff to next step: F1 foundation slice は受入完了。後続機能は別planで扱う。

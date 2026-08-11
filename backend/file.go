@@ -12,14 +12,19 @@ import (
 
 // ImportFileResult represents the result of importing a file
 type ImportFileResult struct {
-	Type    string `json:"type"`    // "text" or "image"
-	Content string `json:"content"` // For text: file content. For image: relative path.
+	Type     string `json:"type"`               // "text" or "image"
+	Content  string `json:"content"`            // For text: file content. For image: relative path.
+	Filename string `json:"filename,omitempty"` // original basename for text imports
 }
 
 // FileService handles native file dialogs and file system I/O for canvas data
 type FileService struct {
 	ctx           context.Context
 	configService *ConfigService
+	// optional E2E fixed paths; when set, native dialogs are bypassed
+	fixedSavePath   string
+	fixedOpenPath   string
+	fixedExportPath string
 }
 
 // ExportImage opens a save dialog and copies the image from internal storage to the selected path
@@ -100,6 +105,13 @@ func NewFileService(configService *ConfigService) *FileService {
 	}
 }
 
+// SetFixedDialogPaths configures dialog bypass paths for E2E composition.
+func (s *FileService) SetFixedDialogPaths(savePath, openPath, exportPath string) {
+	s.fixedSavePath = savePath
+	s.fixedOpenPath = openPath
+	s.fixedExportPath = exportPath
+}
+
 // SetContext updates the context used for Wails runtime calls
 func (s *FileService) SetContext(ctx context.Context) {
 	s.ctx = ctx
@@ -119,8 +131,9 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 		if err != nil {
 			return result, fmt.Errorf("failed to read text file: %w", err)
 		}
-		result.Type = "text"
+result.Type = "text"
 		result.Content = string(content)
+		result.Filename = filepath.Base(filePath)
 
 	case ".png", ".jpg", ".jpeg", ".webp":
 		// Resolve the download path
@@ -181,15 +194,22 @@ func (s *FileService) SaveCanvasToFile(jsonData string) (string, error) {
 		},
 	}
 
-	filePath, err := runtime.SaveFileDialog(s.ctx, options)
-	if err != nil {
-		return "", fmt.Errorf("failed to open save dialog: %w", err)
+filePath := s.fixedSavePath
+	var err error
+	if filePath == "" {
+		filePath, err = runtime.SaveFileDialog(s.ctx, options)
+		if err != nil {
+			return "", fmt.Errorf("failed to open save dialog: %w", err)
+		}
 	}
 
 	if filePath == "" {
 		return "", nil // User cancelled
 	}
 
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create save directory: %w", err)
+	}
 	err = os.WriteFile(filePath, []byte(jsonData), 0644)
 	if err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
@@ -223,15 +243,27 @@ func (s *FileService) ExportMarkdownWithFilename(content string, defaultFilename
 		},
 	}
 
-	filePath, err := runtime.SaveFileDialog(s.ctx, options)
-	if err != nil {
-		return "", fmt.Errorf("failed to open save dialog: %w", err)
+filePath := s.fixedExportPath
+	var err error
+	if filePath == "" {
+		filePath, err = runtime.SaveFileDialog(s.ctx, options)
+		if err != nil {
+			return "", fmt.Errorf("failed to open save dialog: %w", err)
+		}
+	} else if defaultFilename != "" {
+		// Keep suggested basename when export path is a directory-like fixed root file.
+		if strings.HasSuffix(strings.ToLower(filePath), string(filepath.Separator)) || filepath.Ext(filePath) == "" {
+			filePath = filepath.Join(filePath, defaultFilename)
+		}
 	}
 
 	if filePath == "" {
 		return "", nil // User cancelled
 	}
 
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return "", fmt.Errorf("failed to create export directory: %w", err)
+	}
 	err = os.WriteFile(filePath, []byte(content), 0644)
 	if err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
@@ -293,9 +325,13 @@ func (s *FileService) LoadCanvasFromFile() (string, error) {
 		},
 	}
 
-	filePath, err := runtime.OpenFileDialog(s.ctx, options)
-	if err != nil {
-		return "", fmt.Errorf("failed to open file dialog: %w", err)
+filePath := s.fixedOpenPath
+	var err error
+	if filePath == "" {
+		filePath, err = runtime.OpenFileDialog(s.ctx, options)
+		if err != nil {
+			return "", fmt.Errorf("failed to open file dialog: %w", err)
+		}
 	}
 
 	if filePath == "" {

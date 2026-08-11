@@ -28,6 +28,8 @@ export function GetImageDataURL(arg1:string):Promise<string>;
 
 export function GetImageFileURL(arg1:string):Promise<string>;
 
+export function GetRuntimeEnvironment():Promise<Record<string, any>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ImportFile(arg1:string):Promise<backend.ImportFileResult>;

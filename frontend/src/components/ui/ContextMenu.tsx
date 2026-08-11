@@ -7,6 +7,7 @@ interface ContextMenuProps {
   onDelete: () => void;
   onExport?: () => void;
   onExportMarp?: () => void;
+  onCreateSubCanvas?: () => void;
   label?: string;
 }
 
@@ -17,6 +18,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onDelete,
   onExport,
   onExportMarp,
+  onCreateSubCanvas,
   label = "Item",
 }) => {
   // Close menu when clicking outside
@@ -46,6 +48,20 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           {label} Options
         </span>
       </div>
+
+{onCreateSubCanvas && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onCreateSubCanvas();
+            onClose();
+          }}
+          className="w-full flex items-center px-3 py-2 text-sm text-amber-700 hover:bg-amber-50 transition-colors text-left font-medium"
+          aria-label="Create SubCanvas"
+        >
+          Create SubCanvas
+        </button>
+      )}
 
       {/* Export options */}
       {onExport && (

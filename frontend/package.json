@@ -7,6 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test:sprint-c": "vite build --config vite.test.config.ts && node .test-dist/sprintC.test.mjs",
+    "test:domain": "vite build --config vite.domain-test.config.ts && node .test-dist/domainFoundation.test.mjs",
+    "test:acceptance-gaps": "vite build --config vite.acceptance-test.config.ts && node .test-dist/acceptanceGaps.test.mjs",
+    "test": "npm run test:sprint-c && npm run test:domain && npm run test:acceptance-gaps",
+    "test:e2e": "node ./e2e/run-e2e.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -21,6 +25,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@tailwindcss/typography": "^0.5.19",
     "@types/react": "^18.3.10",
     "@types/react-dom": "^18.3.0",
@@ -32,3 +37,4 @@
     "vite": "^5.4.8"
   }
 }
+

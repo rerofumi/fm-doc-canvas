@@ -1,7 +1,16 @@
 export type ChatRole = "user" | "assistant";
 export type ChatMessageStatus = "streaming" | "complete" | "cancelled" | "error";
 
-export type ToolCardStatus = "running" | "applied" | "conflict" | "cancelled" | "error" | "done";
+export type ToolCardStatus =
+  | "running"
+  | "proposed"
+  | "applied"
+  | "rejected"
+  | "conflict"
+  | "cancelled"
+  | "stale"
+  | "error"
+  | "done";
 
 export interface ChatToolEvent {
   toolCallId: string;
@@ -23,6 +32,11 @@ export interface ChatToolProposal {
   searchText?: string;
   replacement?: string;
   lastEditSummary?: string;
+  workspaceId?: string;
+  canvasId?: string;
+  runtimeGeneration?: string;
+  scopeEpoch?: number;
+  runEpoch?: number;
 }
 
 export interface ChatMessage {
@@ -56,6 +70,13 @@ export interface ChatRequest {
   prompt: string;
   targetNodeId?: string;
   directContextNodeIds: string[];
+  bodyAllowlistNodeIds?: string[];
+  workspaceId?: string;
+  runtimeGeneration?: string;
+  scopeEpoch?: number;
+  runEpoch?: number;
+  contextDigest?: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
   contextWarning?: { kind: "branch" | "loop"; message: string };
   snapshot: { canvasId: string; nodes: ChatNodeSnapshot[]; edges: ChatEdgeSnapshot[] };
 }

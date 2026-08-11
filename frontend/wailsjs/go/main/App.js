@@ -54,6 +54,10 @@ export function GetImageFileURL(arg1) {
   return window['go']['main']['App']['GetImageFileURL'](arg1);
 }
 
+export function GetRuntimeEnvironment() {
+  return window['go']['main']['App']['GetRuntimeEnvironment']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }

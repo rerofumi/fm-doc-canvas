@@ -26,6 +26,9 @@ export interface TextNodeData extends Record<string, unknown> {
   revision?: number; // 競合検出用の content mutation counter
   charCount?: number;
   wordCount?: number;
+  filename?: string; // hidden when role is text
+  domainKind?: "text";
+  domainRole?: "text" | "artifact";
 }
 
 export interface ArtifactNodeData extends Record<string, unknown> {
@@ -38,6 +41,9 @@ export interface ArtifactNodeData extends Record<string, unknown> {
   wordCount: number;
   lastEditSummary?: string;
   lastEditedAt?: number;
+  originalPrompt?: string;
+  domainKind?: "text";
+  domainRole?: "text" | "artifact";
 }
 
 // Image Node Data (New)
@@ -53,15 +59,24 @@ export interface ImageNodeData extends Record<string, unknown> {
   prompt?: string;
   provider?: string;
   model?: string;
+  domainKind?: "image";
+}
+
+export interface FolderNodeData extends Record<string, unknown> {
+  label: string;
+  childCanvasId: string;
+  domainKind?: "folder";
+  badgeCount?: number;
 }
 
 // Node Types
-export type NodeData = TextNodeData | ArtifactNodeData | ImageNodeData;
+export type NodeData = TextNodeData | ArtifactNodeData | ImageNodeData | FolderNodeData;
 
 // Import File Result (Backend interaction)
 export interface ImportFileResult {
   type: "text" | "image";
   content: string; // text: content itself, image: relative path
+  filename?: string;
 }
 
 /** =========================
@@ -127,7 +142,10 @@ export type ImageGenProvider = "openrouter" | "openai" | "google" | "xai";
 
 // アプリケーション上のノード定義（Runtime）
 // React Flow の Node 型を拡張
-export type AppNode = Node<NodeData, "customNode" | "artifactNode" | "imageNode">;
+export type AppNode = Node<
+  NodeData,
+  "customNode" | "artifactNode" | "imageNode" | "folderNode"
+>;
 
 // ライン（エッジ）定義（Runtime）
 // React Flow の Edge 型を拡張
@@ -164,7 +182,19 @@ export interface AppState {
   deleteEdge: (id: string) => void;
   setPromptInput: (value: string) => void;
   appendPromptInput: (value: string) => void;
-  applyToolProposal: (proposal: ChatToolProposal) => { status: "applied" | "conflict" | "error"; error?: string };
+  applyToolProposal: (proposal: ChatToolProposal, runId?: string) => {
+    status: "applied" | "rejected" | "conflict" | "error";
+    error?: string;
+  };
+  decideToolProposal: (
+    proposal: ChatToolProposal,
+    decision: "accept" | "modify" | "reject" | "cancel",
+    runId?: string,
+    modifiedContent?: string,
+  ) => {
+    status: "applied" | "rejected" | "conflict" | "error";
+    error?: string;
+  };
 
   // Backend actions
   loadConfig: () => Promise<void>;
@@ -196,7 +226,7 @@ export interface AppState {
  *  永続化モデル（Persisted）
  *  ========================= */
 
-export type CanvasFileVersion = "1.0" | "1.1" | "1.2";
+export type CanvasFileVersion = "1.0" | "1.1" | "1.2" | "1.3";
 
 export interface PersistedTextNode {
   id: string;

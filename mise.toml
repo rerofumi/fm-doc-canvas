@@ -1,8 +1,10 @@
 [tools]
-node = "lts"
-go = "latest"
+node = "24.14.1"
+go = "1.26.1"
 
 [tasks]
-setup = { run = "go install github.com/wailsapp/wails/v2/cmd/wails@latest", description = "Install Wails CLI" }
+setup = { run = "go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0", description = "Install Wails CLI v2.12.0" }
 dev = { run = "wails dev", description = "Run Wails in development mode" }
 build = { run = "wails build", description = "Build the Wails application" }
+test = { run = "go test -count=1 ./... && npm --prefix frontend run test", description = "Run Go and Frontend logic tests" }
+e2e = { run = "npm --prefix frontend run test:e2e", description = "Core E2E (Playwright after WP-0 Go)" }

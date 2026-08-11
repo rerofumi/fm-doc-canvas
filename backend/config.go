@@ -179,6 +179,8 @@ type ConfigService struct {
 	config     *Config
 	configPath string
 	mu         sync.RWMutex
+	// optional injected store used by E2E composition (no OS user-config side effects)
+	store ConfigStore
 }
 
 // NewConfigService creates a new instance of ConfigService
@@ -219,6 +221,9 @@ func NewConfigService() (*ConfigService, error) {
 func (s *ConfigService) GetConfig() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.store != nil {
+		return s.store.GetConfig()
+	}
 	return *s.config
 }
 
@@ -228,6 +233,14 @@ func (s *ConfigService) Save(cfg *Config) error {
 	defer s.mu.Unlock()
 
 	applyConfigDefaults(cfg)
+
+	if s.store != nil {
+		if err := s.store.Save(cfg); err != nil {
+			return err
+		}
+		s.config = cfg
+		return nil
+	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -264,6 +277,9 @@ func (s *ConfigService) Load() error {
 
 // ResolveDownloadPath returns the absolute path for the configured download directory
 func (s *ConfigService) ResolveDownloadPath() (string, error) {
+	if s.store != nil {
+		return s.store.ResolveDownloadPath()
+	}
 	s.mu.RLock()
 	downloadPath := s.config.ImageGen.DownloadPath
 	s.mu.RUnlock()
@@ -283,6 +299,9 @@ func (s *ConfigService) ResolveDownloadPath() (string, error) {
 // ResolveImagePath resolves a relative image path against the download directory.
 // It supports backward compatibility for paths that were previously stored relative to the executable.
 func (s *ConfigService) ResolveImagePath(src string) (string, error) {
+	if s.store != nil {
+		return s.store.ResolveImagePath(src)
+	}
 	if filepath.IsAbs(src) {
 		return "", fmt.Errorf("absolute paths are not allowed")
 	}

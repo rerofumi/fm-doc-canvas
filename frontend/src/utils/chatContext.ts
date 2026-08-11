@@ -1,3 +1,6 @@
+import { resolveContext } from "../domain/contextResolver";
+import { boundedDialogueHistory } from "../domain/runScope";
+import { WorkspaceState } from "../domain/workspace";
 import { AppNode, ArtifactNodeData, ImageNodeData, TextNodeData } from "../types";
 import { ChatMessage, ChatRequest, ChatTarget } from "../types/chat";
 import { traverseContextBackwards } from "./graphUtils";
@@ -37,10 +40,10 @@ export function buildChatRequestContext(
     ].join("\n"));
   }
 
-  const history = messages
-    .filter((message) => message.content.trim() && message.status !== "streaming")
-    .slice(-12)
-    .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`);
+  const history = boundedDialogueHistory(messages, 12).map(
+    (message) =>
+      `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`,
+  );
   if (history.length > 0) {
     sections.push(`Recent conversation:\n${history.join("\n\n")}`);
   }
@@ -55,32 +58,97 @@ export function buildChatRequest(
   target: ChatTarget | null,
   nodes: AppNode[],
   edges: { source: string; target: string }[],
+  workspace?: WorkspaceState,
+  messages: ChatMessage[] = [],
+  runEpoch = 0,
 ): ChatRequest {
-  const traversal = target ? traverseContextBackwards(target.nodeId, nodes, edges as any) : { nodes: [] };
-  const directNodes = traversal.nodes.filter((node, index, all) => all.findIndex((candidate) => candidate.id === node.id) === index);
+  const envelope = workspace
+    ? resolveContext({
+        document: workspace.document,
+        runtime: workspace.runtime,
+        mode: "dialogue",
+        operation: "read",
+      })
+    : null;
+
+  const traversal = target
+    ? traverseContextBackwards(target.nodeId, nodes, edges as any)
+    : { nodes: [] as AppNode[], warning: undefined as any };
+  let directNodes = traversal.nodes.filter(
+    (node, index, all) => all.findIndex((candidate) => candidate.id === node.id) === index,
+  );
+
+  // Prefer shared resolver allowlist when workspace domain state is available.
+  const allow = new Set(envelope?.bodyAllowlistNodeIds ?? []);
+  if (envelope) {
+    directNodes = directNodes.filter((n) => allow.has(n.id));
+    // Ensure active context nodes from resolver are represented in snapshot body set.
+    for (const id of envelope.bodyAllowlistNodeIds) {
+      if (!directNodes.some((n) => n.id === id)) {
+        const n = nodes.find((node) => node.id === id);
+        if (n) directNodes.push(n);
+      }
+    }
+  }
+
+  const snapshotNodes = (envelope ? nodes.filter((n) => allow.has(n.id) || n.id === target?.nodeId) : nodes).map(
+    (node) => {
+      if (node.type === "artifactNode") {
+        const data = node.data as ArtifactNodeData;
+        return {
+          id: node.id,
+          type: "artifact" as const,
+          revision: data.revision,
+          filename: data.filename,
+          markdown: data.content,
+        };
+      }
+      if (node.type === "customNode") {
+        const data = node.data as TextNodeData;
+        return {
+          id: node.id,
+          type: "text" as const,
+          revision: data.revision ?? 0,
+          markdown: data.content,
+        };
+      }
+      const data = node.data as ImageNodeData;
+      // Dialogue: metadata only for images (no binary body).
+      return {
+        id: node.id,
+        type: "image" as const,
+        revision: 0,
+        imageRef: data.src,
+        prompt: data.prompt || data.alt || "",
+      };
+    },
+  );
+
   return {
     runId,
     sessionId,
-    canvasId,
+    canvasId: workspace?.runtime.currentCanvasId ?? canvasId,
     prompt,
     targetNodeId: target?.nodeId,
     directContextNodeIds: directNodes.map((node) => node.id),
+    bodyAllowlistNodeIds: envelope?.bodyAllowlistNodeIds,
+    workspaceId: workspace?.document.workspaceId,
+    runtimeGeneration: workspace?.runtime.runtimeGeneration,
+    scopeEpoch: workspace?.runtime.scopeEpoch,
+    runEpoch,
+    contextDigest: envelope?.contextDigest,
+    history: boundedDialogueHistory(messages, 12),
     contextWarning: traversal.warning,
     snapshot: {
-      canvasId,
-      nodes: nodes.map((node) => {
-        if (node.type === "artifactNode") {
-          const data = node.data as ArtifactNodeData;
-          return { id: node.id, type: "artifact", revision: data.revision, filename: data.filename, markdown: data.content };
-        }
-        if (node.type === "customNode") {
-          const data = node.data as TextNodeData;
-          return { id: node.id, type: "text", revision: data.revision ?? 0, markdown: data.content };
-        }
-        const data = node.data as ImageNodeData;
-        return { id: node.id, type: "image", revision: 0, imageRef: data.src, prompt: data.prompt || data.alt || "" };
-      }),
-      edges: edges.map((edge) => ({ source: edge.source, target: edge.target })),
+      canvasId: workspace?.runtime.currentCanvasId ?? canvasId,
+      nodes: snapshotNodes,
+      edges: edges
+        .filter(
+          (edge) =>
+            !envelope ||
+            (allow.has(edge.source) && allow.has(edge.target)),
+        )
+        .map((edge) => ({ source: edge.source, target: edge.target })),
     },
   };
 }

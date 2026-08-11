@@ -54,36 +54,61 @@ const ChatDrawer = () => {
       if (event.type === "chat:stream" && event.text) chat.appendStream(event.sessionId, event.runId, event.text);
       if (event.type === "chat:tool_start" && event.toolEvent) chat.upsertToolEvent(event.sessionId, event.runId, event.toolEvent);
       if (event.type === "chat:tool_done" && event.toolEvent) chat.upsertToolEvent(event.sessionId, event.runId, event.toolEvent);
-      if (event.type === "chat:tool_apply" && event.apply) {
+if (event.type === "chat:tool_apply" && event.apply) {
         const active = useChatStore.getState().activeRuns[event.sessionId];
-        if (active?.runId !== event.runId) {
-          void ResolveToolApplication({ toolCallId: event.apply.toolCallId, status: "cancelled" }).catch((error) => console.warn("Failed to cancel stale tool application", error));
+        const appState = useAppStore.getState();
+        const domainRun = appState.workspace.runtime.asyncRuns[event.runId];
+        if (active?.runId !== event.runId || !domainRun || domainRun.status !== "active") {
+          chat.upsertToolEvent(event.sessionId, event.runId, {
+            toolCallId: event.apply.toolCallId,
+            name: "mutation",
+            status: "stale",
+            proposal: event.apply,
+            summary: "stale/cancelled run",
+          });
+          void ResolveToolApplication({
+            toolCallId: event.apply.toolCallId,
+            status: "cancelled",
+            workspaceId: event.apply.workspaceId,
+            canvasId: event.apply.canvasId,
+            runtimeGeneration: event.apply.runtimeGeneration,
+            scopeEpoch: event.apply.scopeEpoch,
+            runEpoch: event.apply.runEpoch,
+          }).catch((error) => console.warn("Failed to cancel stale tool application", error));
           return;
         }
-        chat.upsertToolEvent(event.sessionId, event.runId, { toolCallId: event.apply.toolCallId, name: "mutation", status: "running", proposal: event.apply });
-        const applied = useAppStore.getState().applyToolProposal(event.apply);
-        void ResolveToolApplication({ toolCallId: event.apply.toolCallId, status: applied.status, error: applied.error }).catch((error) => console.warn("Failed to acknowledge tool application", error));
+        // Keep proposal visible for human decision (accept/reject) instead of auto-applying.
+        chat.upsertToolEvent(event.sessionId, event.runId, {
+          toolCallId: event.apply.toolCallId,
+          name: "mutation",
+          status: "proposed",
+          proposal: event.apply,
+          summary: "accept / reject required",
+        });
       }
       if (event.type === "chat:done") {
         const active = useChatStore.getState().activeRuns[event.sessionId];
         if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { status: "complete" });
         chat.finishRun(event.sessionId, event.runId);
+        useAppStore.getState().dispatch({ type: "completeAsyncRun", runId: event.runId });
       }
       if (event.type === "chat:cancelled") {
         const active = useChatStore.getState().activeRuns[event.sessionId];
         if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { content: "キャンセルしました。", status: "cancelled" });
         chat.finishRun(event.sessionId, event.runId);
+        useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId: event.runId });
       }
       if (event.type === "chat:error") {
         const active = useChatStore.getState().activeRuns[event.sessionId];
         if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { content: event.error || "応答を取得できませんでした。", status: "error" });
         chat.finishRun(event.sessionId, event.runId);
+        useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId: event.runId });
       }
     }));
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, []);
 
-  const send = async (content: string) => {
+const send = async (content: string) => {
     const session: ChatSession = activeSession ?? store.createSession();
     const runId = newId();
     const now = Date.now();
@@ -93,21 +118,39 @@ const ChatDrawer = () => {
     store.appendMessage(session.id, { id: assistantId, role: "assistant", content: "", createdAt: now, runId, status: "streaming" });
     store.beginRun(session.id, runId, assistantId);
     const app = useAppStore.getState();
-    const request: ChatRequest = buildChatRequest(app.canvasId, runId, session.id, content, store.target, app.nodes, app.edges);
+    // Register domain async run epoch for stale/cancel correlation.
+    app.dispatch({ type: "startAsyncRun", kind: "dialogue", runId });
+    const runEpoch = useAppStore.getState().workspace.runtime.asyncRuns[runId]?.epoch ?? 0;
+    const sessionMessages = useChatStore.getState().sessions.find((s) => s.id === session.id)?.messages ?? [];
+    const request: ChatRequest = buildChatRequest(
+      app.workspace.runtime.currentCanvasId,
+      runId,
+      session.id,
+      content,
+      store.target,
+      app.nodes,
+      app.edges,
+      app.workspace,
+      sessionMessages.filter((m) => m.id !== assistantId),
+      runEpoch,
+    );
     store.setContextWarning(request.contextWarning?.message ?? null);
     try {
       await SendChat(request as any);
     } catch (error) {
       store.replaceMessage(session.id, assistantId, { content: error instanceof Error ? error.message : "送信できませんでした。", status: "error" });
       store.finishRun(session.id, runId);
+      useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId });
     }
   };
 
   const stop = () => {
     if (!activeRun || !activeSession) return;
-    void CancelChat(activeRun.runId);
+    // Local cancel first (F-1 freshness authority), then best-effort backend cancel.
+    useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId: activeRun.runId });
     store.replaceMessage(activeSession.id, activeRun.assistantMessageId, { content: "キャンセルしました。", status: "cancelled" });
     store.cancelRun(activeSession.id);
+    void CancelChat(activeRun.runId);
   };
 
   return <aside className={`fixed right-0 top-0 z-50 flex h-full flex-col border-l border-gray-200 bg-white shadow-2xl transition-transform duration-300 ${store.isOpen ? "translate-x-0" : "translate-x-full"}`} style={{ width: store.drawerWidth, transitionProperty: resizing ? "none" : "transform" }}>
@@ -115,9 +158,10 @@ const ChatDrawer = () => {
     <ChatHeader target={store.target} sessions={store.sessions} activeSessionId={store.activeSessionId} disabled={!store.isLoaded} onChangeSession={store.setActiveSession} onNew={store.createSession} onClose={() => store.setOpen(false)} />
     {store.loadError && <div className="border-b border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">会話履歴を読み込めませんでした: {store.loadError}</div>}
     {store.contextWarning && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">{store.contextWarning}</div>}
-    <MessageList messages={activeSession?.messages ?? []} />
+    <MessageList messages={activeSession?.messages ?? []} sessionId={activeSession?.id} />
     <ChatInput disabled={!store.isLoaded} sending={Boolean(activeRun)} onSend={send} onStop={stop} />
   </aside>;
 };
 
 export default ChatDrawer;
+

@@ -1,149 +1,54 @@
-import React, { useEffect, useRef } from "react";
-
+import React, { useEffect } from "react";
 import CanvasArea from "./components/canvas/CanvasArea";
-
 import EditorDrawer from "./components/drawer/EditorDrawer";
-
 import PromptBar from "./components/layout/PromptBar";
-
 import SettingsDrawer from "./components/drawer/SettingsDrawer";
-
 import ChatDrawer from "./components/drawer/ChatDrawer";
-
 import LayoutButton from "./components/layout/LayoutButton";
-
 import ChatToggleButton from "./components/layout/ChatToggleButton";
-
+import CanvasBreadcrumb from "./components/layout/CanvasBreadcrumb";
 import { useAppStore } from "./store/useAppStore";
-
 import { useChatStore } from "./store/useChatStore";
-
-import { ActiveChatRuns, ChatSession } from "./types/chat";
-
-import { describeChatTarget } from "./utils/chatContext";
-
-import { fromBackendChatSessions, settleInterruptedChatSessions, toBackendChatSessions } from "./utils/chatSession";
-
-import { LoadChatSessions, SaveChatSessions } from "../wailsjs/go/main/App";
-
-import { Save, FolderOpen, Plus, Menu } from "lucide-react";
-
+import { Save, FolderOpen, Plus, Menu, Trash2, Undo2 } from "lucide-react";
 import { ReactFlowProvider } from "@xyflow/react";
+import { useE2EBridge } from "./runtime/e2eBridge";
 
 function App() {
-  const {
+const {
     addEmptyNode,
     addArtifactNode,
-    nodes,
-    canvasId,
-    activeNodeId,
-    isEditorOpen,
     loadConfig,
     saveCanvas,
     loadCanvas,
     setSettingsOpen,
+    newWorkspace,
+    undo,
+    lastError,
+    workspace,
   } = useAppStore();
-  const chatCanvasId = useChatStore((state) => state.canvasId);
-  const chatLoaded = useChatStore((state) => state.isLoaded);
-  const chatSessions = useChatStore((state) => state.sessions);
-  const activeChatRuns = useChatStore((state) => state.activeRuns);
-  const beginChatLoad = useChatStore((state) => state.beginLoad);
-  const hydrateChat = useChatStore((state) => state.hydrate);
-  const failChatLoad = useChatStore((state) => state.failLoad);
-  const setChatTarget = useChatStore((state) => state.setTarget);
-  const initialNodeAdded = useRef(false);
-  const latestChat = useRef<{
-    canvasId: string | null;
-    isLoaded: boolean;
-    sessions: ChatSession[];
-    activeRuns: ActiveChatRuns;
-  }>({ canvasId: null, isLoaded: false, sessions: [], activeRuns: {} });
-  latestChat.current = {
-    canvasId: chatCanvasId,
-    isLoaded: chatLoaded,
-    sessions: chatSessions,
-    activeRuns: activeChatRuns,
-  };
 
-  // Load configuration on startup
+  useE2EBridge();
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
 
-  // 新規キャンバスだけに初期 Artifact を 1 個用意する。
+  // Dialogue is memory-only and scoped to the active workspace generation.
   useEffect(() => {
-    if (nodes.length === 0 && !initialNodeAdded.current) {
-      initialNodeAdded.current = true;
-      addArtifactNode();
-    }
-  }, [addArtifactNode, nodes.length]);
-
-  // Text/Artifact targets follow EditorDrawer focus. Images can be targeted
-  // directly because they do not use EditorDrawer. Target changes never switch
-  // the selected chat session.
-  useEffect(() => {
-    const activeNode = nodes.find((node) => node.id === activeNodeId);
-    const canTarget = activeNode?.type === "imageNode" || isEditorOpen;
-    setChatTarget(canTarget ? describeChatTarget(activeNode) : null);
-  }, [activeNodeId, isEditorOpen, nodes, setChatTarget]);
-
-  useEffect(() => {
-    const previous = latestChat.current;
-    let cancelled = false;
-    beginChatLoad(canvasId);
-
-    const load = async () => {
-      if (previous.isLoaded && previous.canvasId && previous.canvasId !== canvasId) {
-        try {
-          const settled = settleInterruptedChatSessions(previous.sessions, previous.activeRuns);
-          await SaveChatSessions(previous.canvasId, toBackendChatSessions(settled));
-        } catch (error) {
-          console.error("Failed to flush previous chat sessions:", error);
-        }
-      }
-      if (cancelled) return;
-      try {
-        const sessions = await LoadChatSessions(canvasId);
-        if (!cancelled) hydrateChat(canvasId, fromBackendChatSessions(sessions));
-      } catch (error) {
-        console.error("Failed to load chat sessions:", error);
-        if (!cancelled) failChatLoad(canvasId, error instanceof Error ? error.message : String(error));
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [beginChatLoad, canvasId, failChatLoad, hydrateChat]);
-
-  useEffect(() => {
-    if (!chatLoaded || chatCanvasId !== canvasId) return;
-    const timer = window.setTimeout(() => {
-      SaveChatSessions(canvasId, toBackendChatSessions(chatSessions)).catch((error) => console.error("Failed to save chat sessions:", error));
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [canvasId, chatCanvasId, chatLoaded, chatSessions]);
-
-  useEffect(() => {
-    const flushLatest = () => {
-      const latest = latestChat.current;
-      if (!latest.isLoaded || !latest.canvasId) return;
-      const settled = settleInterruptedChatSessions(latest.sessions, latest.activeRuns);
-      void SaveChatSessions(latest.canvasId, toBackendChatSessions(settled)).catch((error) =>
-        console.error("Failed to flush chat sessions:", error),
-      );
-    };
-    window.addEventListener("beforeunload", flushLatest);
-    return () => {
-      window.removeEventListener("beforeunload", flushLatest);
-      flushLatest();
-    };
-  }, []);
+    useChatStore.setState({
+      sessions: [],
+      activeSessionId: null,
+      activeRuns: {},
+      isLoaded: true,
+      loadError: null,
+      canvasId: workspace.document.workspaceId,
+      contextWarning: null,
+    });
+  }, [workspace.document.workspaceId, workspace.runtime.runtimeGeneration]);
 
   const handleSave = async () => {
     try {
       const path = await saveCanvas();
-      if (path) {
-        console.log("Saved to:", path);
-      }
+      if (path) console.log("Saved to:", path);
     } catch (error) {
       console.error("Save failed:", error);
     }
@@ -158,15 +63,13 @@ function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-gray-50 font-sans text-gray-900">
-      {/* Settings Drawer */}
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-gray-50 font-sans text-gray-900">
       <SettingsDrawer />
       <ChatDrawer />
 
-      {/* Header */}
-      <header className="h-12 border-b border-gray-200 bg-white flex items-center px-4 justify-between shrink-0 z-20 shadow-sm">
+      <header className="z-20 flex h-12 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center text-white font-bold text-xs">
+          <div className="flex h-6 w-6 items-center justify-center rounded bg-blue-600 text-xs font-bold text-white">
             FM
           </div>
           <h1 className="text-sm font-bold tracking-tight">FM Doc Canvas</h1>
@@ -175,56 +78,101 @@ function App() {
         <div className="flex items-center gap-1">
           <button
             onClick={addEmptyNode}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors mr-2"
-            title="Add New Node"
+            className="mr-1 flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
+            title="Add Text"
+            aria-label="Add Text"
           >
             <Plus size={14} />
-            <span>Node</span>
+            <span>Text</span>
           </button>
           <button
             onClick={addArtifactNode}
             className="flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-purple-700"
             title="Add Artifact"
+            aria-label="Add Artifact"
           >
             <Plus size={14} />
             <span>Artifact</span>
           </button>
 
-          <div className="w-px h-4 bg-gray-200 mx-1" />
+          <div className="mx-1 h-4 w-px bg-gray-200" />
 
+          <button
+            onClick={() => newWorkspace()}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+            title="Discard current unsaved work and Dialogue"
+            aria-label="New Workspace (discard current work and Dialogue)"
+          >
+            <Trash2 size={14} />
+            New Workspace
+          </button>
+
+          <button
+            onClick={() => undo()}
+            className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100"
+            title="Undo"
+            aria-label="Undo"
+          >
+            <Undo2 size={18} />
+          </button>
+
+          <button
+            onClick={handleSave}
+            className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100"
+            title="Save"
+            aria-label="Save Workspace"
+          >
+            <Save size={18} />
+          </button>
+          <button
+            onClick={handleLoad}
+            className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100"
+            title="Load"
+            aria-label="Load Workspace"
+          >
+            <FolderOpen size={18} />
+          </button>
+
+          <div className="mx-1 h-4 w-px bg-gray-200" />
           <LayoutButton />
-
           <ChatToggleButton />
-
-          <div className="w-px h-4 bg-gray-200 mx-1" />
-
-          {/* Settings button moved to header */}
+          <div className="mx-1 h-4 w-px bg-gray-200" />
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+            className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100"
             title="Settings"
+            aria-label="Settings"
           >
             <Menu size={20} />
           </button>
         </div>
       </header>
 
-      {/* Main Content: Canvas Area & Drawer */}
-      <div className="flex-1 relative flex overflow-hidden">
-        {/* The Drawer is fixed/absolute so it slides over the canvas */}
-        <EditorDrawer />
+      {lastError && (
+        <div
+          className="border-b border-red-200 bg-red-50 px-4 py-1 text-xs text-red-700"
+          role="alert"
+          aria-label="Workspace error"
+        >
+          {lastError}
+        </div>
+      )}
 
-        <main className="flex-1 h-full w-full relative">
+      <CanvasBreadcrumb />
+
+      <div className="relative flex flex-1 overflow-hidden">
+        <EditorDrawer />
+        <main className="relative h-full w-full flex-1">
           <ReactFlowProvider>
             <CanvasArea />
           </ReactFlowProvider>
         </main>
       </div>
 
-      {/* AI Interaction Bar */}
       <PromptBar />
     </div>
   );
 }
 
 export default App;
+

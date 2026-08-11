@@ -93,6 +93,12 @@ export namespace backend {
 	    prompt: string;
 	    targetNodeId?: string;
 	    directContextNodeIds: string[];
+	    bodyAllowlistNodeIds?: string[];
+	    workspaceId?: string;
+	    runtimeGeneration?: string;
+	    scopeEpoch?: number;
+	    runEpoch?: number;
+	    contextDigest?: string;
 	    contextWarning?: ContextWarning;
 	    snapshot: CanvasSnapshot;
 	
@@ -108,6 +114,12 @@ export namespace backend {
 	        this.prompt = source["prompt"];
 	        this.targetNodeId = source["targetNodeId"];
 	        this.directContextNodeIds = source["directContextNodeIds"];
+	        this.bodyAllowlistNodeIds = source["bodyAllowlistNodeIds"];
+	        this.workspaceId = source["workspaceId"];
+	        this.runtimeGeneration = source["runtimeGeneration"];
+	        this.scopeEpoch = source["scopeEpoch"];
+	        this.runEpoch = source["runEpoch"];
+	        this.contextDigest = source["contextDigest"];
 	        this.contextWarning = this.convertValues(source["contextWarning"], ContextWarning);
 	        this.snapshot = this.convertValues(source["snapshot"], CanvasSnapshot);
 	    }
@@ -371,6 +383,7 @@ export namespace backend {
 	export class ImportFileResult {
 	    type: string;
 	    content: string;
+	    filename?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportFileResult(source);
@@ -380,6 +393,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
 	        this.content = source["content"];
+	        this.filename = source["filename"];
 	    }
 	}
 	
@@ -390,6 +404,11 @@ export namespace backend {
 	    toolCallId: string;
 	    status: string;
 	    error?: string;
+	    workspaceId?: string;
+	    canvasId?: string;
+	    runtimeGeneration?: string;
+	    scopeEpoch?: number;
+	    runEpoch?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ToolApplicationResult(source);
@@ -400,6 +419,11 @@ export namespace backend {
 	        this.toolCallId = source["toolCallId"];
 	        this.status = source["status"];
 	        this.error = source["error"];
+	        this.workspaceId = source["workspaceId"];
+	        this.canvasId = source["canvasId"];
+	        this.runtimeGeneration = source["runtimeGeneration"];
+	        this.scopeEpoch = source["scopeEpoch"];
+	        this.runEpoch = source["runEpoch"];
 	    }
 	}
 

@@ -1,42 +1,49 @@
 import { create } from "zustand";
 import {
-  AppState,
-  AppNode,
-  AppEdge,
-  AppConfig,
-  CanvasFileV1_0,
-  CanvasFileV1_1,
-  CanvasFileV1_2,
-  TextNodeData,
-  ArtifactNodeData,
-  ImageNodeData,
-  CanvasFile,
-} from "../types";
-import {
   Connection,
   EdgeChange,
   NodeChange,
-  addEdge,
-  applyNodeChanges,
   applyEdgeChanges,
+  applyNodeChanges,
+  MarkerType,
 } from "@xyflow/react";
-import * as AppBackend from "../../wailsjs/go/main/App";
-import { traverseContextBackwards } from "../utils/graphUtils";
-import { ChatToolProposal } from "../types/chat";
-import { normalizeTextData } from "../utils/text";
-import { applyToolProposalToNodes } from "../utils/toolApplication";
 import {
-  createArtifactData,
-  getContentStats,
-  normalizeArtifactData,
-} from "../utils/artifact";
-
-const createCanvasId = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-};
+  AppConfig,
+  AppEdge,
+  AppNode,
+  AppState,
+  ArtifactNodeData,
+  ImageNodeData,
+  ImportFileResult,
+  TextNodeData,
+} from "../types";
+import { ChatToolProposal } from "../types/chat";
+import {
+  applyCommand,
+  createHistory,
+  createRelation,
+  HistoryState,
+} from "../domain/workspaceCommands";
+import {
+  createEmptyWorkspace,
+  DomainServices,
+  isFolder,
+  isTextBearing,
+  WorkspaceState,
+} from "../domain/workspace";
+import { breadcrumbPath, projectCurrentCanvas } from "../domain/projectToFlow";
+import { loadWorkspaceJSON, workspaceToPrettyJSON } from "../domain/workspacePersistence";
+import { resolveContext } from "../domain/contextResolver";
+import {
+  createProposalFromLegacyTool,
+  decideAndApplyProposal,
+} from "../domain/proposal";
+import {
+  createProductionClock,
+  createProductionIds,
+  RuntimeEnvironment,
+} from "../runtime/runtimeEnvironment";
+import * as GeneratedBackend from "../../wailsjs/go/main/App";
 
 const initialConfig: AppConfig = {
   llm: {
@@ -71,730 +78,597 @@ const initialConfig: AppConfig = {
   },
 };
 
+type BackendLike = typeof GeneratedBackend;
+
+let runtimeEnv: RuntimeEnvironment = {
+  mode: "production",
+  ids: createProductionIds(),
+  clock: createProductionClock(),
+  backend: GeneratedBackend as unknown as RuntimeEnvironment["backend"],
+  faultState: { consumed: {} },
+};
+
+function services(): DomainServices {
+  return {
+    ids: runtimeEnv.ids,
+    clock: runtimeEnv.clock,
+    faultPlan: runtimeEnv.faultPlan,
+    faultState: runtimeEnv.faultState,
+  };
+}
+
+function backend(): BackendLike {
+  return runtimeEnv.backend as unknown as BackendLike;
+}
+
+export function configureAppRuntime(env: RuntimeEnvironment) {
+  runtimeEnv = env;
+}
+
+interface StoreExtras {
+  workspace: WorkspaceState;
+  history: HistoryState;
+  lastError: string | null;
+  boundaryAggregates: ReturnType<typeof projectCurrentCanvas>["boundaryAggregates"];
+  dispatch: (command: Parameters<typeof applyCommand>[1]) => boolean;
+  newWorkspace: () => void;
+  discardWorkspace: () => void;
+  switchTextRole: (nodeId: string, role: "text" | "artifact") => void;
+  createSubCanvas: (nodeIds: string[], label?: string) => void;
+  navigateCanvas: (canvasId: string) => void;
+  navigateBack: () => void;
+  undo: () => void;
+  getBreadcrumb: () => Array<{ canvasId: string; name: string }>;
+  resolveSharedContext: (
+    mode: "dialogue" | "direct",
+    operation: Parameters<typeof resolveContext>[0]["operation"],
+  ) => ReturnType<typeof resolveContext>;
+  setContextExcluded: (nodeId: string, excluded: boolean) => void;
+  useCanvasAsContext: () => void;
+}
+
+export type FullAppState = AppState & StoreExtras;
+
+function projectInto(
+  set: (partial: Partial<FullAppState>) => void,
+  workspace: WorkspaceState,
+  history: HistoryState,
+  extra: Partial<FullAppState> = {},
+) {
+  const projected = projectCurrentCanvas(workspace);
+  set({
+    workspace,
+    history,
+    nodes: projected.nodes,
+    edges: projected.edges,
+    boundaryAggregates: projected.boundaryAggregates,
+    canvasId: workspace.document.workspaceId,
+    activeNodeId: workspace.runtime.selection.activeNodeId ?? null,
+    ...extra,
+  });
+}
+
+function createToolProposalDecider(
+  get: () => FullAppState,
+  set: (partial: Partial<FullAppState>) => void,
+) {
+  return (
+    proposal: ChatToolProposal,
+    decision: "accept" | "modify" | "reject" | "cancel",
+    requestedRunId?: string,
+    modifiedContent?: string,
+  ) => {
+    const ws = get().workspace;
+    const activeRunEntry = requestedRunId
+      ? ws.runtime.asyncRuns[requestedRunId]
+      : Object.values(ws.runtime.asyncRuns).find((r) => r.status === "active");
+    const activeRun = requestedRunId
+      ? activeRunEntry
+        ? { runId: activeRunEntry.runId, epoch: activeRunEntry.epoch, status: activeRunEntry.status }
+        : { runId: requestedRunId, epoch: -1, status: "missing" }
+      : activeRunEntry
+        ? { runId: activeRunEntry.runId, epoch: activeRunEntry.epoch, status: activeRunEntry.status }
+        : undefined;
+    const runId = requestedRunId || activeRunEntry?.runId || "legacy";
+    const runEpoch = proposal.runEpoch ?? activeRunEntry?.epoch ?? 0;
+    let content = proposal.proposed;
+    if (
+      proposal.operation === "edit" &&
+      proposal.searchText != null &&
+      proposal.replacement != null
+    ) {
+      const targetId = proposal.targetNodeId || proposal.nodeId;
+      const node = targetId ? ws.document.nodes[targetId] : undefined;
+      if (node && isTextBearing(node)) {
+        content = node.content.replace(proposal.searchText, proposal.replacement);
+      }
+    }
+    if (decision === "modify" && modifiedContent !== undefined) {
+      content = modifiedContent;
+    }
+    const record = createProposalFromLegacyTool({
+      toolCallId: proposal.toolCallId,
+      runId,
+      runEpoch,
+      workspaceId: proposal.workspaceId || ws.document.workspaceId,
+      canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
+      runtimeGeneration: proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+      scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
+      operation: proposal.operation,
+      targetNodeId: proposal.targetNodeId || proposal.nodeId,
+      baseRevision: proposal.baseRevision,
+      proposed: content,
+      filename: proposal.filename,
+      lastEditSummary: proposal.lastEditSummary,
+    });
+    const result = decideAndApplyProposal(
+      ws,
+      record,
+      {
+        proposalId: record.proposalId,
+        decisionId: `decision-${proposal.toolCallId}-${decision}`,
+        decision,
+        modifiedContent: content,
+      },
+      services(),
+      get().history,
+      activeRun,
+    );
+    if (result.status === "applied" && result.history) {
+      projectInto(set, result.state, result.history, { lastError: null });
+      return { status: "applied" as const };
+    }
+    if (result.status === "rejected") return { status: "rejected" as const };
+    if (result.status === "conflict") return { status: "conflict" as const };
+    if (result.status === "stale") {
+      return { status: "error" as const, error: "stale proposal" };
+    }
+    if (result.status === "cancelled") {
+      return { status: "error" as const, error: result.error || "cancelled" };
+    }
+    return {
+      status: "error" as const,
+      error: result.error || get().lastError || "failed",
+    };
+  };
+}
+
 const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
   const provider = imageGen.provider || initialConfig.imageGen.provider;
-  const downloadPath =
-    imageGen.downloadPath || initialConfig.imageGen.downloadPath;
-
+  const downloadPath = imageGen.downloadPath || initialConfig.imageGen.downloadPath;
   const migrated: AppConfig["imageGen"] = {
     ...initialConfig.imageGen,
     ...imageGen,
     provider,
     downloadPath,
-    openrouter: {
-      ...initialConfig.imageGen.openrouter!,
-      ...(imageGen.openrouter || {}),
-    },
-    openai: {
-      ...initialConfig.imageGen.openai!,
-      ...(imageGen.openai || {}),
-    },
-    google: {
-      ...initialConfig.imageGen.google!,
-      ...(imageGen.google || {}),
-    },
-    xai: {
-      ...initialConfig.imageGen.xai!,
-      ...(imageGen.xai || {}),
-    },
+    openrouter: { ...initialConfig.imageGen.openrouter!, ...(imageGen.openrouter || {}) },
+    openai: { ...initialConfig.imageGen.openai!, ...(imageGen.openai || {}) },
+    google: { ...initialConfig.imageGen.google!, ...(imageGen.google || {}) },
+    xai: { ...initialConfig.imageGen.xai!, ...(imageGen.xai || {}) },
   };
-
-  if (imageGen.baseURL || imageGen.model || imageGen.apiKey) {
-    switch (provider) {
-      case "openrouter":
-        migrated.openrouter = {
-          ...migrated.openrouter!,
-          baseURL: imageGen.baseURL || migrated.openrouter!.baseURL,
-          model: imageGen.model || migrated.openrouter!.model,
-          apiKey: imageGen.apiKey || migrated.openrouter!.apiKey,
-        };
-        break;
-      case "openai":
-        migrated.openai = {
-          ...migrated.openai!,
-          baseURL: imageGen.baseURL || migrated.openai!.baseURL,
-          model: imageGen.model || migrated.openai!.model,
-          apiKey: imageGen.apiKey || migrated.openai!.apiKey,
-        };
-        break;
-      case "google":
-        migrated.google = {
-          ...migrated.google!,
-          model: imageGen.model || migrated.google!.model,
-          apiKey: imageGen.apiKey || migrated.google!.apiKey,
-        };
-        break;
-      case "xai":
-        migrated.xai = {
-          ...migrated.xai!,
-          model: imageGen.model || migrated.xai!.model,
-          apiKey: imageGen.apiKey || migrated.xai!.apiKey,
-        };
-        break;
-    }
-  }
-
-  if (migrated.openrouter?.model === "sourceful/riverflow-v2-standard-preview") {
-    migrated.openrouter.model = initialConfig.imageGen.openrouter!.model;
-  }
-
   delete (migrated as any).baseURL;
   delete (migrated as any).model;
   delete (migrated as any).apiKey;
-
   return migrated;
 };
 
-export const useAppStore = create<AppState>((set, get) => ({
-  nodes: [],
-  edges: [],
-  canvasId: createCanvasId(),
-  isEditorOpen: false,
-  isSettingsOpen: false,
-  activeNodeId: null,
-  config: initialConfig,
-  promptInput: "",
+function createInitialWorkspace() {
+  return createEmptyWorkspace(services());
+}
 
-  // Actions
-  addNode: (node: AppNode) => {
-    set((state) => ({
-      nodes: [...state.nodes, node],
-    }));
-  },
+export const useAppStore = create<FullAppState>((set, get) => {
+  const initialWorkspace = createInitialWorkspace();
+  const initialHistory = createHistory();
+  const initialProjection = projectCurrentCanvas(initialWorkspace);
 
-  addEmptyNode: () => {
-    const id = `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const newNode: AppNode = {
-      id,
-      type: "customNode",
-      position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
-      data: {
-        content: "",
-        summary: "New Node",
-        revision: 0,
-        ...getContentStats(""),
-      },
-      width: 250,
-      height: 150,
-    };
-    set((state) => ({
-      nodes: [...state.nodes, newNode],
-      activeNodeId: id,
-      isEditorOpen: true,
-    }));
-  },
-
-  addArtifactNode: () => {
-    const id = `artifact-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-    const newNode: AppNode = {
-      id,
-      type: "artifactNode",
-      position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
-      data: createArtifactData(),
-      width: 300,
-      height: 220,
-    };
-    set((state) => ({
-      nodes: [...state.nodes, newNode],
-      activeNodeId: id,
-      isEditorOpen: true,
-    }));
-  },
-
-  deleteNode: (id: string) => {
-    set((state) => ({
-      nodes: state.nodes.filter((node) => node.id !== id),
-      edges: state.edges.filter(
-        (edge) => edge.source !== id && edge.target !== id,
-      ),
-      activeNodeId: state.activeNodeId === id ? null : state.activeNodeId,
-      isEditorOpen: state.activeNodeId === id ? false : state.isEditorOpen,
-    }));
-  },
-
-  deleteEdge: (id: string) => {
-    set((state) => ({
-      edges: state.edges.filter((edge) => edge.id !== id),
-    }));
-  },
-
-  setPromptInput: (value: string) => {
-    set({ promptInput: value });
-  },
-
-  appendPromptInput: (value: string) => {
-    const prompt = value.trim();
-    if (!prompt) return;
-    set((state) => ({
-      promptInput: state.promptInput.trim()
-        ? `${state.promptInput}\n\n${prompt}`
-        : prompt,
-    }));
-  },
-
-  applyToolProposal: (proposal: ChatToolProposal) => {
-    const current = get();
-    const result = applyToolProposalToNodes(
-      current.nodes,
-      proposal,
-      () => `artifact-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-      () => Date.now(),
-    );
-    if (result.status === "applied") {
-      set({
-        nodes: result.nodes,
-        ...(result.createdNodeId ? { activeNodeId: result.createdNodeId, isEditorOpen: true } : {}),
-      });
+  const dispatch = (command: Parameters<typeof applyCommand>[1]): boolean => {
+    const { workspace, history } = get();
+    const result = applyCommand(workspace, command, services(), history);
+    if (!result.ok) {
+      set({ lastError: result.error || "command failed" });
+      return false;
     }
-    return { status: result.status, error: result.error };
-  },
+    projectInto(set, result.state, result.history || history, { lastError: null });
+    return true;
+  };
 
-  updateNodeContent: (id: string, content: string) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === id && node.type === "customNode"
-          ? {
-              ...node,
-              data: {
-                ...node.data,
-                content,
-                ...getContentStats(content),
-                revision: ((node.data as TextNodeData).revision || 0) + 1,
-              },
-            }
-          : node,
-      ),
-    }));
-  },
+  const decideToolProposal = createToolProposalDecider(get, set);
 
-  updateArtifactContent: (id: string, content: string) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) => {
-        if (node.id !== id || node.type !== "artifactNode") return node;
-        const data = node.data as ArtifactNodeData;
-        return {
-          ...node,
-          data: {
-            ...data,
-            content,
-            ...getContentStats(content),
-            revision: data.revision + 1,
-            lastEditedAt: Date.now(),
+  return {
+    workspace: initialWorkspace,
+    history: initialHistory,
+    lastError: null,
+    boundaryAggregates: initialProjection.boundaryAggregates,
+    nodes: initialProjection.nodes,
+    edges: initialProjection.edges,
+    canvasId: initialWorkspace.document.workspaceId,
+    isEditorOpen: false,
+    isSettingsOpen: false,
+    activeNodeId: null,
+    config: initialConfig,
+    promptInput: "",
+
+    dispatch,
+
+    newWorkspace: () => {
+      dispatch({ type: "newWorkspace" });
+      set({ isEditorOpen: false });
+    },
+    discardWorkspace: () => {
+      dispatch({ type: "discardWorkspace" });
+      set({ isEditorOpen: false });
+    },
+    switchTextRole: (nodeId, role) => {
+      dispatch({ type: "switchTextRole", nodeId, role });
+    },
+    createSubCanvas: (nodeIds, label) => {
+      dispatch({ type: "createSubCanvas", nodeIds, label });
+    },
+    navigateCanvas: (canvasId) => {
+      dispatch({ type: "navigateCanvas", canvasId });
+      set({ isEditorOpen: false });
+    },
+    navigateBack: () => {
+      dispatch({ type: "navigateBack" });
+      set({ isEditorOpen: false });
+    },
+    undo: () => {
+      dispatch({ type: "undo" });
+    },
+    getBreadcrumb: () => breadcrumbPath(get().workspace.document, get().workspace.runtime),
+    resolveSharedContext: (mode, operation) =>
+      resolveContext({
+        document: get().workspace.document,
+        runtime: get().workspace.runtime,
+        mode,
+        operation,
+      }),
+    setContextExcluded: (nodeId, excluded) => {
+      dispatch({ type: "setContextExcluded", nodeId, excluded });
+    },
+    useCanvasAsContext: () => {
+      const canvasId = get().workspace.runtime.currentCanvasId;
+      dispatch({
+        type: "addContextTarget",
+        target: { kind: "canvas", canvasId, expansion: "direct-members" },
+      });
+    },
+
+    addNode: (node: AppNode) => {
+      if (node.type === "imageNode") {
+        const data = node.data as ImageNodeData;
+        dispatch({
+          type: "createImageRef",
+          input: {
+            src: data.src,
+            alt: data.alt,
+            prompt: data.prompt,
+            provider: data.provider,
+            model: data.model,
+            position: node.position,
+            width: node.width,
+            height: node.height,
           },
-        };
-      }),
-    }));
-  },
-
-  updateArtifactFilename: (id: string, filename: string) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === id && node.type === "artifactNode"
-          ? {
-              ...node,
-              data: { ...(node.data as ArtifactNodeData), filename },
-            }
-          : node,
-      ),
-    }));
-  },
-
-  setArtifactLastEditSummary: (id: string, summary: string) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === id && node.type === "artifactNode"
-          ? {
-              ...node,
-              data: { ...(node.data as ArtifactNodeData), lastEditSummary: summary },
-            }
-          : node,
-      ),
-    }));
-  },
-
-  updateNodeSummary: (id: string, summary: string) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === id && (node.type === "customNode" || node.type === "artifactNode")
-          ? { ...node, data: { ...node.data, summary } }
-          : node,
-      ),
-    }));
-  },
-
-  updateNodeDimensions: (id: string, width: number, height: number) => {
-    set((state) => ({
-      nodes: state.nodes.map((node) =>
-        node.id === id ? { ...node, width, height } : node,
-      ),
-    }));
-  },
-
-  setNodes: (nodes: AppNode[]) => {
-    set({ nodes });
-  },
-
-  setEdges: (edges: AppEdge[]) => {
-    set({ edges });
-  },
-
-  setActiveNode: (id: string | null) => {
-    // Note: In single click, we only set the ID for tracking selection
-    // isDrawerOpen remains unchanged unless explicitly set
-    set({
-      activeNodeId: id,
-    });
-  },
-
-  setEditorOpen: (isOpen: boolean) => {
-    set({ isEditorOpen: isOpen });
-  },
-
-  setSettingsOpen: (isOpen: boolean) => {
-    set({ isSettingsOpen: isOpen });
-  },
-
-  setConfig: (config: Partial<AppConfig>) => {
-    set((state) => ({
-      config: {
-        ...state.config,
-        ...config,
-        imageGen: config.imageGen
-          ? mergeImageGenConfig({
-              ...state.config.imageGen,
-              ...config.imageGen,
-            })
-          : state.config.imageGen,
-      },
-    }));
-  },
-
-  loadConfig: async () => {
-    try {
-      const config = await AppBackend.GetConfig();
-      // Type assertion to ensure compatibility with AppConfig
-      // This is necessary because the backend Config struct might not perfectly match the frontend AppConfig type
-      // Specifically, the backend might not include all optional fields or might have different field types
-
-      // Ensure the config object has all required properties
-      const fullConfig: AppConfig = {
-        llm: (config as any).llm || initialConfig.llm,
-        generation: (config as any).generation || initialConfig.generation,
-        imageGen: mergeImageGenConfig((config as any).imageGen),
-      };
-      set({ config: fullConfig });
-    } catch (error) {
-      console.error("Failed to load config:", error);
-    }
-  },
-
-  saveConfig: async (config: AppConfig) => {
-    try {
-      const fullConfig: AppConfig = {
-        llm: config.llm || initialConfig.llm,
-        generation: config.generation || initialConfig.generation,
-        imageGen: mergeImageGenConfig(config.imageGen),
-      };
-
-      await AppBackend.SaveConfig(fullConfig as any);
-      set({ config: fullConfig });
-    } catch (error) {
-      console.error("Failed to save config:", error);
-    }
-  },
-
-  saveCanvas: async () => {
-    const { nodes, edges, canvasId } = get();
-    const canvasData: CanvasFileV1_2 = {
-      version: "1.2",
-      metadata: {
-        canvasId,
-        lastOpened: new Date().toISOString(),
-      },
-      nodes: nodes.map((n) => {
-        if (n.type === "customNode") {
-          return {
-            id: n.id,
-            type: "customNode" as const,
-            position: n.position,
-            data: n.data as TextNodeData,
-            width: n.width,
-            height: n.height,
-          };
-        } else if (n.type === "artifactNode") {
-          return {
-            id: n.id,
-            type: "artifactNode" as const,
-            position: n.position,
-            data: n.data as ArtifactNodeData,
-            width: n.width,
-            height: n.height,
-          };
-        } else if (n.type === "imageNode") {
-          return {
-            id: n.id,
-            type: "imageNode" as const,
-            position: n.position,
-            data: n.data as ImageNodeData,
-            width: n.width,
-            height: n.height,
-          };
-        }
-        // Fallback for unknown node types - treat as customNode
-        return {
-          id: n.id,
-          type: "customNode" as const,
-          position: n.position,
-          data: n.data as TextNodeData,
-          width: n.width,
-          height: n.height,
-        };
-      }),
-      edges: edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle || "right-source",
-        targetHandle: e.targetHandle || "left-target",
-        type: e.type,
-        markerEnd: e.markerEnd as any,
-      })),
-    };
-
-    try {
-      const filePath = await AppBackend.SaveCanvasToFile(
-        JSON.stringify(canvasData, null, 2),
-      );
-      return filePath;
-    } catch (error) {
-      console.error("Failed to save canvas:", error);
-      throw error;
-    }
-  },
-
-  loadCanvas: async () => {
-    try {
-      const jsonString = await AppBackend.LoadCanvasFromFile();
-      if (!jsonString) return;
-
-      const data = JSON.parse(jsonString) as CanvasFile;
-
-      let nodesToSet: AppNode[] = [];
-      let loadedCanvasId = createCanvasId();
-      if ((data as CanvasFileV1_0).version === "1.0") {
-        nodesToSet = (data as CanvasFileV1_0).nodes.map((n: any) => ({
-          ...n,
-          type: "customNode" as const,
-          data: normalizeTextData(n.data || {}),
-        })) as AppNode[];
-      } else if ((data as CanvasFileV1_1).version === "1.1") {
-        nodesToSet = (data as CanvasFileV1_1).nodes.map((n: any) =>
-          n.type === "customNode"
-            ? {
-                ...n,
-                data: normalizeTextData(n.data || {}),
-              }
-            : n,
-        ) as AppNode[];
-      } else if ((data as CanvasFileV1_2).version === "1.2") {
-        const v1_2Data = data as CanvasFileV1_2;
-        loadedCanvasId = v1_2Data.metadata?.canvasId || loadedCanvasId;
-        nodesToSet = v1_2Data.nodes.map((n: any) => {
-          if (n.type === "customNode") {
-            return {
-              ...n,
-              data: normalizeTextData(n.data || {}),
-            };
-          }
-          if (n.type === "artifactNode") {
-            return { ...n, data: normalizeArtifactData(n.data || {}) };
-          }
-          return n;
-        }) as AppNode[];
-      } else {
-        console.warn(`Unknown canvas file version: ${data.version}`);
-        const v1_1Data = data as CanvasFileV1_1;
-        nodesToSet = v1_1Data.nodes.filter(
-          (n: any) =>
-            n.type === "customNode" ||
-            n.type === "artifactNode" ||
-            n.type === "imageNode",
-        ) as AppNode[];
+        });
+        return;
       }
-
-      set({
-        nodes: nodesToSet,
-        canvasId: loadedCanvasId,
-        edges: ((data as CanvasFileV1_1).edges || []).map((e: any) => ({
-          ...e,
-          sourceHandle: e.sourceHandle || "right-source",
-          targetHandle: e.targetHandle || "left-target",
-        })) as AppEdge[],
-      });
-    } catch (error) {
-      console.error("Failed to load canvas:", error);
-      throw error;
-    }
-  },
-
-  generateText: async (prompt: string, context: string) => {
-    try {
-      const result = await AppBackend.GenerateText(prompt, context);
-      return result;
-    } catch (error) {
-      console.error("Failed to generate text:", error);
-      throw error;
-    }
-  },
-
-  generateSummary: async (text: string) => {
-    try {
-      const summary = await AppBackend.GenerateSummary(text);
-      return summary;
-    } catch (error) {
-      console.error("Failed to generate summary:", error);
-      throw error;
-    }
-  },
-
-  generateImage: async (
-    prompt: string,
-
-    context: string,
-
-    refImages: string[],
-    provider?: string,
-  ) => {
-    try {
-      const result = provider
-        ? await AppBackend.GenerateImageWithProvider(
-            prompt,
-            context,
-            refImages,
-            provider,
-          )
-        : await AppBackend.GenerateImage(prompt, context, refImages);
-
-      return result;
-    } catch (error) {
-      console.error("Failed to generate image:", error);
-
-      throw error;
-    }
-  },
-
-  exportMarkdown: async (content: string) => {
-    try {
-      const result = await AppBackend.ExportMarkdown(content);
-      return result;
-    } catch (error) {
-      console.error("Failed to export markdown:", error);
-      throw error;
-    }
-  },
-
-  exportNode: async (nodeId: string) => {
-    const { nodes } = get();
-    const node = nodes.find((n) => n.id === nodeId);
-
-    if (!node) {
-      throw new Error("Node not found");
-    }
-
-    try {
-      if (node.type === "customNode") {
-        const content = (node.data as TextNodeData).content;
-        return await AppBackend.ExportMarkdown(content);
-      } else if (node.type === "artifactNode") {
-        const content = (node.data as ArtifactNodeData).content;
-        const filename = (node.data as ArtifactNodeData).filename;
-        return await AppBackend.ExportMarkdownWithFilename(content, filename);
-      } else if (node.type === "imageNode") {
-        const src = (node.data as ImageNodeData).src;
-        return await AppBackend.ExportImage(src);
+      if (node.type === "artifactNode") {
+        const data = node.data as ArtifactNodeData;
+        dispatch({
+          type: "createText",
+          role: "artifact",
+          input: {
+            content: data.content,
+            summary: data.summary,
+            filename: data.filename,
+            language: data.language,
+            position: node.position,
+            width: node.width,
+            height: node.height,
+          },
+        });
+        return;
       }
-      throw new Error("Unsupported node type for export");
-    } catch (error) {
-      console.error("Failed to export node:", error);
-      throw error;
-    }
-  },
-
-  exportImage: async (src: string) => {
-    try {
-      const result = await AppBackend.ExportImage(src);
-      return result;
-    } catch (error) {
-      console.error("Failed to export image:", error);
-      throw error;
-    }
-  },
-
-  exportNodesAsMarp: async (nodeIds: string[]) => {
-    const { nodes, edges } = get();
-    if (nodeIds.length === 0) return "";
-
-    // Collect all nodes to include in export.
-    // We traverse backwards from each target node to get its context.
-    const includedNodeMap = new Map<string, AppNode>();
-    let traversalWarningShown = false;
-
-    for (const id of nodeIds) {
-      const traversalResult = traverseContextBackwards(id, nodes, edges);
-
-      // Display warning if there was a traversal issue (only once)
-      if (traversalResult.warning && !traversalWarningShown) {
-        alert(traversalResult.warning.message);
-        traversalWarningShown = true;
-      }
-
-      for (const node of traversalResult.nodes) {
-        includedNodeMap.set(node.id, node);
-      }
-    }
-
-    // Sort nodes using topological sort to ensure upstream nodes appear before downstream nodes
-    const orderedNodes: AppNode[] = [];
-    const visited = new Set<string>();
-
-    const visit = (nodeId: string) => {
-      if (visited.has(nodeId)) return;
-
-      // Find all source nodes for this node (upstream)
-      const incomingEdges = edges.filter((e) => e.target === nodeId);
-      for (const edge of incomingEdges) {
-        if (includedNodeMap.has(edge.source)) {
-          visit(edge.source);
-        }
-      }
-
-      visited.add(nodeId);
-      const node = includedNodeMap.get(nodeId);
-      if (node) {
-        orderedNodes.push(node);
-      }
-    };
-
-    // Start traversal from all nodes in the map
-    // Topological sort will naturally handle the ordering
-    for (const id of includedNodeMap.keys()) {
-      visit(id);
-    }
-
-    // Build the Marp content
-    let marpSlides = ["---", "marp: true", "theme: default", "---", ""];
-    let imageWarningShown = false;
-
-    for (const node of orderedNodes) {
-      let slideContent = "";
-
-      if (node.type === "customNode") {
-        slideContent = (node.data as TextNodeData).content;
-      } else if (node.type === "artifactNode") {
-        slideContent = (node.data as ArtifactNodeData).content;
-      } else if (node.type === "imageNode") {
-        try {
-          const fileURL = await AppBackend.GetImageFileURL(
-            (node.data as ImageNodeData).src,
-          );
-          slideContent = `![](${fileURL})`;
-        } catch (error) {
-          if (!imageWarningShown) {
-            alert("画像の一部を解決できませんでした。スキップして続行します。");
-            imageWarningShown = true;
-          }
-          console.warn("Failed to resolve image URL for export:", error);
-          // Skip the image if we can't resolve it
-          continue;
-        }
-      }
-
-      // Add slide separator if not the first slide
-      if (marpSlides.length > 5) {
-        marpSlides.push("---");
-        marpSlides.push("");
-      }
-
-      const title =
-        node.type === "customNode"
-          ? (node.data as TextNodeData).summary
-          : node.type === "artifactNode"
-            ? (node.data as ArtifactNodeData).filename
-            : "Image";
-      marpSlides.push(`# ${title}`);
-      marpSlides.push(slideContent);
-      marpSlides.push("");
-    }
-
-    const marpContent = marpSlides.join("\n");
-
-    try {
-      const result = await AppBackend.ExportMarkdown(marpContent);
-      return result;
-    } catch (error) {
-      console.error("Failed to export nodes as Marp:", error);
-      throw error;
-    }
-  },
-
-  getImageDataURL: async (src: string) => {
-    try {
-      const dataURL = await AppBackend.GetImageDataURL(src);
-      return dataURL;
-    } catch (error) {
-      console.error("Failed to get image data URL:", error);
-      throw error;
-    }
-  },
-
-  importFile: async (filePath: string) => {
-    try {
-      const result = await AppBackend.ImportFile(filePath);
-      return result as any;
-    } catch (error) {
-      console.error("Failed to import file:", error);
-      throw error;
-    }
-  },
-
-  // React Flow integration actions
-  onNodesChange: (changes: NodeChange<AppNode>[]) => {
-    set({
-      nodes: applyNodeChanges<AppNode>(changes, get().nodes),
-    });
-  },
-
-  onEdgesChange: (changes: EdgeChange<AppEdge>[]) => {
-    set({
-      edges: applyEdgeChanges<AppEdge>(changes, get().edges),
-    });
-  },
-
-  onConnect: (connection: Connection) => {
-    // Adjust connection to ensure proper flow direction
-
-    // Right connector (older context) -> Left connector (newer context)
-
-    const adjustedConnection = {
-      ...connection,
-
-      sourceHandle: connection.sourceHandle || "right-source",
-
-      targetHandle: connection.targetHandle || "left-target",
-    };
-
-    set({
-      edges: addEdge(
-        {
-          ...adjustedConnection,
-
-          type: "default",
-
-          // Remove markerEnd to display simple lines without arrows
+      const data = node.data as TextNodeData;
+      dispatch({
+        type: "createText",
+        role: "text",
+        input: {
+          content: data.content,
+          summary: data.summary,
+          originalPrompt: data.originalPrompt,
+          position: node.position,
+          width: node.width,
+          height: node.height,
         },
+      });
+    },
 
-        get().edges,
-      ),
-    });
-  },
-}));
+    addEmptyNode: () => {
+      dispatch({ type: "createText", role: "text", input: {} });
+      set({ isEditorOpen: true });
+    },
+
+    addArtifactNode: () => {
+      dispatch({ type: "createText", role: "artifact", input: {} });
+      set({ isEditorOpen: true });
+    },
+
+    deleteNode: (id: string) => {
+      const node = get().workspace.document.nodes[id];
+      if (node && isFolder(node)) {
+        set({ lastError: "Use Dissolve SubCanvas for folder nodes" });
+        return;
+      }
+      dispatch({ type: "deleteNodes", nodeIds: [id] });
+    },
+
+    deleteEdge: (id: string) => {
+      dispatch({ type: "removeRelation", id });
+    },
+
+    setPromptInput: (value: string) => set({ promptInput: value }),
+    appendPromptInput: (value: string) => {
+      const prompt = value.trim();
+      if (!prompt) return;
+      set((state) => ({
+        promptInput: state.promptInput.trim()
+          ? `${state.promptInput}\n\n${prompt}`
+          : prompt,
+      }));
+    },
+
+    applyToolProposal: (proposal, requestedRunId) =>
+      decideToolProposal(proposal, "accept", requestedRunId),
+    decideToolProposal,
+
+    updateNodeContent: (id, content) => {
+      const node = get().workspace.document.nodes[id];
+      if (!node || !isTextBearing(node)) return;
+      dispatch({
+        type: "editTextContent",
+        nodeId: id,
+        content,
+        baseRevision: node.revision,
+      });
+    },
+
+    updateArtifactContent: (id, content) => {
+      get().updateNodeContent(id, content);
+    },
+
+    updateArtifactFilename: (id, filename) => {
+      dispatch({ type: "editTextMetadata", nodeId: id, patch: { filename } });
+    },
+
+    setArtifactLastEditSummary: (id, summary) => {
+      dispatch({ type: "editTextMetadata", nodeId: id, patch: { lastEditSummary: summary } });
+    },
+
+    updateNodeSummary: (id, summary) => {
+      dispatch({ type: "editTextMetadata", nodeId: id, patch: { summary } });
+    },
+
+    updateNodeDimensions: (id, width, height) => {
+      dispatch({ type: "resizeNode", nodeId: id, width, height });
+    },
+
+    setNodes: (nodes) => set({ nodes }),
+    setEdges: (edges) => set({ edges }),
+
+    setActiveNode: (id) => {
+      const selectedNodeIds = id ? [id] : [];
+      dispatch({
+        type: "setSelection",
+        state: {
+          selectedNodeIds,
+          activeNodeId: id || undefined,
+          revision: get().workspace.runtime.selection.revision + 1,
+        },
+      });
+    },
+
+    setEditorOpen: (isOpen) => set({ isEditorOpen: isOpen }),
+    setSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen }),
+
+    setConfig: (config) => {
+      set((state) => ({
+        config: {
+          ...state.config,
+          ...config,
+          imageGen: config.imageGen
+            ? mergeImageGenConfig({ ...state.config.imageGen, ...config.imageGen })
+            : state.config.imageGen,
+        },
+      }));
+    },
+
+    loadConfig: async () => {
+      try {
+        const config = await backend().GetConfig();
+        const fullConfig: AppConfig = {
+          llm: (config as any).llm || initialConfig.llm,
+          generation: (config as any).generation || initialConfig.generation,
+          imageGen: mergeImageGenConfig((config as any).imageGen),
+        };
+        set({ config: fullConfig });
+      } catch (error) {
+        console.error("Failed to load config:", error);
+      }
+    },
+
+    saveConfig: async (config) => {
+      try {
+        const fullConfig: AppConfig = {
+          llm: config.llm || initialConfig.llm,
+          generation: config.generation || initialConfig.generation,
+          imageGen: mergeImageGenConfig(config.imageGen),
+        };
+        await backend().SaveConfig(fullConfig as any);
+        set({ config: fullConfig });
+      } catch (error) {
+        console.error("Failed to save config:", error);
+      }
+    },
+
+    saveCanvas: async () => {
+      const json = workspaceToPrettyJSON(get().workspace, services().clock.nowISO());
+      try {
+        return await backend().SaveCanvasToFile(json);
+      } catch (error) {
+        console.error("Failed to save canvas:", error);
+        throw error;
+      }
+    },
+
+    loadCanvas: async () => {
+      try {
+        const jsonString = await backend().LoadCanvasFromFile();
+        if (!jsonString) return;
+        const loaded = loadWorkspaceJSON(jsonString, services());
+        if (!loaded.ok) {
+          set({ lastError: loaded.error });
+          throw new Error(loaded.error);
+        }
+        dispatch({
+          type: "replaceWorkspaceAfterValidatedLoad",
+          load: loaded.load,
+        });
+        set({ isEditorOpen: false });
+      } catch (error) {
+        console.error("Failed to load canvas:", error);
+        throw error;
+      }
+    },
+
+    generateText: async (prompt, context) => backend().GenerateText(prompt, context),
+    generateSummary: async (text) => backend().GenerateSummary(text),
+    generateImage: async (prompt, context, refImages, provider?) =>
+      provider
+        ? backend().GenerateImageWithProvider(prompt, context, refImages, provider)
+        : backend().GenerateImage(prompt, context, refImages),
+    getImageDataURL: async (src) => backend().GetImageDataURL(src),
+
+    importFile: async (filePath) => {
+      const result = (await backend().ImportFile(filePath)) as ImportFileResult & {
+        filename?: string;
+      };
+      return result;
+    },
+
+    exportMarkdown: async (content) => backend().ExportMarkdown(content),
+
+    exportNode: async (nodeId) => {
+      const node = get().workspace.document.nodes[nodeId];
+      if (!node) throw new Error("Node not found");
+      if (isTextBearing(node)) {
+        if (node.role === "artifact") {
+          return backend().ExportMarkdownWithFilename(
+            node.content,
+            node.filename || "untitled.md",
+          );
+        }
+        const name = node.filename || `${node.summary || "text"}.md`;
+        return backend().ExportMarkdownWithFilename(node.content, name);
+      }
+      if (node.kind === "image") return backend().ExportImage(node.src);
+      throw new Error("Unsupported node type for export");
+    },
+
+    exportImage: async (src) => backend().ExportImage(src),
+
+    exportNodesAsMarp: async (nodeIds) => {
+      const slides = ["---", "marp: true", "theme: default", "---", ""];
+      for (const id of nodeIds) {
+        const node = get().workspace.document.nodes[id];
+        if (node && isTextBearing(node)) {
+          slides.push(node.content, "", "---", "");
+        }
+      }
+      return backend().ExportMarkdown(slides.join("\n"));
+    },
+
+    onNodesChange: (changes: NodeChange<AppNode>[]) => {
+      const positionChanges: Array<{ nodeId: string; position: { x: number; y: number } }> = [];
+      const selectIds: string[] = [];
+      let selectionTouched = false;
+      const removeIds: string[] = [];
+
+      for (const change of changes) {
+        if (change.type === "position" && change.position && change.dragging === false) {
+          positionChanges.push({ nodeId: change.id, position: change.position });
+        } else if (change.type === "select") {
+          selectionTouched = true;
+          if (change.selected) selectIds.push(change.id);
+        } else if (change.type === "remove") {
+          removeIds.push(change.id);
+        } else if (change.type === "dimensions" && change.dimensions && (change as any).resizing === false) {
+          dispatch({
+            type: "resizeNode",
+            nodeId: change.id,
+            width: change.dimensions.width,
+            height: change.dimensions.height,
+          });
+        }
+      }
+
+      if (positionChanges.length) {
+        dispatch({ type: "moveNodePositions", changes: positionChanges });
+      }
+      if (selectionTouched) {
+        dispatch({
+          type: "setSelection",
+          state: {
+            selectedNodeIds: selectIds,
+            activeNodeId: selectIds[0],
+            revision: get().workspace.runtime.selection.revision + 1,
+          },
+        });
+      }
+      if (removeIds.length) {
+        const folders = removeIds.filter((id) => isFolder(get().workspace.document.nodes[id]));
+        const normals = removeIds.filter((id) => !folders.includes(id));
+        if (normals.length) dispatch({ type: "deleteNodes", nodeIds: normals });
+        if (folders.length) {
+          set({ lastError: "Folder delete is disabled; use Dissolve SubCanvas" });
+        }
+      }
+
+      const hasTransient = changes.some(
+        (c) => c.type === "position" && c.dragging === true,
+      );
+      if (hasTransient) {
+        set({ nodes: applyNodeChanges(changes, get().nodes) });
+      }
+    },
+
+    onEdgesChange: (changes: EdgeChange<AppEdge>[]) => {
+      for (const change of changes) {
+        if (change.type === "remove") {
+          dispatch({ type: "removeRelation", id: change.id });
+        }
+      }
+      const nonRemove = changes.filter((c) => c.type !== "remove");
+      if (nonRemove.length) {
+        set({ edges: applyEdgeChanges(nonRemove, get().edges) });
+      }
+    },
+
+    onConnect: (connection: Connection) => {
+      if (!connection.source || !connection.target) return;
+      const rel = createRelation(
+        services(),
+        connection.source,
+        connection.target,
+        "context",
+        {
+          sourceHandle: connection.sourceHandle || undefined,
+          targetHandle: connection.targetHandle || undefined,
+        },
+      );
+      dispatch({ type: "addRelation", relation: rel });
+    },
+  };
+});
+
+void MarkerType;

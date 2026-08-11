@@ -14,6 +14,7 @@ import { useAppStore } from "../../store/useAppStore";
 import CustomNode from "./CustomNode";
 import ImageNode from "./ImageNode";
 import ArtifactNode from "./ArtifactNode";
+import FolderNode from "./FolderNode";
 import ContextMenu from "../ui/ContextMenu";
 import { AppNode, AppEdge } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
@@ -23,6 +24,7 @@ const nodeTypes: NodeTypes = {
   customNode: CustomNode,
   imageNode: ImageNode as any, // 型の不一致を一時的に回避
   artifactNode: ArtifactNode as any,
+  folderNode: FolderNode as any,
 };
 
 const MIN_ZOOM = 0.1;
@@ -48,7 +50,7 @@ const CanvasArea: React.FC = () => {
     type: "node" | "edge";
   } | null>(null);
   const reactFlowInstance = useReactFlow();
-  const { addNode } = useAppStore();
+  const { addNode, navigateCanvas, createSubCanvas, dispatch } = useAppStore() as any;
 
   // Memoize addNode to prevent unnecessary re-renders
   const memoizedAddNode = useCallback(
@@ -78,19 +80,22 @@ const CanvasArea: React.FC = () => {
           });
 
           if (result.type === "text") {
-            // Add a new text node
+            const basename = (result as any).filename || filePath.split(/[/\\\\]/).pop() || "untitled.md";
             const newNode: AppNode = {
               id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: "customNode",
+              type: "artifactNode",
               position: flowPosition,
               data: {
                 content: result.content,
-                summary:
-                  result.content.substring(0, 100) +
-                  (result.content.length > 100 ? "..." : ""),
+                summary: result.content.substring(0, 100) + (result.content.length > 100 ? "..." : ""),
+                filename: basename,
+                language: "markdown",
+                revision: 0,
+                charCount: result.content.length,
+                wordCount: result.content.trim() ? result.content.trim().split(/\s+/).length : 0,
               },
-              width: 250,
-              height: 150,
+              width: 300,
+              height: 220,
             };
             memoizedAddNode(newNode);
           } else if (result.type === "image") {
@@ -142,13 +147,16 @@ const CanvasArea: React.FC = () => {
 
   const onNodeDoubleClick = useCallback(
     (_: React.MouseEvent, node: AppNode) => {
-      if (node.type === "customNode" || node.type === "artifactNode") {
+      if (node.type === "folderNode") {
+        const childId = (node.data as any).childCanvasId;
+        if (childId) navigateCanvas(childId);
+      } else if (node.type === "customNode" || node.type === "artifactNode") {
         setActiveNode(node.id);
         setEditorOpen(true);
       }
       setMenu(null);
     },
-    [setActiveNode, setEditorOpen],
+    [setActiveNode, setEditorOpen, navigateCanvas],
   );
 
   const onPaneClick = useCallback(() => {
@@ -273,6 +281,12 @@ const CanvasArea: React.FC = () => {
           onDelete={handleDelete}
           onExport={menu.type === "node" ? handleExport : undefined}
           onExportMarp={menu.type === "node" ? handleExportMarp : undefined}
+          onCreateSubCanvas={menu.type === "node" ? () => {
+            const selected = nodes.filter(n => n.selected).map(n => n.id);
+            const ids = selected.length >= 2 ? selected : [menu.id, ...selected].filter((v,i,a)=>a.indexOf(v)===i);
+            if (ids.length >= 2) createSubCanvas(ids);
+            else alert("Select 2+ nodes to create a SubCanvas");
+          } : undefined}
         />
       )}
     </div>
@@ -280,3 +294,5 @@ const CanvasArea: React.FC = () => {
 };
 
 export default CanvasArea;
+
+

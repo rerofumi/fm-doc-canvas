@@ -42,12 +42,22 @@ type ToolApplyProposal struct {
 	SearchText      string `json:"searchText,omitempty"`
 	Replacement     string `json:"replacement,omitempty"`
 	LastEditSummary string `json:"lastEditSummary,omitempty"`
+	WorkspaceID     string `json:"workspaceId,omitempty"`
+	CanvasID        string `json:"canvasId,omitempty"`
+	RuntimeGeneration string `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch      int64  `json:"scopeEpoch,omitempty"`
+	RunEpoch        int64  `json:"runEpoch,omitempty"`
 }
 
 type ToolApplicationResult struct {
 	ToolCallID string `json:"toolCallId"`
 	Status     string `json:"status"` // applied | conflict | cancelled | error
 	Error      string `json:"error,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	CanvasID string `json:"canvasId,omitempty"`
+	RuntimeGeneration string `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch int64 `json:"scopeEpoch,omitempty"`
+	RunEpoch int64 `json:"runEpoch,omitempty"`
 }
 
 type ChatEvent struct {

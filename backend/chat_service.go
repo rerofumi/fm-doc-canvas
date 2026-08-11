@@ -31,7 +31,9 @@ type ChatService struct {
 }
 
 func NewChatService(llm *LLMService) *ChatService {
-	return &ChatService{llm: llm, runs: map[string]*chatRun{}, sessions: map[string]string{}, pending: map[string]*pendingToolApplication{}, emit: func(ChatEvent) {}, applicationTimeout: 10 * time.Second}
+	// applicationTimeout=0 means wait indefinitely for human decision (F-1).
+	// Technical cancel still happens via Cancel/context.
+	return &ChatService{llm: llm, runs: map[string]*chatRun{}, sessions: map[string]string{}, pending: map[string]*pendingToolApplication{}, emit: func(ChatEvent) {}, applicationTimeout: 0}
 }
 
 func (s *ChatService) SetEmitter(emit func(ChatEvent)) {
@@ -106,8 +108,16 @@ func (s *ChatService) waitForApplication(ctx context.Context, req ChatRequest, p
 	}
 	s.pending[proposal.ToolCallID] = pending
 	s.mu.Unlock()
-	s.emitEvent(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_apply", Apply: proposal})
+s.emitEvent(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_apply", Apply: proposal})
 	defer func() { s.mu.Lock(); delete(s.pending, proposal.ToolCallID); s.mu.Unlock() }()
+	if s.applicationTimeout <= 0 {
+		select {
+		case result := <-pending.result:
+			return result
+		case <-ctx.Done():
+			return ToolApplicationResult{ToolCallID: proposal.ToolCallID, Status: "cancelled"}
+		}
+	}
 	timer := time.NewTimer(s.applicationTimeout)
 	defer timer.Stop()
 	select {
@@ -151,6 +161,14 @@ func (s *ChatService) Resolve(result ToolApplicationResult) error {
 	if result.Status != "applied" && result.Status != "conflict" && result.Status != "cancelled" && result.Status != "error" {
 		s.mu.Unlock()
 		return fmt.Errorf("invalid tool application status %q", result.Status)
+	}
+	if pending.proposal.WorkspaceID != "" &&
+		(result.WorkspaceID != pending.proposal.WorkspaceID ||
+			result.CanvasID != pending.proposal.CanvasID ||
+			result.RuntimeGeneration != pending.proposal.RuntimeGeneration ||
+			result.ScopeEpoch != pending.proposal.ScopeEpoch ||
+			result.RunEpoch != pending.proposal.RunEpoch) {
+		return fmt.Errorf("tool application %q scope correlation mismatch", result.ToolCallID)
 	}
 	delete(s.pending, result.ToolCallID)
 	pending.result <- result

@@ -34,6 +34,12 @@ type ChatRequest struct {
 	Prompt               string          `json:"prompt"`
 	TargetNodeID         string          `json:"targetNodeId,omitempty"`
 	DirectContextNodeIDs []string        `json:"directContextNodeIds"`
+	BodyAllowlistNodeIDs []string        `json:"bodyAllowlistNodeIds,omitempty"`
+	WorkspaceID          string          `json:"workspaceId,omitempty"`
+	RuntimeGeneration    string          `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch           int64           `json:"scopeEpoch,omitempty"`
+	RunEpoch             int64           `json:"runEpoch,omitempty"`
+	ContextDigest        string          `json:"contextDigest,omitempty"`
 	ContextWarning       *ContextWarning `json:"contextWarning,omitempty"`
 	Snapshot             CanvasSnapshot  `json:"snapshot"`
 }
@@ -55,6 +61,22 @@ func (r ChatRequest) validate() error {
 	}
 	if strings.TrimSpace(r.Prompt) == "" {
 		return fmt.Errorf("prompt is required")
+	}
+	// F-1 scope fields are optional for legacy callers, but once a caller sends
+	// any scope marker the complete correlation envelope must be present.
+	hasScope := strings.TrimSpace(r.WorkspaceID) != "" ||
+		strings.TrimSpace(r.RuntimeGeneration) != "" ||
+		r.ScopeEpoch != 0 || r.RunEpoch != 0 || strings.TrimSpace(r.ContextDigest) != ""
+	if hasScope {
+		if strings.TrimSpace(r.WorkspaceID) == "" || strings.TrimSpace(r.RuntimeGeneration) == "" {
+			return fmt.Errorf("workspaceId and runtimeGeneration are required with scope fields")
+		}
+		if r.RunEpoch <= 0 {
+			return fmt.Errorf("runEpoch must be positive with scope fields")
+		}
+		if strings.TrimSpace(r.ContextDigest) == "" {
+			return fmt.Errorf("contextDigest is required with scope fields")
+		}
 	}
 
 	nodes := make(map[string]NodeSnapshot, len(r.Snapshot.Nodes))
@@ -96,8 +118,27 @@ func (r ChatRequest) validate() error {
 			return fmt.Errorf("target node must be the last direct context node")
 		}
 	}
-	if r.ContextWarning != nil && r.ContextWarning.Kind != "branch" && r.ContextWarning.Kind != "loop" {
+if r.ContextWarning != nil && r.ContextWarning.Kind != "branch" && r.ContextWarning.Kind != "loop" {
 		return fmt.Errorf("unsupported context warning kind %q", r.ContextWarning.Kind)
+	}
+	// Optional F-1 scope fields: when body allowlist is provided it must be a subset of snapshot.
+	seenAllow := make(map[string]struct{}, len(r.BodyAllowlistNodeIDs))
+	for _, id := range r.BodyAllowlistNodeIDs {
+		if _, ok := nodes[id]; !ok {
+			return fmt.Errorf("body allowlist node %q is not in snapshot", id)
+		}
+		if _, exists := seenAllow[id]; exists {
+			return fmt.Errorf("body allowlist contains duplicate node %q", id)
+		}
+		seenAllow[id] = struct{}{}
+	}
+	// Direct context must not exceed allowlist when allowlist is present.
+	if len(r.BodyAllowlistNodeIDs) > 0 {
+		for _, id := range r.DirectContextNodeIDs {
+			if _, ok := seenAllow[id]; !ok {
+				return fmt.Errorf("direct context node %q is outside body allowlist", id)
+			}
+		}
 	}
 	return nil
 }

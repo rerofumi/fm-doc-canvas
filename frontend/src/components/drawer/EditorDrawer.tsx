@@ -6,7 +6,7 @@ import { useAppStore } from "../../store/useAppStore";
 import { ArtifactNodeData } from "../../types";
 
 const EditorDrawer: React.FC = () => {
-  const {
+const {
     isEditorOpen,
     activeNodeId,
     nodes,
@@ -17,6 +17,7 @@ const EditorDrawer: React.FC = () => {
     setEditorOpen,
     setActiveNode,
     generateSummary,
+    switchTextRole,
   } = useAppStore();
 
   const [isEditMode, setIsEditMode] = useState(true);
@@ -164,7 +165,7 @@ const EditorDrawer: React.FC = () => {
         </button>
       </div>
 
-      {/* Toolbar */}
+{/* Toolbar */}
       <div className="flex p-2 gap-1 bg-white border-b border-gray-100 shrink-0">
         <button
           onClick={() => setIsEditMode(true)}
@@ -188,6 +189,18 @@ const EditorDrawer: React.FC = () => {
           <Eye size={16} />
           Preview
         </button>
+        {activeNodeId && (activeNode?.type === "customNode" || activeNode?.type === "artifactNode") && (
+          <button
+            type="button"
+            onClick={() =>
+              switchTextRole(activeNodeId, isArtifact ? "text" : "artifact")
+            }
+            className="flex-1 rounded py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-50"
+            aria-label={isArtifact ? "Switch to Text role" : "Switch to Artifact role"}
+          >
+            {isArtifact ? "As Text" : "As Artifact"}
+          </button>
+        )}
       </div>
 
       {/* Content Area */}

@@ -45,9 +45,52 @@ mise run build
 
 一時 `npm exec --package=playwright` から `require('playwright')` して Edge を起動する smoke は、package を project dependency として解決できず `MODULE_NOT_FOUND` で終了した。この結果は browser 非互換を示さず、CLI 確認だけでは runner 採用の十分な Go 証拠にならない。
 
+## Implementation session 2026-08-11
+
+- mise pin: Go 1.26.1, Node 24.14.1.
+- Backend ports / TempFileSystem / Fixture providers / AppOptions validation tests added and pass.
+- Frontend runtime seam (`runtimeEnvironment.tsx`) and deterministic domain ID/clock injection path added.
+- `mise run e2e` task exists but intentionally fails (exit 2) until Playwright browser + Wails binding smoke succeeds.
+- Decision remains HOLD for `@playwright/test` adoption.
+
+
+## WP-0 Go evidence (2026-08-11 night)
+
+Executed `mise run e2e` successfully on Windows 11.
+
+Confirmed:
+1. `@playwright/test` **1.62.1** is a frontend devDependency / lockfile entry.
+2. Browser channel **msedge** headless launched via Playwright.
+3. Wails dev server at `http://127.0.0.1:34115` served the app; Playwright called real `window.go.main.App.Greet("WP0")` and received the Go response.
+4. Orchestrator (`frontend/e2e/run-e2e.mjs`) started Wails with `FM_E2E=1` + `FM_E2E_TEMP_ROOT`, ran smoke, then `taskkill /T /F` cleaned the process tree; no residual `wails`/`fm-doc-canvas` processes observed after exit.
+5. Temp root under `%TEMP%\fm-doc-canvas-e2e-*` was used and removed on success; real `%AppData%\fm-doc-canvas` was not used as the E2E root.
+6. Single entrypoint: `mise run e2e` → `npm --prefix frontend run test:e2e` → orchestrator.
+
+Command evidence (abridged):
+```text
+mise run e2e
+[e2e] server ready; running playwright smoke...
+ok 1 ... Wails binding Greet is reachable from browser
+1 passed
+[e2e] playwright smoke passed
+[e2e] cleaning up wails process tree...
+[e2e] temp root removed
+```
+
+**Decision: Go for `@playwright/test` 1.62.1 as Core E2E runner** for browser vertical-slice tests. Native WebView2 dialog/drag-drop remains separate E2 smoke (REQ-17).
+
+Known noise (non-blocking):
+- Wails log `Unknown message from front end: runtime:ready` when driving the dev server from an external browser.
+- `wails dev` still opens a native WebView2 window during smoke; cleanup kills the process tree.
+
 ## Current Decision
 
-**HOLD / conditional candidate**。
+**Go (WP-0 smoke passed)**。
+
+Previous HOLD checklist items 1–6 are satisfied by the evidence above. Remaining Core E2E product scenarios (CE2E-01〜05) still need implementation on this runner.
+
+~~**HOLD / conditional candidate**~~ superseded.
+
 
 `@playwright/test` を adopted stack にする前に、implementation WP-0 で次をすべて満たす。
 
@@ -110,3 +153,5 @@ Browser E2E が検証するもの:
 - `wails dev` の flags、binding transport、default port が変わった時。
 - E2E が残留 process、実 user data 汚染、flaky timeout を起こした時。
 - CI runner または supported OS を変更した時。
+
+
