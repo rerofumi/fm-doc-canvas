@@ -53,3 +53,39 @@
 - Related local cheatsheet: `chat_tool_provider_compatibility.md`
 - Related local files: `backend/agent_types.go`, `backend/llm.go`, `backend/agent_loop.go`
 - Reason: Confirms that OpenAI-compatible function calls carry `extra_content.google.thought_signature` and that the signature must be preserved in subsequent tool-loop requests.
+
+## Wails Development Server
+
+- URL: https://wails.io/docs/gettingstarted/development/
+- Source type: Official documentation
+- Confirmation date: 2026-08-11
+- Related local cheatsheet: `wails_playwright_e2e.md`
+- Related local files: `wails.json`, `mise.toml`
+- Reason: Confirms that `wails dev` runs the application, generates Go-to-JavaScript bindings, and serves the application through a browser-accessible development server.
+
+## Wails v2 CLI
+
+- URL: https://wails.io/docs/reference/cli/
+- Source type: Official documentation
+- Confirmation date: 2026-08-11
+- Related local cheatsheet: `wails_playwright_e2e.md`
+- Related local files: `mise.toml`, `wails.json`
+- Reason: Records the `wails dev` development-server behavior and CLI flags that must be rechecked when implementing the E2E harness.
+
+## Playwright Web Server
+
+- URL: https://playwright.dev/docs/test-webserver
+- Source type: Official documentation
+- Confirmation date: 2026-08-11
+- Related local cheatsheet: `wails_playwright_e2e.md`
+- Related local files: future `frontend/playwright.config.ts`, `mise.toml`
+- Reason: Confirms Playwright Test can start a local server, wait on a URL, set a base URL, and control timeout/reuse behavior.
+
+## Playwright Browser API Mocking
+
+- URL: https://playwright.dev/docs/mock-browser-apis
+- Source type: Official documentation
+- Confirmation date: 2026-08-11
+- Related local cheatsheet: `wails_playwright_e2e.md`
+- Related local files: future E2E setup
+- Reason: Confirms browser-side APIs can be installed before page scripts with `addInitScript`; useful only for boundaries that cannot use the real Wails bridge.

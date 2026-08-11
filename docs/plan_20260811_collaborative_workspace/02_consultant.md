@@ -10,6 +10,8 @@
 - 外部視点ログ: [rubberduck_log.json](./rubberduck_log.json)
 - 現行計画: [plan_20260810_chat_artifact](../plan_20260810_chat_artifact/)
 
+> **資料上の優先順位**: 本書は historical proposal である。Pause、定型計測、MCP 候補などが後続の [05_roadmap.md](./05_roadmap.md) と競合する場合は roadmap の D-01〜D-12 を優先し、正式実装範囲は [30_requirement.md](./30_requirement.md) / [40_specification.md](./40_specification.md) に従う。
+
 ## 1. 本書の位置づけ
 
 本書は、利用実態の分析をもとに、`fm-doc-canvas` がどのような製品になると手に馴染む可能性が高いかを整理した意思決定用の提案書である。

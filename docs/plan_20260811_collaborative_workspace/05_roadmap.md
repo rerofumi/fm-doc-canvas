@@ -8,6 +8,8 @@
 - 改善方向の提案: [02_consultant.md](./02_consultant.md)
 - canonical 用語: [08_glossary.md](./08_glossary.md)
 - 基準実装計画（2026-08-11 完了）: [plan_20260810_chat_artifact](../plan_20260810_chat_artifact/)
+- 正式 Full plan: [10_claim.md](./10_claim.md)、[30_requirement.md](./30_requirement.md)、[40_specification.md](./40_specification.md)、[90_status.md](./90_status.md)
+- 昇格済み範囲: D-12・D-02・F-1 foundation slice（`state: planned`）。F-2〜F-6 は各 Gate 後の別 plan とする。
 
 ## 1. 本書の目的
 

@@ -345,4 +345,4 @@ worklog: enabled
 - Inputs: ユーザーは残存項目に実利用上の課題を感じておらず、追加計測・検証を行わず close してよいと判断した。Sprint A〜C は既に個別受理済み。
 - Actions: REQ-N01〜N03、N06、N07 と Core E2E を未実施の `pass` ではなく、代替証拠・残余リスク・再検討条件を持つ `EX accepted` として記録した。`90_status.md` と `docs/plan_index.md` を `done` へ同期し、現行 app requirements / requirements / specification / review notes と次期 roadmap を更新した。
 - Decision and rationale: 現時点で価値の低い測定を closure のためだけに実施しない。一方で試験済みとは扱わず、性能悪化、旧版読込問題、credential 経路変更、未信頼 Markdown 取込、横断回帰が生じた場合の再検証条件を残す。
-- Result: 本計画は `state: done`。次の改善は `docs/plan_20260811_1/05_roadmap.md` 上で独立計画として検討する。
+- Result: 本計画は `state: done`。次の改善は `docs/plan_20260811_collaborative_workspace/05_roadmap.md` 上で独立計画として検討する。
