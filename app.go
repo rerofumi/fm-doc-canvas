@@ -123,7 +123,7 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 	// E2E: do not construct ConfigService/ChatSessionService (no %AppData%).
 	// FileService still needs a *ConfigService for Resolve paths in current code;
 	// use an in-memory-backed adapter constructed without UserConfigDir side effects.
-cfgService := backend.NewConfigServiceFromStore(opts.Config)
+	cfgService := backend.NewConfigServiceFromStore(opts.Config)
 	fileService := backend.NewFileService(cfgService)
 	if d, ok := opts.Dialog.(backend.FixedDialog); ok {
 		exportPath := d.SavePath
@@ -252,6 +252,57 @@ func (a *App) GenerateText(prompt string, contextData string) (string, error) {
 		return "fixture-llm-response", nil
 	}
 	return a.llmService.GenerateText(prompt, contextData)
+}
+
+// DirectTransform performs exactly one structured transform request for an
+// explicit canvas action. It never enters the dialogue/agent loop or creates a
+// proposal acknowledgement, and returns only a validated draft for the
+// frontend's atomic apply command.
+func (a *App) DirectTransform(req backend.DirectTransformRequest) (backend.TransformProposal, error) {
+	// Validate against the allowlisted request body only. Extra or missing
+	// sourceNodes / sourceRevisions fail before any provider call.
+	snapshot := backend.CanvasSnapshot{CanvasID: req.CanvasID, Nodes: req.SourceNodes}
+	if err := req.Validate(snapshot); err != nil {
+		return backend.TransformProposal{}, err
+	}
+	allowlisted, err := req.AllowlistedSourceNodes()
+	if err != nil {
+		return backend.TransformProposal{}, err
+	}
+	sections := make([]string, 0, len(allowlisted))
+	previews := make([]backend.TransformSourcePreview, 0, len(allowlisted))
+	for _, source := range allowlisted {
+		sections = append(sections, fmt.Sprintf("Source %s (revision %d):\n%s", source.ID, source.Revision, source.Markdown))
+		previews = append(previews, backend.TransformSourcePreview{
+			NodeID:   source.ID,
+			Content:  source.Markdown,
+			Revision: source.Revision,
+		})
+	}
+	body := strings.Join(sections, "\n\n")
+	content, err := a.GenerateText(
+		strings.ToUpper(req.Operation)+" the selected Canvas nodes. Return only the resulting Markdown.\n\n"+body,
+		body,
+	)
+	if err != nil {
+		return backend.TransformProposal{}, err
+	}
+	revisions := make(map[string]int64, len(req.SourceRevisions))
+	for id, revision := range req.SourceRevisions {
+		revisions[id] = revision
+	}
+	return backend.TransformProposal{
+		Operation:         req.Operation,
+		SourceNodeIDs:     append([]string(nil), req.SourceNodeIDs...),
+		SourceRevisions:   revisions,
+		Content:           content,
+		Summary:           req.Operation + " result",
+		Sources:           previews,
+		WorkspaceID:       req.WorkspaceID,
+		CanvasID:          req.CanvasID,
+		RuntimeGeneration: req.RuntimeGeneration,
+		ScopeEpoch:        req.ScopeEpoch,
+	}, nil
 }
 
 // GenerateSummary calls the LLM service to summarize text

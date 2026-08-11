@@ -4,6 +4,8 @@ import {backend} from '../models';
 
 export function CancelChat(arg1:string):Promise<void>;
 
+export function DirectTransform(arg1:backend.DirectTransformRequest):Promise<backend.TransformProposal>;
+
 export function ExportImage(arg1:string):Promise<string>;
 
 export function ExportMarkdown(arg1:string):Promise<string>;

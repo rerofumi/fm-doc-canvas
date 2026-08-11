@@ -78,7 +78,7 @@ flowchart LR
 - `frontend/src/components/canvas/TextNode.tsx`: role による Text / Artifact presentation。
 - `frontend/src/components/canvas/FolderNode.tsx`: SubCanvas entry と boundary badge。
 - `frontend/src/components/canvas/CanvasArea.tsx`: Current Canvas projection、group/move/drop、breadcrumb 連携。
-- `frontend/src/components/layout/CanvasBreadcrumb.tsx`: root〜Current Canvas navigation。
+- `frontend/src/components/layout/CanvasBreadcrumb.tsx`: root〜Current Canvas navigation。左端の `Parent` は閲覧履歴や Undo を使わず、Current Canvas の `parentCanvasId` へ1階層だけ移動し、root では無効になる。
 - `frontend/src/components/context/ContextPreview.tsx`: Active / Candidate / Mutation / Relation target 表示と除外。
 - `frontend/src/components/context/BoundaryPortal.tsx`: ancestor / sibling方向のRelation集約とnavigation。
 - `frontend/src/runtime/runtimeEnvironment.tsx`: Frontend clock / ID / Backend adapter のproduction・E2E seam。
@@ -330,7 +330,7 @@ Foundation で product UI が作成する Relation は legacy-compatible `contex
 - Folder Node は child Canvas の入口として表示する。
 - 同一 Canvas 内 Relation は通常 edge として表示する。
 - cross-canvas Relation は remote Node を複製せず、Canvas tree上のprojection anchorへ関係数・kind・方向を集約する。
-- badge / portal click はrelation listの軽量popoverを開き、対象Canvasへnavigationしてendpointをhighlightする。Backで元のCanvas path / viewportへ戻れる。
+- badge / portal click はrelation listの軽量popoverを開き、対象Canvasへnavigationしてendpointをhighlightする。Canvas tree の復帰は breadcrumb または `Parent` で明示的に行い、document mutation の Undo 履歴とは分離する。
 - 初期実装では remote Node ごとの Boundary Relation Proxy を Canvas 上へ常時描画しない。
 
 React Flow の `selected`、Editor の active node、Dialogue target を独立した正本にしない。明示選択は一つの `SelectionState` へ正規化し、各 UI が参照する。
@@ -341,7 +341,7 @@ React Flow の `selected`、Editor の active node、Dialogue target を独立�
 
 1. endpointがCurrent Canvasなら実Nodeをanchorにする。
 2. endpointがCurrent Canvasのdescendantなら、Current Canvasからendpointへ向かう最初のchild CanvasのFolder Nodeを`down-folder` anchorにする。
-3. endpointがancestor、sibling、別branchなら、breadcrumb / Backの隣に一つ置く`up-boundary` portalをanchorにする。popoverにはremote Canvas pathを表示し、endpoint Canvasへ直接navigationできる。
+3. endpointがancestor、sibling、別branchなら、breadcrumb / Parentの隣に一つ置く`up-boundary` portalをanchorにする。popoverにはremote Canvas pathを表示し、endpoint Canvasへ直接navigationできる。
 4. Current Canvas外に両endpointがあり同じanchorへ畳まれるRelationは、そのcollapsed subtree内部の関係なので表示しない。異なるanchorへ写る場合だけ双方のbadge countへ集約する。
 5. aggregate keyは`anchor kind + anchor id + relation kind + local direction + remote canvas id`。Relation ID順に安定表示し、重複countしない。
 

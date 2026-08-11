@@ -133,6 +133,9 @@ export function projectCurrentCanvas(state: WorkspaceState): {
         sourceHandle: rel.presentation?.sourceHandle || "right-source",
         targetHandle: rel.presentation?.targetHandle || "left-target",
         type: "default",
+        label: rel.kind === "context" ? undefined : rel.kind,
+        labelStyle: { fontSize: 10, fill: "#475569" },
+        labelBgStyle: { fill: "#ffffff", fillOpacity: 0.8 },
         markerEnd: { type: MarkerType.ArrowClosed },
       });
       continue;

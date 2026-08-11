@@ -11,6 +11,10 @@ export type E2EBridge = {
   switchRole: (nodeId: string, role: "text" | "artifact") => Promise<void>;
   setFilename: (nodeId: string, filename: string) => Promise<void>;
   selectNodes: (nodeIds: string[]) => Promise<void>;
+  editText: (nodeId: string, content: string) => Promise<void>;
+  moveNode: (nodeId: string, x: number, y: number) => Promise<void>;
+  openContextMenu: (target: { type: "node" | "edge"; id: string; x?: number; y?: number }) => Promise<void>;
+  directTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
   createSubCanvas: (nodeIds: string[], label?: string) => Promise<any>;
   dissolveChildOfRoot: () => Promise<void>;
   navigate: (canvasId: string) => Promise<void>;
@@ -28,8 +32,12 @@ export type E2EBridge = {
   applyProposal: (payload: any) => Promise<any>;
   injectProposal: (payload: any) => Promise<{ sessionId: string; runId: string }>;
   armUndoFault: () => Promise<void>;
+  armTransformFault: () => Promise<void>;
+  armDelayedDirectTransform: () => Promise<void>;
+  releaseDelayedDirectTransform: () => Promise<void>;
+  clearLastError: () => Promise<void>;
   loadJSON: (json: string) => Promise<void>;
-  addRelation: (sourceId: string, targetId: string) => Promise<string>;
+  addRelation: (sourceId: string, targetId: string, kind?: "context" | "source" | "derived" | "supports" | "opposes" | "similar", reason?: string) => Promise<string>;
 };
 
 export async function installNetworkGuard(page: Page) {
@@ -96,6 +104,20 @@ export async function e2e(page: Page): Promise<E2EBridge> {
         ),
       selectNodes: (nodeIds: string[]) =>
         page.evaluate((ids) => (window as any).__E2E__.selectNodes(ids), nodeIds),
+      editText: (nodeId: string, content: string) =>
+        page.evaluate(
+          ({ id, c }) => (window as any).__E2E__.editText(id, c),
+          { id: nodeId, c: content },
+        ),
+      moveNode: (nodeId: string, x: number, y: number) =>
+        page.evaluate(
+          ({ id, x: px, y: py }) => (window as any).__E2E__.moveNode(id, px, py),
+          { id: nodeId, x, y },
+        ),
+      openContextMenu: (target) =>
+        page.evaluate((t) => (window as any).__E2E__.openContextMenu(t), target),
+      directTransform: (operation) =>
+        page.evaluate((value) => (window as any).__E2E__.directTransform(value), operation),
       createSubCanvas: (nodeIds: string[], label?: string) =>
         page.evaluate(
           ({ ids, l }) => (window as any).__E2E__.createSubCanvas(ids, l),
@@ -129,12 +151,18 @@ export async function e2e(page: Page): Promise<E2EBridge> {
       injectProposal: (payload: any) =>
         page.evaluate((p) => (window as any).__E2E__.injectProposal(p), payload),
       armUndoFault: () => page.evaluate(() => (window as any).__E2E__.armUndoFault()),
+      armTransformFault: () => page.evaluate(() => (window as any).__E2E__.armTransformFault()),
+      armDelayedDirectTransform: () =>
+        page.evaluate(() => (window as any).__E2E__.armDelayedDirectTransform()),
+      releaseDelayedDirectTransform: () =>
+        page.evaluate(() => (window as any).__E2E__.releaseDelayedDirectTransform()),
+      clearLastError: () => page.evaluate(() => (window as any).__E2E__.clearLastError()),
       loadJSON: (json: string) =>
         page.evaluate((j) => (window as any).__E2E__.loadJSON(j), json),
-      addRelation: (sourceId: string, targetId: string) =>
+      addRelation: (sourceId: string, targetId: string, kind?: string, reason?: string) =>
         page.evaluate(
-          ({ s, t }) => (window as any).__E2E__.addRelation(s, t),
-          { s: sourceId, t: targetId },
+          ({ s, t, k, r }) => (window as any).__E2E__.addRelation(s, t, k, r),
+          { s: sourceId, t: targetId, k: kind, r: reason },
         ),
     } satisfies E2EBridge;
   });

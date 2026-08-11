@@ -84,6 +84,10 @@ export function validateDocument(document: WorkspaceDocument): string | null {
     if (!nodes[rel.sourceNodeId] || !nodes[rel.targetNodeId]) {
       return `relation ${rel.id} missing endpoint`;
     }
+    if (rel.sourceNodeId === rel.targetNodeId) return `relation ${rel.id} self relation`;
+    if (!["context", "source", "derived", "supports", "opposes", "similar"].includes(rel.kind)) {
+      return `relation ${rel.id} invalid kind`;
+    }
     if (rel.status !== "accepted") return `relation ${rel.id} invalid status`;
   }
 

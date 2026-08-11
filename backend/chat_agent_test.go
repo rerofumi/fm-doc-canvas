@@ -70,12 +70,12 @@ func TestToolContractsReadAndApplyExactlyOneMatch(t *testing.T) {
 	}
 }
 
-func TestSevenToolDefinitionsAndReadTools(t *testing.T) {
+func TestEightToolDefinitionsAndReadTools(t *testing.T) {
 	definitions := toolDefinitions()
-	if len(definitions) != 7 {
-		t.Fatalf("tool count = %d, want 7", len(definitions))
+	if len(definitions) != 9 {
+		t.Fatalf("tool count = %d, want 9", len(definitions))
 	}
-	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes"}
+	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation"}
 	for index, want := range wantNames {
 		if definitions[index].Function.Name != want {
 			t.Fatalf("tool %d = %q, want %q", index, definitions[index].Function.Name, want)
@@ -107,6 +107,149 @@ func TestSevenToolDefinitionsAndReadTools(t *testing.T) {
 	missing.Function.Arguments = `{"node_id":"missing"}`
 	if result := executeTool(context.Background(), state, missing); result.Status != "error" {
 		t.Fatalf("missing node should fail: %#v", result)
+	}
+}
+
+func TestProposeTransformRequiresReadAndCarriesRevisionSnapshot(t *testing.T) {
+	request := testChatRequest("compare selected nodes")
+	state := &agentRunState{request: request, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}}
+	for _, id := range []string{"text-1", "artifact-1"} {
+		call := ToolCall{ID: "read-" + id}
+		call.Function.Name = "read_canvas_node"
+		call.Function.Arguments = fmt.Sprintf(`{"node_id":%q}`, id)
+		if result := executeTool(context.Background(), state, call); result.Status != "done" {
+			t.Fatalf("read %s failed: %#v", id, result)
+		}
+	}
+	var proposal *ToolApplyProposal
+	state.approve = func(_ context.Context, value *ToolApplyProposal) ToolApplicationResult {
+		proposal = value
+		return ToolApplicationResult{ToolCallID: value.ToolCallID, Status: "applied"}
+	}
+	call := ToolCall{ID: "transform-1"}
+	call.Function.Name = "propose_transform"
+	call.Function.Arguments = `{"operation":"compare","source_node_ids":["text-1","artifact-1"],"content":"comparison","summary":"Comparison","reason":"shared axis"}`
+	if result := executeTool(context.Background(), state, call); result.Status != "applied" {
+		t.Fatalf("propose_transform failed: %#v", result)
+	}
+	if proposal == nil || proposal.Operation != "transform" || proposal.Transform == nil || proposal.Transform.SourceRevisions["text-1"] != 2 || proposal.Transform.SourceRevisions["artifact-1"] != 3 {
+		t.Fatalf("unexpected transform proposal: %#v", proposal)
+	}
+}
+
+func TestDirectTransformRequestValidationUsesStructuredSourceSnapshot(t *testing.T) {
+	nodes := testChatRequest("test").Snapshot.Nodes[:2]
+	request := DirectTransformRequest{
+		Operation:       "compare",
+		SourceNodeIDs:   []string{"text-1", "artifact-1"},
+		SourceRevisions: map[string]int64{"text-1": 2, "artifact-1": 3},
+		SourceNodes:     nodes,
+		WorkspaceID:     "workspace-1", CanvasID: "canvas-1", RuntimeGeneration: "generation-1", ContextDigest: "digest",
+	}
+	if err := request.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: request.SourceNodes}); err != nil {
+		t.Fatalf("valid direct request rejected: %v", err)
+	}
+	arity := request
+	arity.SourceNodeIDs = []string{"text-1"}
+	arity.SourceNodes = nodes[:1]
+	arity.SourceRevisions = map[string]int64{"text-1": 2}
+	if err := arity.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: arity.SourceNodes}); err == nil {
+		t.Fatal("expected compare arity error")
+	}
+
+	// Extra body outside allowlist must fail before provider call.
+	extra := request
+	extra.SourceNodes = append(append([]NodeSnapshot{}, nodes...), NodeSnapshot{ID: "text-extra", Type: "text", Revision: 1, Markdown: "smuggled"})
+	if err := extra.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: extra.SourceNodes}); err == nil {
+		t.Fatal("expected extra sourceNodes rejection")
+	}
+
+	// Missing body for a declared source ID.
+	missing := request
+	missing.SourceNodes = nodes[:1]
+	if err := missing.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: missing.SourceNodes}); err == nil {
+		t.Fatal("expected missing sourceNodes rejection")
+	}
+
+	// Duplicate source ID.
+	dup := request
+	dup.SourceNodeIDs = []string{"text-1", "text-1"}
+	dup.SourceNodes = []NodeSnapshot{nodes[0], nodes[0]}
+	dup.SourceRevisions = map[string]int64{"text-1": 2}
+	if err := dup.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: dup.SourceNodes}); err == nil {
+		t.Fatal("expected duplicate source rejection")
+	}
+
+	// Extra revision key.
+	extraRev := request
+	extraRev.SourceRevisions = map[string]int64{"text-1": 2, "artifact-1": 3, "ghost": 1}
+	if err := extraRev.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: extraRev.SourceNodes}); err == nil {
+		t.Fatal("expected extra sourceRevisions rejection")
+	}
+
+	// Missing revision key.
+	missingRev := request
+	missingRev.SourceRevisions = map[string]int64{"text-1": 2}
+	if err := missingRev.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: missingRev.SourceNodes}); err == nil {
+		t.Fatal("expected missing sourceRevisions rejection")
+	}
+
+	// Body revision mismatch with sourceRevisions.
+	revMismatch := request
+	revMismatch.SourceNodes = []NodeSnapshot{
+		{ID: "text-1", Type: "text", Revision: 99, Markdown: nodes[0].Markdown},
+		nodes[1],
+	}
+	if err := revMismatch.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: revMismatch.SourceNodes}); err == nil {
+		t.Fatal("expected body/revision mismatch rejection")
+	}
+
+	allowlisted, err := request.AllowlistedSourceNodes()
+	if err != nil {
+		t.Fatalf("allowlist order failed: %v", err)
+	}
+	if len(allowlisted) != 2 || allowlisted[0].ID != "text-1" || allowlisted[1].ID != "artifact-1" {
+		t.Fatalf("allowlisted order wrong: %#v", allowlisted)
+	}
+	// Provider body must not include unvalidated extras even if SourceNodes is disordered.
+	disordered := request
+	disordered.SourceNodes = []NodeSnapshot{nodes[1], nodes[0]}
+	if err := disordered.Validate(CanvasSnapshot{CanvasID: "canvas-1", Nodes: disordered.SourceNodes}); err != nil {
+		t.Fatalf("disordered but valid set rejected: %v", err)
+	}
+	ordered, err := disordered.AllowlistedSourceNodes()
+	if err != nil || ordered[0].ID != "text-1" || ordered[1].ID != "artifact-1" {
+		t.Fatalf("allowlist should follow sourceNodeIds order: %#v err=%v", ordered, err)
+	}
+}
+
+func TestProposeRelationRequiresReadAndDoesNotAutoApply(t *testing.T) {
+	request := testChatRequest("relate selected nodes")
+	state := &agentRunState{request: request, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}}
+	for _, id := range []string{"text-1", "artifact-1"} {
+		call := ToolCall{ID: "read-" + id}
+		call.Function.Name = "read_canvas_node"
+		call.Function.Arguments = fmt.Sprintf(`{"node_id":%q}`, id)
+		if result := executeTool(context.Background(), state, call); result.Status != "done" {
+			t.Fatalf("read %s failed: %#v", id, result)
+		}
+	}
+	var proposal *ToolApplyProposal
+	state.approve = func(_ context.Context, value *ToolApplyProposal) ToolApplicationResult {
+		proposal = value
+		return ToolApplicationResult{ToolCallID: value.ToolCallID, Status: "cancelled"}
+	}
+	call := ToolCall{ID: "relation-1"}
+	call.Function.Name = "propose_relation"
+	call.Function.Arguments = `{"source_node_id":"text-1","target_node_id":"artifact-1","kind":"supports","reason":"evidence","direction":"forward"}`
+	if result := executeTool(context.Background(), state, call); result.Status != "cancelled" {
+		t.Fatalf("propose_relation should await human decision: %#v", result)
+	}
+	if proposal == nil || proposal.Operation != "relation" || proposal.Relation == nil || proposal.Relation.Kind != "supports" {
+		t.Fatalf("unexpected relation proposal: %#v", proposal)
+	}
+	if proposal.Relation.SourceNodeID != "text-1" || proposal.Relation.TargetNodeID != "artifact-1" {
+		t.Fatalf("unexpected endpoints: %#v", proposal.Relation)
 	}
 }
 

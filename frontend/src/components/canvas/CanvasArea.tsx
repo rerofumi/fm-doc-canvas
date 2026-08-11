@@ -16,9 +16,14 @@ import ImageNode from "./ImageNode";
 import ArtifactNode from "./ArtifactNode";
 import FolderNode from "./FolderNode";
 import ContextMenu from "../ui/ContextMenu";
+import RelationEditorDialog, {
+  RelationEditorValue,
+  RelationKindOption,
+} from "../ui/RelationEditorDialog";
 import { AppNode, AppEdge } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
 import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime";
+import { isTextBearing } from "../../domain/workspace";
 
 const nodeTypes: NodeTypes = {
   customNode: CustomNode,
@@ -49,8 +54,129 @@ const CanvasArea: React.FC = () => {
     id: string;
     type: "node" | "edge";
   } | null>(null);
+  const [relationEditor, setRelationEditor] = useState<
+    | {
+        mode: "create" | "edit";
+        relationId?: string;
+        initial: RelationEditorValue;
+        nodeOptions: Array<{ id: string; label: string }>;
+      }
+    | null
+  >(null);
   const reactFlowInstance = useReactFlow();
-  const { addNode, navigateCanvas, createSubCanvas, dispatch } = useAppStore() as any;
+  const { addNode, navigateCanvas, createSubCanvas, dispatch, runDirectTransform } = useAppStore() as any;
+
+  const nodeOptionsForEditor = useCallback(() => {
+    const workspace = useAppStore.getState().workspace;
+    return Object.values(workspace.document.nodes)
+      .filter((node) => node.parentCanvasId === workspace.runtime.currentCanvasId)
+      .map((node) => ({
+        id: node.id,
+        label: isTextBearing(node)
+          ? `${node.id}: ${(node.content || "").slice(0, 32) || node.kind}`
+          : `${node.id}: ${node.kind}`,
+      }));
+  }, []);
+
+  const openCreateRelation = useCallback(() => {
+    if (!menu || menu.type !== "node") return;
+    const selected = nodes.filter((node) => node.selected).map((node) => node.id);
+    const ids = selected.includes(menu.id) ? selected : [...selected, menu.id];
+    if (ids.length < 2) {
+      useAppStore.setState({ lastError: "Select 2+ nodes to add a Relation" });
+      return;
+    }
+    const [source, target] = ids;
+    setRelationEditor({
+      mode: "create",
+      initial: {
+        sourceNodeId: source,
+        targetNodeId: target,
+        kind: "supports",
+        reason: "",
+        direction: "forward",
+      },
+      nodeOptions: nodeOptionsForEditor(),
+    });
+  }, [menu, nodes, nodeOptionsForEditor]);
+
+  const openEditRelation = useCallback(() => {
+    if (!menu || menu.type !== "edge") return;
+    const relation = useAppStore.getState().workspace.document.relations[menu.id];
+    if (!relation) return;
+    setRelationEditor({
+      mode: "edit",
+      relationId: menu.id,
+      initial: {
+        sourceNodeId: relation.sourceNodeId,
+        targetNodeId: relation.targetNodeId,
+        kind: (relation.kind === "context" ? "supports" : relation.kind) as RelationKindOption,
+        reason: relation.reason || "",
+        direction: "forward",
+      },
+      nodeOptions: nodeOptionsForEditor(),
+    });
+  }, [menu, nodeOptionsForEditor]);
+
+  const submitRelationEditor = useCallback(
+    (value: RelationEditorValue) => {
+      const sourceNodeId = value.direction === "reverse" ? value.targetNodeId : value.sourceNodeId;
+      const targetNodeId = value.direction === "reverse" ? value.sourceNodeId : value.targetNodeId;
+      if (relationEditor?.mode === "create") {
+        dispatch({
+          type: "addRelation",
+          relation: {
+            id: `relation-${Date.now()}`,
+            sourceNodeId,
+            targetNodeId,
+            kind: value.kind,
+            status: "accepted",
+            reason: value.reason.trim() || undefined,
+            provenance: { origin: "user" },
+          },
+        });
+      } else if (relationEditor?.mode === "edit" && relationEditor.relationId) {
+        const current = useAppStore.getState().workspace.document.relations[relationEditor.relationId];
+        dispatch({
+          type: "updateRelation",
+          id: relationEditor.relationId,
+          patch: {
+            kind: value.kind,
+            reason: value.reason.trim() || undefined,
+          },
+        });
+        if (
+          current &&
+          current.sourceNodeId === targetNodeId &&
+          current.targetNodeId === sourceNodeId
+        ) {
+          dispatch({ type: "reverseRelation", id: relationEditor.relationId });
+        }
+      }
+      setRelationEditor(null);
+    },
+    [dispatch, relationEditor],
+  );
+
+  // E2E: open the real ContextMenu component without relying on overlapping RF hit targets.
+  useEffect(() => {
+    (window as any).__E2E_OPEN_CONTEXT_MENU__ = (target: {
+      type: "node" | "edge";
+      id: string;
+      x?: number;
+      y?: number;
+    }) => {
+      setMenu({
+        x: target.x ?? 240,
+        y: target.y ?? 180,
+        id: target.id,
+        type: target.type,
+      });
+    };
+    return () => {
+      delete (window as any).__E2E_OPEN_CONTEXT_MENU__;
+    };
+  }, []);
 
   // Memoize addNode to prevent unnecessary re-renders
   const memoizedAddNode = useCallback(
@@ -131,13 +257,20 @@ const CanvasArea: React.FC = () => {
   }, [memoizedAddNode, reactFlowInstance]);
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: AppNode) => {
-      // Text / Artifact nodes are editable; images remain preview-only.
-      if (node.type === "customNode" || node.type === "artifactNode") {
-        setActiveNode(node.id);
-      } else {
-        // Images do not open EditorDrawer, but can still be the chat target.
-        setActiveNode(node.id);
+    (event: React.MouseEvent, node: AppNode) => {
+      // React Flow updates its selection before this click callback. Preserve
+      // that latest set for modifier-key clicks instead of collapsing it back
+      // to the clicked node. An explicit call also keeps controlled domain and
+      // projected React Flow selection synchronized across rerenders.
+      const preserveSelection = event.ctrlKey || event.metaKey || event.shiftKey;
+      // Modifier-clicking an already selected node is React Flow's toggle-off
+      // path. Let its onNodesChange event remove the node instead of adding it
+      // back through the active-node synchronization below.
+      if (!(preserveSelection && node.selected)) {
+        setActiveNode(node.id, preserveSelection);
+      }
+      if (node.type !== "customNode" && node.type !== "artifactNode") {
+        // Images remain preview-only but can still be a chat/context target.
         setEditorOpen(false);
       }
       setMenu(null);
@@ -255,6 +388,7 @@ const CanvasArea: React.FC = () => {
         nodeTypes={nodeTypes}
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
+        multiSelectionKeyCode={["Control", "Meta", "Shift"]}
         fitView
         // Enable file drop target
         // useDropTarget is not a valid prop in newer versions of React Flow
@@ -287,6 +421,20 @@ const CanvasArea: React.FC = () => {
             if (ids.length >= 2) createSubCanvas(ids);
             else alert("Select 2+ nodes to create a SubCanvas");
           } : undefined}
+          onTransform={menu.type === "node" ? (operation) => { void runDirectTransform(operation); } : undefined}
+          onAddRelation={menu.type === "node" ? openCreateRelation : undefined}
+          onEditRelation={menu.type === "edge" ? openEditRelation : undefined}
+          onReverseRelation={menu.type === "edge" ? () => { dispatch({ type: "reverseRelation", id: menu.id }); } : undefined}
+        />
+      )}
+
+      {relationEditor && (
+        <RelationEditorDialog
+          title={relationEditor.mode === "create" ? "Add Relation" : "Edit Relation"}
+          initial={relationEditor.initial}
+          nodeOptions={relationEditor.nodeOptions}
+          onSubmit={submitRelationEditor}
+          onCancel={() => setRelationEditor(null)}
         />
       )}
     </div>

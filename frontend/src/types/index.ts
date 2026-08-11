@@ -6,7 +6,7 @@ import {
   Edge,
   MarkerType,
 } from "@xyflow/react";
-import { ChatToolProposal } from "./chat";
+import { ChatToolProposal, DirectTransformReceipt } from "./chat";
 
 /**
  * NOTE: 実行時モデル（React Flow / Zustand で扱う形）と、
@@ -174,7 +174,7 @@ export interface AppState {
   updateNodeDimensions: (id: string, width: number, height: number) => void;
   setNodes: (nodes: AppNode[]) => void;
   setEdges: (edges: AppEdge[]) => void;
-  setActiveNode: (id: string | null) => void;
+  setActiveNode: (id: string | null, preserveSelection?: boolean) => void;
   setEditorOpen: (isOpen: boolean) => void;
   setSettingsOpen: (isOpen: boolean) => void;
   setConfig: (config: Partial<AppConfig>) => void;
@@ -190,11 +190,20 @@ export interface AppState {
     proposal: ChatToolProposal,
     decision: "accept" | "modify" | "reject" | "cancel",
     runId?: string,
-    modifiedContent?: string,
+    modified?:
+      | string
+      | {
+          content?: string;
+          reason?: string;
+          suggestedRelations?: NonNullable<ChatToolProposal["transform"]>["suggestedRelations"];
+          relation?: NonNullable<ChatToolProposal["relation"]>;
+        },
   ) => {
     status: "applied" | "rejected" | "conflict" | "error";
     error?: string;
   };
+  runDirectTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
+  lastDirectReceipt: DirectTransformReceipt | null;
 
   // Backend actions
   loadConfig: () => Promise<void>;

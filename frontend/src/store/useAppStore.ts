@@ -36,8 +36,18 @@ import { loadWorkspaceJSON, workspaceToPrettyJSON } from "../domain/workspacePer
 import { resolveContext } from "../domain/contextResolver";
 import {
   createProposalFromLegacyTool,
+  createTransformProposal,
+  createRelationProposal,
   decideAndApplyProposal,
+  applyDirectTransform,
 } from "../domain/proposal";
+import {
+  buildTransformRequest,
+  normalizeTransformDraft,
+  revalidateDirectTransform,
+  validateTransformSelection,
+} from "../domain/transform";
+import { DirectTransformReceipt } from "../types/chat";
 import {
   createProductionClock,
   createProductionIds,
@@ -116,6 +126,7 @@ interface StoreExtras {
   switchTextRole: (nodeId: string, role: "text" | "artifact") => void;
   createSubCanvas: (nodeIds: string[], label?: string) => void;
   navigateCanvas: (canvasId: string) => void;
+  navigateParent: () => void;
   navigateBack: () => void;
   undo: () => void;
   getBreadcrumb: () => Array<{ canvasId: string; name: string }>;
@@ -125,6 +136,8 @@ interface StoreExtras {
   ) => ReturnType<typeof resolveContext>;
   setContextExcluded: (nodeId: string, excluded: boolean) => void;
   useCanvasAsContext: () => void;
+  runDirectTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
+  lastDirectReceipt: DirectTransformReceipt | null;
 }
 
 export type FullAppState = AppState & StoreExtras;
@@ -148,6 +161,26 @@ function projectInto(
   });
 }
 
+export type ProposalModifyPatch =
+  | string
+  | {
+      content?: string;
+      reason?: string;
+      suggestedRelations?: NonNullable<ChatToolProposal["transform"]>["suggestedRelations"];
+      relation?: NonNullable<ChatToolProposal["relation"]>;
+    };
+
+function normalizeModifyPatch(modified?: ProposalModifyPatch): {
+  content?: string;
+  reason?: string;
+  suggestedRelations?: NonNullable<ChatToolProposal["transform"]>["suggestedRelations"];
+  relation?: NonNullable<ChatToolProposal["relation"]>;
+} {
+  if (modified == null) return {};
+  if (typeof modified === "string") return { content: modified };
+  return modified;
+}
+
 function createToolProposalDecider(
   get: () => FullAppState,
   set: (partial: Partial<FullAppState>) => void,
@@ -156,7 +189,7 @@ function createToolProposalDecider(
     proposal: ChatToolProposal,
     decision: "accept" | "modify" | "reject" | "cancel",
     requestedRunId?: string,
-    modifiedContent?: string,
+    modified?: ProposalModifyPatch,
   ) => {
     const ws = get().workspace;
     const activeRunEntry = requestedRunId
@@ -171,6 +204,7 @@ function createToolProposalDecider(
         : undefined;
     const runId = requestedRunId || activeRunEntry?.runId || "legacy";
     const runEpoch = proposal.runEpoch ?? activeRunEntry?.epoch ?? 0;
+    const modifyPatch = normalizeModifyPatch(modified);
     let content = proposal.proposed;
     if (
       proposal.operation === "edit" &&
@@ -183,8 +217,83 @@ function createToolProposalDecider(
         content = node.content.replace(proposal.searchText, proposal.replacement);
       }
     }
-    if (decision === "modify" && modifiedContent !== undefined) {
-      content = modifiedContent;
+    if (decision === "modify" && modifyPatch.content !== undefined) {
+      content = modifyPatch.content;
+    }
+    if (proposal.operation === "transform" && proposal.transform) {
+      const transform = {
+        ...proposal.transform,
+        provenance: { origin: "llm" as const, sourceNodeIds: proposal.transform.sourceNodeIds, operation: proposal.transform.operation },
+      };
+      const record = createTransformProposal({
+        proposalId: proposal.toolCallId,
+        providerToolCallId: proposal.toolCallId,
+        runId,
+        runEpoch,
+        workspaceId: proposal.workspaceId || ws.document.workspaceId,
+        canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
+        runtimeGeneration: proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+        scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
+        transform,
+      });
+      const result = decideAndApplyProposal(ws, record, {
+        proposalId: record.proposalId,
+        decisionId: `decision-${proposal.toolCallId}-${decision}`,
+        decision,
+        modifiedContent: decision === "modify" ? (modifyPatch.content ?? proposal.transform.content) : undefined,
+        modifiedReason: decision === "modify" ? modifyPatch.reason : undefined,
+        modifiedSuggestedRelations: decision === "modify" ? modifyPatch.suggestedRelations : undefined,
+      }, services(), get().history, activeRun);
+      if (result.status === "applied" && result.history) {
+        projectInto(set, result.state, result.history, { lastError: null });
+        return { status: "applied" as const };
+      }
+      if (result.status === "rejected") return { status: "rejected" as const };
+      if (result.status === "conflict") return { status: "conflict" as const };
+      if (result.status === "stale") return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled") return { status: "error" as const, error: result.error || "cancelled" };
+      return { status: "error" as const, error: result.error || result.status };
+    }
+    if (proposal.operation === "relation" && proposal.relation) {
+      const relation = modifyPatch.relation
+        ? { ...proposal.relation, ...modifyPatch.relation }
+        : proposal.relation;
+      const record = createRelationProposal({
+        proposalId: proposal.toolCallId,
+        providerToolCallId: proposal.toolCallId,
+        runId,
+        runEpoch,
+        workspaceId: proposal.workspaceId || ws.document.workspaceId,
+        canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
+        runtimeGeneration: proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+        scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
+        relation,
+      });
+      const result = decideAndApplyProposal(
+        ws,
+        record,
+        {
+          proposalId: record.proposalId,
+          decisionId: `decision-${proposal.toolCallId}-${decision}`,
+          decision,
+          modifiedRelation: decision === "modify" ? relation : undefined,
+        },
+        services(),
+        get().history,
+        activeRun,
+      );
+      if (result.status === "applied" && result.history) {
+        projectInto(set, result.state, result.history, { lastError: null });
+        return { status: "applied" as const };
+      }
+      if (result.status === "rejected") return { status: "rejected" as const };
+      if (result.status === "conflict") return { status: "conflict" as const };
+      if (result.status === "stale") return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled") return { status: "error" as const, error: result.error || "cancelled" };
+      return { status: "error" as const, error: result.error || result.status };
+    }
+    if (proposal.operation !== "create" && proposal.operation !== "replace" && proposal.operation !== "edit") {
+      return { status: "error" as const, error: "unsupported proposal operation" };
     }
     const record = createProposalFromLegacyTool({
       toolCallId: proposal.toolCallId,
@@ -278,6 +387,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
     workspace: initialWorkspace,
     history: initialHistory,
     lastError: null,
+    lastDirectReceipt: null,
     boundaryAggregates: initialProjection.boundaryAggregates,
     nodes: initialProjection.nodes,
     edges: initialProjection.edges,
@@ -308,6 +418,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
       dispatch({ type: "navigateCanvas", canvasId });
       set({ isEditorOpen: false });
     },
+    navigateParent: () => {
+      dispatch({ type: "navigateParent" });
+      set({ isEditorOpen: false });
+    },
     navigateBack: () => {
       dispatch({ type: "navigateBack" });
       set({ isEditorOpen: false });
@@ -323,6 +437,91 @@ export const useAppStore = create<FullAppState>((set, get) => {
         mode,
         operation,
       }),
+    runDirectTransform: async (operation) => {
+      const current = get().workspace;
+      const envelope = resolveContext({ document: current.document, runtime: current.runtime, mode: "direct", operation: operation === "compare" || operation === "summarize" || operation === "counterpoint" ? "summarize" : "read" });
+      const error = validateTransformSelection(current, operation);
+      if (error) {
+        set({ lastError: error });
+        return false;
+      }
+      const request = buildTransformRequest(current, operation, envelope.contextDigest);
+      try {
+        const directDraft = await (backend() as any).DirectTransform({
+          operation,
+          sourceNodeIds: request.sourceNodeIds,
+          sourceRevisions: request.sourceRevisions,
+          workspaceId: request.workspaceId,
+          canvasId: request.canvasId,
+          runtimeGeneration: request.runtimeGeneration,
+          scopeEpoch: request.scopeEpoch,
+          contextDigest: request.contextDigest,
+          sourceNodes: request.sources.map((source) => ({
+            id: source.nodeId,
+            type: "text",
+            revision: source.revision,
+            markdown: source.content,
+          })),
+        });
+        // Always re-read latest workspace after provider await; never projectInto pre-await state.
+        const latest = get().workspace;
+        const guard = revalidateDirectTransform(request, latest);
+        if (guard) {
+          set({ lastError: guard.error });
+          return false;
+        }
+        // Echoed correlation from backend response is also checked when present.
+        if (
+          directDraft.workspaceId &&
+          (directDraft.workspaceId !== request.workspaceId ||
+            directDraft.canvasId !== request.canvasId ||
+            directDraft.runtimeGeneration !== request.runtimeGeneration ||
+            Number(directDraft.scopeEpoch ?? request.scopeEpoch) !== request.scopeEpoch)
+        ) {
+          set({ lastError: "direct-transform-stale: response correlation mismatch" });
+          return false;
+        }
+        const generated = directDraft.content;
+        const transform = normalizeTransformDraft(request, {
+          operation: directDraft.operation,
+          sourceNodeIds: request.sourceNodeIds,
+          sourceRevisions: request.sourceRevisions,
+          content: generated,
+          summary: directDraft.summary,
+          reason: directDraft.reason,
+          suggestedRelations: directDraft.suggestedRelations,
+          provenance: { origin: "llm" },
+        });
+        const result = applyDirectTransform(latest, transform, services(), get().history);
+        if (result.status !== "applied" || !result.history) {
+          set({ lastError: result.error || "direct transform failed" });
+          return false;
+        }
+        const outputNode = result.state.document.nodes[result.receipt.createdNodeId || ""];
+        projectInto(set, result.state, result.history, {
+          lastError: null,
+          lastDirectReceipt: {
+            operation,
+            sourceNodeIds: request.sourceNodeIds,
+            createdNodeId: result.receipt.createdNodeId,
+            createdRelationIds: result.receipt.createdRelationIds,
+            summary: result.receipt.summary,
+            diff: {
+              sources: request.sources.map((source) => ({
+                nodeId: source.nodeId,
+                content: source.content,
+                revision: source.revision,
+              })),
+              output: isTextBearing(outputNode) ? outputNode.content : "",
+            },
+          },
+        });
+        return true;
+      } catch (caught) {
+        set({ lastError: caught instanceof Error ? caught.message : "direct transform failed" });
+        return false;
+      }
+    },
     setContextExcluded: (nodeId, excluded) => {
       dispatch({ type: "setContextExcluded", nodeId, excluded });
     },
@@ -456,8 +655,13 @@ export const useAppStore = create<FullAppState>((set, get) => {
     setNodes: (nodes) => set({ nodes }),
     setEdges: (edges) => set({ edges }),
 
-    setActiveNode: (id) => {
-      const selectedNodeIds = id ? [id] : [];
+    setActiveNode: (id, preserveSelection = false) => {
+      const currentSelection = get().workspace.runtime.selection.selectedNodeIds;
+      const selectedNodeIds = id
+        ? preserveSelection
+          ? [...new Set([...currentSelection, id])]
+          : [id]
+        : [];
       dispatch({
         type: "setSelection",
         state: {
@@ -616,11 +820,18 @@ export const useAppStore = create<FullAppState>((set, get) => {
         dispatch({ type: "moveNodePositions", changes: positionChanges });
       }
       if (selectionTouched) {
+        const projectedSelection = applyNodeChanges(changes, get().nodes)
+          .filter((node) => node.selected)
+          .map((node) => node.id);
         dispatch({
           type: "setSelection",
           state: {
-            selectedNodeIds: selectIds,
-            activeNodeId: selectIds[0],
+            selectedNodeIds: projectedSelection.length ? projectedSelection : selectIds,
+            // Prefer the node selected by this interaction while preserving the
+            // complete React Flow selection set for Ctrl/Meta/Shift selection.
+            activeNodeId:
+              selectIds[selectIds.length - 1] ??
+              (projectedSelection.length ? projectedSelection : selectIds)[0],
             revision: get().workspace.runtime.selection.revision + 1,
           },
         });

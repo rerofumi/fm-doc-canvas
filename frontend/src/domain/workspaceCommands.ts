@@ -164,6 +164,17 @@ function makeTextNode(
   return node;
 }
 
+function transformPosition(state: WorkspaceState, sourceNodeIds: string[]): { x: number; y: number } {
+  const sources = sourceNodeIds
+    .map((id) => state.document.nodes[id])
+    .filter((node): node is WorkspaceNode => Boolean(node));
+  if (sources.length === 0) return randomPosition();
+  return {
+    x: Math.max(...sources.map((node) => node.position.x)) + 40,
+    y: Math.max(...sources.map((node) => node.position.y)) + 40,
+  };
+}
+
 export function applyCommand(
   state: WorkspaceState,
   command: WorkspaceCommand,
@@ -312,6 +323,97 @@ export function applyCommand(
         redo: command,
       };
       break;
+    }
+    case "applyTransform": {
+      isMutation = true;
+      const input = command.input;
+      if (!input.content.trim()) return fail(state, "empty-transform-output");
+      const sourceIds = [...new Set(input.sourceNodeIds)];
+      const minimum = input.operation === "compare" ? 2 : 1;
+      if (sourceIds.length < minimum) return fail(state, "invalid-source-arity");
+      const sourceNodes: TextBearingNode[] = [];
+      for (const id of sourceIds) {
+        const node = next.document.nodes[id];
+        if (!node || !isTextBearing(node)) return fail(state, "source must be text-bearing");
+        if (node.parentCanvasId !== next.runtime.currentCanvasId) return fail(state, "source-out-of-scope");
+        if (node.revision !== input.sourceRevisions[id]) return fail(state, "source-revision-conflict");
+        sourceNodes.push(node);
+      }
+      if (
+        services.faultPlan?.failOnceAt === "apply-transform-before-commit" &&
+        services.faultState &&
+        !services.faultState.consumed["apply-transform-before-commit"]
+      ) {
+        services.faultState.consumed["apply-transform-before-commit"] = true;
+        return fail(state, "E2E fault: apply-transform-before-commit");
+      }
+      const output = makeTextNode(services, next.runtime.currentCanvasId, "text", {
+        content: input.content,
+        summary: input.summary,
+        position: input.position ?? transformPosition(next, sourceIds),
+        order: nextOrder(next.document, next.runtime.currentCanvasId),
+        provenance: {
+          origin: input.provenance?.origin ?? "llm",
+          sourceNodeIds: sourceIds,
+          sourceRevisions: input.sourceRevisions,
+          operation: input.operation,
+          provider: input.provenance?.provider,
+          model: input.provenance?.model,
+          createdAt: input.provenance?.createdAt ?? services.clock.nowISO(),
+        },
+      });
+      next.document.nodes[output.id] = output;
+      const relationIds: string[] = [];
+      const addAtomicRelation = (sourceNodeId: string, targetNodeId: string, kind: RelationRecord["kind"], reason?: string) => {
+        if (sourceNodeId === targetNodeId) throw new Error("self-relation");
+        if (!next.document.nodes[sourceNodeId] || !next.document.nodes[targetNodeId]) throw new Error("relation-endpoint-missing");
+        const relation = createRelation(services, sourceNodeId, targetNodeId, kind);
+        relation.reason = reason;
+        relation.provenance = output.provenance;
+        next.document.relations[relation.id] = relation;
+        relationIds.push(relation.id);
+      };
+      try {
+        for (const source of sourceNodes) addAtomicRelation(source.id, output.id, "derived", input.reason);
+        for (const suggestion of input.suggestedRelations ?? []) {
+          const target = suggestion.targetNodeId ?? output.id;
+          if (suggestion.kind === "derived") continue;
+          // Reject suggested Relation targets outside Current Canvas scope (except the new output).
+          if (target !== output.id) {
+            const targetNode = next.document.nodes[target];
+            if (!targetNode || targetNode.parentCanvasId !== next.runtime.currentCanvasId) {
+              throw new Error("relation-endpoint-out-of-scope");
+            }
+          }
+          const sourceNode = next.document.nodes[suggestion.sourceNodeId];
+          if (!sourceNode || sourceNode.parentCanvasId !== next.runtime.currentCanvasId) {
+            throw new Error("relation-endpoint-out-of-scope");
+          }
+          addAtomicRelation(suggestion.sourceNodeId, target, suggestion.kind, suggestion.reason);
+        }
+      } catch (error) {
+        return fail(state, error instanceof Error ? error.message : "relation apply failed");
+      }
+      next.runtime.selection = {
+        selectedNodeIds: [output.id],
+        activeNodeId: output.id,
+        revision: next.runtime.selection.revision + 1,
+      };
+      createdNodeId = output.id;
+      historyEntry = {
+        label: `applyTransform:${input.operation}`,
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
+      return {
+        ok: true,
+        state: next,
+        historyEntry,
+        createdNodeId,
+        createdRelationIds: relationIds,
+        cancelledRunIds,
+        history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
+      };
     }
     case "editTextContent": {
       isMutation = true;
@@ -600,6 +702,8 @@ export function applyCommand(
       if (!next.document.nodes[rel.sourceNodeId] || !next.document.nodes[rel.targetNodeId]) {
         return fail(state, "relation endpoints missing");
       }
+      if (rel.sourceNodeId === rel.targetNodeId) return fail(state, "self-relation");
+      if (rel.kind === "context" && rel.sourceNodeId === rel.targetNodeId) return fail(state, "self-relation");
       if (next.document.relations[rel.id]) return fail(state, "duplicate relation id");
       next.document.relations[rel.id] = { ...rel, status: "accepted" };
       historyEntry = {
@@ -607,6 +711,37 @@ export function applyCommand(
         undo: snapshotRestoreCommand(before),
         redo: command,
       };
+      break;
+    }
+    case "updateRelation": {
+      isMutation = true;
+      const relation = next.document.relations[command.id];
+      if (!relation) return fail(state, "relation missing");
+      const nextRelation = { ...relation, ...command.patch, status: "accepted" as const };
+      if (nextRelation.sourceNodeId === nextRelation.targetNodeId) return fail(state, "self-relation");
+      next.document.relations[command.id] = nextRelation;
+      historyEntry = {
+        label: "updateRelation",
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
+      break;
+    }
+    case "reverseRelation": {
+      isMutation = true;
+      const relation = next.document.relations[command.id];
+      if (!relation) return fail(state, "relation missing");
+      next.document.relations[command.id] = {
+        ...relation,
+        sourceNodeId: relation.targetNodeId,
+        targetNodeId: relation.sourceNodeId,
+        // Handle IDs describe the source/target role on either node, not the
+        // identity of the old endpoint. Swapping them assigns a target handle
+        // to the new source (and vice versa), so React Flow cannot render the
+        // otherwise valid relation.
+        presentation: relation.presentation,
+      };
+      historyEntry = { label: "reverseRelation", undo: snapshotRestoreCommand(before), redo: command };
       break;
     }
     case "removeRelation": {
@@ -719,6 +854,16 @@ export function applyCommand(
       cancelledRunIds = bumpScope(next.runtime);
       break;
     }
+    case "navigateParent": {
+      const current = next.document.canvases[next.runtime.currentCanvasId];
+      if (!current) return fail(state, "current canvas missing");
+      if (!current.parentCanvasId) break;
+      next.runtime.currentCanvasId = current.parentCanvasId;
+      next.runtime.selection = emptySelection();
+      next.runtime.contextSelection = emptyContextSelection();
+      cancelledRunIds = bumpScope(next.runtime);
+      break;
+    }
     case "navigateBack": {
       const stack = next.runtime.navigationBackStack;
       if (stack.length === 0) return fail(state, "navigation stack empty");
@@ -792,6 +937,7 @@ export function createRelation(
   targetNodeId: NodeId,
   kind: RelationRecord["kind"] = "context",
   presentation?: RelationRecord["presentation"],
+  reason?: string,
 ): RelationRecord {
   return {
     id: services.ids.next("relation"),
@@ -799,6 +945,7 @@ export function createRelation(
     targetNodeId,
     kind,
     status: "accepted",
+    reason,
     presentation,
   };
 }

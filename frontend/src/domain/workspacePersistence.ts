@@ -38,6 +38,7 @@ export interface CanvasFileV1_3 {
     targetNodeId: string;
     kind: RelationKind;
     status: "accepted";
+    reason?: string;
     provenance?: Provenance;
     presentation?: { sourceHandle?: string; targetHandle?: string };
     extensions?: Record<string, unknown>;
@@ -351,7 +352,8 @@ provenance: isObject(n.provenance) ? (n.provenance as unknown as Provenance) : u
       targetNodeId: requireString(r.targetNodeId, "relation.targetNodeId"),
       kind: (typeof r.kind === "string" ? r.kind : "context") as RelationKind,
       status: "accepted",
-provenance: isObject(r.provenance) ? (r.provenance as unknown as Provenance) : undefined,
+      reason: typeof r.reason === "string" ? r.reason : undefined,
+      provenance: isObject(r.provenance) ? (r.provenance as unknown as Provenance) : undefined,
       presentation: isObject(r.presentation)
         ? (r.presentation as RelationRecord["presentation"])
         : undefined,

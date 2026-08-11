@@ -2,6 +2,7 @@ import { applyCommand, createHistory, HistoryState } from "./workspaceCommands";
 import {
   DomainServices,
   NodeId,
+  TransformApplyInput,
   WorkspaceState,
   isTextBearing,
 } from "./workspace";
@@ -41,6 +42,14 @@ export interface ProposalRecord {
         content: string;
         summary: string;
         filename?: string;
+      }
+    | {
+        kind: "create-derived-text";
+        transform: TransformApplyInput;
+      }
+    | {
+        kind: "add-relation";
+        relation: { sourceNodeId: NodeId; targetNodeId: NodeId; kind: "source" | "derived" | "supports" | "opposes" | "similar"; reason?: string };
       };
   reason?: string;
   status: ProposalStatus;
@@ -56,6 +65,14 @@ export interface ProposalDecisionInput {
   decisionId: string;
   decision: ProposalDecision;
   modifiedContent?: string;
+  modifiedReason?: string;
+  modifiedRelation?: {
+    sourceNodeId: NodeId;
+    targetNodeId: NodeId;
+    kind: "source" | "derived" | "supports" | "opposes" | "similar";
+    reason?: string;
+  };
+  modifiedSuggestedRelations?: TransformApplyInput["suggestedRelations"];
 }
 
 export interface ProposalApplyResult {
@@ -123,6 +140,84 @@ export function createProposalFromLegacyTool(input: {
   };
 }
 
+export function createTransformProposal(input: {
+  proposalId: string;
+  runId: string;
+  runEpoch: number;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  transform: TransformApplyInput;
+  providerToolCallId?: string;
+}): ProposalRecord {
+  return {
+    proposalId: input.proposalId,
+    providerToolCallId: input.providerToolCallId ?? input.proposalId,
+    runId: input.runId,
+    runEpoch: input.runEpoch,
+    workspaceId: input.workspaceId,
+    canvasId: input.canvasId,
+    runtimeGeneration: input.runtimeGeneration,
+    scopeEpoch: input.scopeEpoch,
+    operation: { kind: "create-derived-text", transform: input.transform },
+    status: "proposed",
+  };
+}
+
+export function createRelationProposal(input: {
+  proposalId: string;
+  runId: string;
+  runEpoch: number;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  relation: {
+    sourceNodeId: NodeId;
+    targetNodeId: NodeId;
+    kind: "source" | "derived" | "supports" | "opposes" | "similar";
+    reason?: string;
+  };
+  providerToolCallId?: string;
+}): ProposalRecord {
+  return {
+    proposalId: input.proposalId,
+    providerToolCallId: input.providerToolCallId ?? input.proposalId,
+    runId: input.runId,
+    runEpoch: input.runEpoch,
+    workspaceId: input.workspaceId,
+    canvasId: input.canvasId,
+    runtimeGeneration: input.runtimeGeneration,
+    scopeEpoch: input.scopeEpoch,
+    operation: { kind: "add-relation", relation: input.relation },
+    status: "proposed",
+  };
+}
+
+export function applyDirectTransform(
+  state: WorkspaceState,
+  transform: TransformApplyInput,
+  services: DomainServices,
+  history?: HistoryState,
+) {
+  const result = applyCommand(state, { type: "applyTransform", input: transform }, services, history ?? createHistory());
+  if (!result.ok) {
+    return { status: "error" as const, state, history, error: result.error, receipt: { kind: "direct-action" as const, summary: result.error || "failed" } };
+  }
+  return {
+    status: "applied" as const,
+    state: result.state,
+    history: result.history,
+    receipt: {
+      kind: "direct-action" as const,
+      createdNodeId: result.createdNodeId,
+      createdRelationIds: result.createdRelationIds,
+      summary: `${transform.operation} applied without changing source nodes`,
+    },
+  };
+}
+
 export function decideAndApplyProposal(
   state: WorkspaceState,
   proposal: ProposalRecord,
@@ -173,22 +268,85 @@ export function decideAndApplyProposal(
 
   let op = proposal.operation;
   if (decision.decision === "modify") {
-    if (op.kind === "edit-text") {
+    if (op.kind === "edit-text" || op.kind === "create-text") {
       op = {
         ...op,
         content: decision.modifiedContent ?? op.content,
       };
       nextProposal.status = "modified";
-    } else {
+    } else if (op.kind === "create-derived-text") {
       op = {
         ...op,
-        content: decision.modifiedContent ?? op.content,
+        transform: {
+          ...op.transform,
+          content: decision.modifiedContent ?? op.transform.content,
+          reason: decision.modifiedReason ?? op.transform.reason,
+          suggestedRelations: decision.modifiedSuggestedRelations ?? op.transform.suggestedRelations,
+        },
       };
+      nextProposal.status = "modified";
+    } else if (op.kind === "add-relation" && decision.modifiedRelation) {
+      op = { ...op, relation: { ...op.relation, ...decision.modifiedRelation } };
       nextProposal.status = "modified";
     }
     nextProposal.operation = op;
   } else {
     nextProposal.status = "accepted";
+  }
+
+  if (op.kind === "create-derived-text") {
+    const transform = {
+      ...op.transform,
+      content: decision.decision === "modify" ? (decision.modifiedContent ?? op.transform.content) : op.transform.content,
+      reason: decision.modifiedReason ?? op.transform.reason,
+      suggestedRelations:
+        decision.decision === "modify"
+          ? (decision.modifiedSuggestedRelations ?? op.transform.suggestedRelations)
+          : op.transform.suggestedRelations,
+    };
+    const result = applyCommand(state, { type: "applyTransform", input: transform }, services, history ?? createHistory());
+    if (!result.ok) {
+      nextProposal.status = result.error?.includes("revision") ? "conflict" : "error";
+      nextProposal.error = result.error;
+      return { status: nextProposal.status === "conflict" ? "conflict" : "error", proposal: nextProposal, state, history: result.history, error: result.error };
+    }
+    nextProposal.status = "applied";
+    nextProposal.createdNodeId = result.createdNodeId;
+    nextProposal.receiptId = `receipt-${proposal.proposalId}`;
+    return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
+  }
+
+  if (op.kind === "add-relation") {
+    const source = state.document.nodes[op.relation.sourceNodeId];
+    const target = state.document.nodes[op.relation.targetNodeId];
+    if (!source || !target) {
+      nextProposal.status = "error";
+      nextProposal.error = "relation-endpoint-missing";
+      return { status: "error", proposal: nextProposal, state, history, error: "relation-endpoint-missing" };
+    }
+    if (
+      source.parentCanvasId !== state.runtime.currentCanvasId ||
+      target.parentCanvasId !== state.runtime.currentCanvasId
+    ) {
+      nextProposal.status = "error";
+      nextProposal.error = "relation-endpoint-out-of-scope";
+      return { status: "error", proposal: nextProposal, state, history, error: "relation-endpoint-out-of-scope" };
+    }
+    const relation = {
+      ...op.relation,
+      id: services.ids.next("relation"),
+      status: "accepted" as const,
+      provenance: { origin: "llm" as const, operation: "propose_relation" },
+    };
+    const result = applyCommand(state, { type: "addRelation", relation }, services, history ?? createHistory());
+    if (!result.ok) {
+      nextProposal.status = "error";
+      nextProposal.error = result.error;
+      return { status: "error", proposal: nextProposal, state, history: result.history, error: result.error };
+    }
+    nextProposal.status = "applied";
+    nextProposal.receiptId = `receipt-${proposal.proposalId}`;
+    return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
   }
 
   if (op.kind === "create-text") {

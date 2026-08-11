@@ -27,10 +27,12 @@
 - テキスト/画像ファイルのドラッグアンドドロップインポート。
 - Markdown、画像、Marp 形式 Markdown のエクスポート。
 - ローカル設定ファイルへの API 設定保存。
+- 空の Workspace から Text / Artifact を明示作成し、root Canvas / nested SubCanvas を移動する共同作業領域。
+- Current Canvas と明示 selection を境界とする Context preview、Dialogue Proposal、Direct Action。
+- summarize / compare / counterpoint による非破壊 derived Text Node、provenance、typed Relation、Modify / Accept / Reject / Undo。
 
 ## Assumptions
 
 - API キーはローカル設定ファイルに平文保存される。
 - キャンバス内容は自動保存されず、ユーザーが明示的に保存した JSON ファイルにのみ永続化される。
 - 画像ファイルは設定された画像保存先ディレクトリを基準に管理される。
-

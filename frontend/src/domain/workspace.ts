@@ -12,6 +12,7 @@ export interface Provenance {
   provider?: string;
   model?: string;
   createdAt?: string;
+  sourceRevisions?: Record<NodeId, number>;
 }
 
 export interface NodeBase {
@@ -79,6 +80,7 @@ export interface RelationRecord {
   targetNodeId: NodeId;
   kind: RelationKind;
   status: "accepted";
+  reason?: string;
   provenance?: Provenance;
   presentation?: { sourceHandle?: string; targetHandle?: string };
   extensions?: Record<string, unknown>;
@@ -239,7 +241,10 @@ export type WorkspaceCommand =
   | { type: "resizeNode"; nodeId: NodeId; width: number; height: number }
   | { type: "deleteNodes"; nodeIds: NodeId[] }
   | { type: "addRelation"; relation: RelationRecord }
+  | { type: "updateRelation"; id: RelationId; patch: Partial<Pick<RelationRecord, "kind" | "reason" | "presentation" | "provenance">> }
+  | { type: "reverseRelation"; id: RelationId }
   | { type: "removeRelation"; id: RelationId }
+  | { type: "applyTransform"; input: TransformApplyInput }
   | { type: "setSelection"; state: SelectionState }
   | { type: "setFocus"; focus: FocusState | null }
   | { type: "addContextTarget"; target: WorkspaceTargetRef }
@@ -255,6 +260,7 @@ export type WorkspaceCommand =
       projectedContexts: ProjectedContextRef[];
     }
   | { type: "navigateCanvas"; canvasId: CanvasId; viewport?: NavigationEntry["viewport"] }
+  | { type: "navigateParent" }
   | { type: "navigateBack" }
   | { type: "startAsyncRun"; kind: "dialogue" | "direct"; runId: string }
   | { type: "cancelAsyncRun"; runId: string }
@@ -317,6 +323,24 @@ export interface CommandResult {
   cancelledRunIds?: string[];
   createdNodeId?: NodeId;
   createdCanvasId?: CanvasId;
+  createdRelationIds?: RelationId[];
+}
+
+export interface TransformApplyInput {
+  operation: "summarize" | "compare" | "counterpoint";
+  sourceNodeIds: NodeId[];
+  sourceRevisions: Record<NodeId, number>;
+  content: string;
+  summary: string;
+  reason?: string;
+  position?: { x: number; y: number };
+  suggestedRelations?: Array<{
+    sourceNodeId: NodeId;
+    targetNodeId?: NodeId;
+    kind: Exclude<RelationKind, "context">;
+    reason?: string;
+  }>;
+  provenance?: Provenance;
 }
 
 export interface DomainServices {

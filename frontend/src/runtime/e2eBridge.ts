@@ -78,6 +78,7 @@ historyLength: app.history.past.length,
         runtimeGeneration: app.workspace.runtime.runtimeGeneration,
         asyncRuns: app.workspace.runtime.asyncRuns,
         boundaryAggregates: app.boundaryAggregates,
+        lastDirectReceipt: app.lastDirectReceipt,
         json: workspaceToPrettyJSON(app.workspace, services().clock.nowISO()),
       };
     },
@@ -119,6 +120,23 @@ historyLength: app.history.past.length,
           revision: useAppStore.getState().workspace.runtime.selection.revision + 1,
         },
       });
+    },
+    async editText(nodeId: string, content: string) {
+      useAppStore.getState().updateNodeContent(nodeId, content);
+    },
+    async moveNode(nodeId: string, x: number, y: number) {
+      useAppStore.getState().dispatch({
+        type: "moveNodePositions",
+        changes: [{ nodeId, position: { x, y } }],
+      });
+    },
+    async openContextMenu(target: { type: "node" | "edge"; id: string; x?: number; y?: number }) {
+      const opener = (window as any).__E2E_OPEN_CONTEXT_MENU__;
+      if (typeof opener !== "function") throw new Error("context menu opener not registered");
+      opener(target);
+    },
+    async directTransform(operation: "summarize" | "compare" | "counterpoint") {
+      return useAppStore.getState().runDirectTransform(operation);
     },
     async createSubCanvas(nodeIds: string[], label?: string) {
       useAppStore.getState().createSubCanvas(nodeIds, label);
@@ -281,6 +299,41 @@ historyLength: app.history.past.length,
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       configureAppRuntime({ ...env, backend: GeneratedBackend as any });
     },
+    async armTransformFault() {
+      env.faultPlan = { failOnceAt: "apply-transform-before-commit" };
+      env.faultState = { consumed: {} };
+      const { configureAppRuntime } = await import("../store/useAppStore");
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      configureAppRuntime({ ...env, backend: GeneratedBackend as any });
+    },
+    async armDelayedDirectTransform() {
+      const { configureAppRuntime } = await import("../store/useAppStore");
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      (window as any).__E2E__.__releaseDirectHold = () => release();
+      const original = (GeneratedBackend as any).DirectTransform.bind(GeneratedBackend);
+      configureAppRuntime({
+        ...env,
+        backend: {
+          ...(GeneratedBackend as any),
+          DirectTransform: async (req: unknown) => {
+            await gate;
+            return original(req);
+          },
+        } as any,
+      });
+      return true;
+    },
+    async releaseDelayedDirectTransform() {
+      const release = (window as any).__E2E__?.__releaseDirectHold;
+      if (typeof release === "function") release();
+    },
+    async clearLastError() {
+      useAppStore.setState({ lastError: null, lastDirectReceipt: null });
+    },
     async loadJSON(json: string) {
       const loaded = loadWorkspaceJSON(json, services());
       if (!loaded.ok) throw new Error(loaded.error);
@@ -289,7 +342,7 @@ historyLength: app.history.past.length,
         load: loaded.load,
       });
     },
-    async addRelation(sourceId: string, targetId: string) {
+    async addRelation(sourceId: string, targetId: string, kind: "context" | "source" | "derived" | "supports" | "opposes" | "similar" = "context", reason?: string) {
       const app = useAppStore.getState();
       const id = services().ids.next("relation");
       app.dispatch({
@@ -298,8 +351,9 @@ historyLength: app.history.past.length,
           id,
           sourceNodeId: sourceId,
           targetNodeId: targetId,
-          kind: "context",
+          kind,
           status: "accepted",
+          reason,
         },
       });
       return id;

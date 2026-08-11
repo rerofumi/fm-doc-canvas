@@ -50,6 +50,22 @@ export type ContextPayloadDescriptor =
   | { kind: "canvas-metadata"; canvasId: CanvasId; destination: "llm" }
   | { kind: "remote-relation-metadata"; relationId: RelationId; destination: "llm" };
 
+export interface SpatialContextHint {
+  nodeId: NodeId;
+  canvasId: CanvasId;
+  position: { x: number; y: number };
+  selected: boolean;
+}
+
+export interface RelationContextHint {
+  relationId: RelationId;
+  sourceNodeId: NodeId;
+  targetNodeId: NodeId;
+  kind: string;
+  reason?: string;
+  provenance?: WorkspaceDocument["nodes"][string]["provenance"];
+}
+
 export interface ContextWarning {
   kind: string;
   message: string;
@@ -76,6 +92,8 @@ export interface ContextEnvelope {
   relationTargetNodeIds: string[];
   bodyAllowlistNodeIds: string[];
   payloadItems: ContextPayloadDescriptor[];
+  relationHints: RelationContextHint[];
+  spatialHints: SpatialContextHint[];
   excludedNodeIds: string[];
   warnings: ContextWarning[];
   contextDigest: string;
@@ -245,6 +263,26 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   }
 
   const payloadItems: ContextPayloadDescriptor[] = [];
+  const relationHints: RelationContextHint[] = relations
+    .filter((rel) => rel.status === "accepted")
+    .filter((rel) => activeContextNodeIds.includes(rel.sourceNodeId) || activeContextNodeIds.includes(rel.targetNodeId))
+    .map((rel) => ({
+      relationId: rel.id,
+      sourceNodeId: rel.sourceNodeId,
+      targetNodeId: rel.targetNodeId,
+      kind: rel.kind,
+      reason: rel.reason,
+      provenance: document.nodes[rel.targetNodeId]?.provenance,
+    }));
+  const spatialHints: SpatialContextHint[] = activeContextNodeIds
+    .map((nodeId) => document.nodes[nodeId])
+    .filter((node): node is NonNullable<typeof node> => Boolean(node) && node.parentCanvasId === currentCanvasId)
+    .map((node) => ({
+      nodeId: node.id,
+      canvasId: currentCanvasId,
+      position: { ...node.position },
+      selected: selection.selectedNodeIds.includes(node.id),
+    }));
   const destination: "llm" | "image-provider" =
     operation === "generate-image" ? "image-provider" : "llm";
 
@@ -287,6 +325,8 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     relationTargetNodeIds,
     bodyAllowlistNodeIds,
     payloadItems,
+    relationHints,
+    spatialHints,
     excluded: [...excluded].sort(),
   });
 
@@ -306,6 +346,8 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     relationTargetNodeIds,
     bodyAllowlistNodeIds,
     payloadItems,
+    relationHints,
+    spatialHints,
     excludedNodeIds: [...excluded],
     warnings,
     contextDigest: stableHash(digestSource),

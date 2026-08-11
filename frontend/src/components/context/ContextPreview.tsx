@@ -85,6 +85,16 @@ const ContextPreview: React.FC<{
               Candidate Context: {envelope.projectedContextRefs.length}
             </div>
           )}
+          {envelope.relationHints.length > 0 && (
+            <div aria-label="Accepted relations" className="rounded bg-indigo-50 p-1 text-indigo-800">
+              Relations: {envelope.relationHints.map((relation) => `${relation.kind} (${relation.sourceNodeId} → ${relation.targetNodeId})`).join(", ")}
+            </div>
+          )}
+          {envelope.spatialHints.length > 0 && (
+            <div aria-label="Spatial hints" className="rounded bg-slate-50 p-1 text-slate-700">
+              Spatial hints (meaning is not inferred): {envelope.spatialHints.map((hint) => `${hint.nodeId}@${Math.round(hint.position.x)},${Math.round(hint.position.y)}`).join(" · ")}
+            </div>
+          )}
           {envelope.delegatedSessionRefs.length > 0 && (
             <div aria-label="External work">
               External work: {envelope.delegatedSessionRefs.length}

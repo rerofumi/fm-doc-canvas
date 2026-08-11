@@ -6,7 +6,8 @@
 | plan_20260505_1 | Full | 画像生成プロバイダ切替（OpenRouter / OpenAI / Google / xAI） | done | 2026-05-05 完了。複数プロバイダ API Key 保持 + リクエスト時切替 |
 | plan_20260616_1 | Full | カードでのプロンプト表示と拡縮リミッターの拡大 | done | 2026-06-16 完了。main にマージ済み。不要プロンプトノード廃止、minZoom/maxZoom 拡大 |
 | plan_20260810_chat_artifact | Full | Artifact ノード + 右ドロワーチャット + エージェントループ | done | 2026-08-11 完了。Sprint A〜C 受理済み。残存 QA は明示的な EX waiver で closure |
-| plan_20260811_collaborative_workspace | Full | AI協働型Workspace基盤（Text role、Workspace scope、Context、Proposal） | planned | Core E2E / worklog enabled。D-12・D-02・F-1を対象とし、F-2以降はGate後の別plan |
+| plan_20260811_collaborative_workspace | Full | AI協働型Workspace基盤（Text role、Workspace scope、Context、Proposal） | done | 2026-08-12 完了。D-12・D-02・F-1を受理。Core E2E / worklog enabled |
+| plan_20260812_collaborative_workspace_F2 | Full | Collaborative Transform & Relate（非破壊派生・型付きRelation・共同Proposal） | done | 2026-08-13 user acceptance。REQ-18 Go、Core E2E 17/17。core slice完了後もロードマップ F-2 は後続候補の disposition 完了まで open |
 
 ## 状態凡例
 

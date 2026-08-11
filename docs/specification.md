@@ -17,7 +17,7 @@
 - `backend/config.go`: local configuration schema, defaults, load/save, image path resolution.
 - `backend/file.go`: native dialogs, canvas save/load, import, export, image file URL resolution.
 - `backend/llm.go`: OpenAI-compatible chat completion calls, text generation, summary generation, vision input, streaming response handling.
-- `backend/chat_session.go`: `canvasId` ごとの chat session load/save と旧一時形式の migration。
+- `backend/chat_session.go`: legacy session API compatibility。active Dialogueはmemory-onlyであり永続化しない。
 - `backend/canvas_snapshot.go`: request-local Canvas snapshot の検証と index。
 - `backend/agent_types.go`, `agent_loop.go`, `system_prompt.go`: tool contract、最大 10 round の agent loop、provider metadata 保持、system prompt。
 - `backend/chat_service.go`: run lifecycle、Wails event、cancel、Frontend acknowledgment の管理。
@@ -27,7 +27,7 @@
 - `backend/google.go`: Google Generative Language image generation handling.
 - `backend/xai.go`: xAI image generation/edit handling.
 - `backend/image_asset.go`: image data URL creation and generated image persistence.
-- `frontend/src/store/useAppStore.ts`: application state, canvas persistence, generation actions, export actions, React Flow callbacks.
+- `frontend/src/store/useAppStore.ts`: Workspace domain state、Canvas navigation、transform / Relation lifecycle、persistence、React Flow projection。
 - `frontend/src/store/useChatStore.ts`: Canvas 別 session、message、active run、target の UI state。
 - `frontend/src/types/index.ts`: runtime and persisted canvas types.
 - `frontend/src/components/canvas/`: canvas area, text node, Artifact node, image node, image overlay.
@@ -50,10 +50,11 @@
 
 - Version `1.0` contains text nodes only.
 - Version `1.1` contains mixed text/image nodes.
-- Version `1.2` contains text/image/Artifact nodes and `metadata.canvasId`.
+- Version `1.2` is a legacy text/image/Artifact format with `metadata.canvasId`.
+- Version `1.3` contains Workspace / Canvas tree、text/image/Artifact nodes、typed Relation、reason、provenance。
 - Persisted edges include `source`, `target`, optional handles, edge type, and optional marker metadata.
-- Saving emits formatted JSON with `version: "1.2"`.
-- V1.0 / V1.1 は load 時に runtime `canvasId` と不足 revision を補い、load だけでは元ファイルを書き換えない。
+- Saving emits formatted JSON with `version: "1.3"`.
+- 旧versionはload時にWorkspace/Canvas/revisionをmigrationし、loadだけでは元ファイルを書き換えない。
 
 ### Local Config
 
@@ -71,6 +72,8 @@
 - Settings drawer: file operations, LLM settings, image generation provider settings, generation settings, canvas clearing.
 - Prompt bar: Text / Image mode toggle, selected-node indicators, request-level image provider selector in Image mode, prompt textarea, submit button.
 - Image node prompt preview: generated image nodes show a compact prompt caption. Clicking the caption appends that prompt to the shared Prompt bar input without deleting existing text.
+- Canvas breadcrumb: root〜Current Canvas pathを表示する。`Parent`は`parentCanvasId`へ1階層移動し、rootではdisabled。document mutation history / Undoとは独立する。
+- Transform / Relation: modifier multi-selection、Direct summarize / compare / counterpoint、Proposal comparison / Modify / Accept / Reject、post-apply diff / Undo、Relation editorを提供する。
 
 ## Inputs
 
@@ -85,7 +88,7 @@
 
 ## Context Traversal
 
-`traverseContextBackwards` starts at a selected target node, includes the target node, then follows incoming edges upstream. It returns nodes in upstream-to-target order. If a node has more than one incoming edge or a loop is detected, it returns a warning with message `リンク構造にエラーがあります`.
+Context ResolverはCurrent Canvas、明示selection、exclusion、accepted Relation / provenanceを正本としてbody allowlistを構築する。別Canvas本文、未採用Proposal、excluded bodyを暗黙送信しない。
 
 Chat request は target と traversal 結果だけを初期 direct context に含める。target がない場合は Canvas 全文を送らない。snapshot 全体はローカル Backend が request 単位で保持し、LLM は `list_canvas_nodes`、`read_canvas_node`、Artifact 専用 read/list/search tool で必要なノードだけを追加取得する。
 
@@ -97,7 +100,15 @@ Text / Artifact の mutation は `read_canvas_node` または `read_artifact` �
 - Generated images are saved under the configured `imageGen.downloadPath`.
 - Imported images are copied under `downloadPath/Import/`.
 - Canvas state persists only through explicit JSON save/load operations.
-- Chat sessions are stored separately under the application config area as `chat-sessions.json`, grouped by `canvasId`.
+- Dialogue sessions are memory-only and are not written to Canvas JSON or the application config area.
+
+## Collaborative Transform & Relation
+
+- Direct Actionはdedicated one-shot backend requestを使い、最新Workspace/Canvas/generation/scope/source revisionをawait後に再検証する。
+- Dialogue / Agentはstructured Transform / Relation Proposalを生成し、document mutation前にsource-output comparisonとdecision UIを表示する。
+- Accept / Modifyまたは検証済みDirect resultはderived Text Node、provenance、approved Relationを一つのhistory transactionで適用する。
+- Relation reverseはendpointを交換し、React Flowのsource/target handle roleを維持する。
+- rejected / stale / cancelled / invalid resultはdocument、history、revision、selectionを変更しない。
 
 ## Error Handling
 
@@ -126,5 +137,6 @@ Text / Artifact の mutation は `read_canvas_node` または `read_artifact` �
 - Build: `mise run build`.
 - Static frontend build: Wails build runs `npm run build`, which invokes `tsc && vite build`.
 - Manual verification should cover node editing, connection traversal warnings, generation modes, image import/display, JSON save/load, settings persistence, and export paths.
-- Chat / agent verification should cover target context、session restore、tool read/edit、revision conflict、Stop、ToolCard status。
+- Chat / agent verification should cover target context、memory-only lifetime、tool read/edit、revision conflict、Stop、ToolCard status。
+- F2 verification covers real modifier selection、Proposal lifecycle、Direct diff/Undo、Relation create/edit/reverse/remove、accepted-only Context、stale no-op。
 - Plan-defined automated checks include Go tests/vet, Frontend Sprint C tests, and Wails production build through `mise`.

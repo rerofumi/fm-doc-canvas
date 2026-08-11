@@ -26,7 +26,7 @@ export interface ChatToolProposal {
   nodeId?: string;
   targetNodeId?: string;
   baseRevision?: number;
-  operation: "create" | "replace" | "edit";
+  operation: "create" | "replace" | "edit" | "transform" | "relation";
   filename?: string;
   proposed: string;
   searchText?: string;
@@ -37,6 +37,30 @@ export interface ChatToolProposal {
   runtimeGeneration?: string;
   scopeEpoch?: number;
   runEpoch?: number;
+  transform?: {
+    operation: "summarize" | "compare" | "counterpoint";
+    sourceNodeIds: string[];
+    sourceRevisions: Record<string, number>;
+    content: string;
+    summary: string;
+    reason?: string;
+    suggestedRelations?: Array<{
+      sourceNodeId: string;
+      targetNodeId?: string;
+      kind: "source" | "derived" | "supports" | "opposes" | "similar";
+      reason?: string;
+      direction?: "forward" | "reverse";
+    }>;
+    sources?: Array<{ nodeId: string; content: string; revision: number }>;
+    provenance?: { origin?: string; provider?: string; model?: string; createdAt?: string };
+  };
+  relation?: {
+    sourceNodeId: string;
+    targetNodeId: string;
+    kind: "source" | "derived" | "supports" | "opposes" | "similar";
+    reason?: string;
+    direction?: "forward" | "reverse";
+  };
 }
 
 export interface ChatMessage {
@@ -89,6 +113,18 @@ export interface ChatEvent {
   toolEvent?: ChatToolEvent;
   apply?: ChatToolProposal;
   error?: string;
+}
+
+export interface DirectTransformReceipt {
+  operation: "summarize" | "compare" | "counterpoint";
+  sourceNodeIds: string[];
+  createdNodeId?: string;
+  createdRelationIds?: string[];
+  summary: string;
+  diff?: {
+    sources: Array<{ nodeId: string; content: string; revision: number } | string>;
+    output: string;
+  };
 }
 
 export interface ChatSession {

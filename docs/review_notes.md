@@ -40,6 +40,11 @@
 - Keep future feature plans, rejected options, and phase history under `docs/plan_*`.
 - Keep external API facts under `docs/cheatsheet/` with source links and confirmation dates.
 
+## 2026-08-13 F1/F2 As-Built Feedback
+
+- 受理済みF1/F2に合わせ、blank Workspace、memory-only Dialogue、V1.3 Workspace、SubCanvas Parent navigation、non-destructive transform、structured Proposal、typed Relation、atomic apply/Undoをcurrent docsへ反映した。
+- F2 core sliceはユーザー実画面確認とREQ-18 Goにより完了。ロードマップF-2の後続transform候補は別途dispositionが必要であり、core closureと混同しない。
+
 ## 2026-08-11 Chat / Artifact Plan Closure
 
 - `docs/plan_20260810_chat_artifact/` の Sprint A〜C はユーザー受理と自動検証を完了し、plan state を `done` とした。

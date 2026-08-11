@@ -33,6 +33,8 @@ func toolDefinitions() []ToolDefinition {
 		{Type: "function", Function: ToolFunctionDef{Name: "search_artifact", Description: "Search Artifact contents for a non-empty query.", Parameters: obj(`"query":{"type":"string"},"node_ids":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}`, `"query"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "read_canvas_node", Description: "Read any Text, Artifact, or Image node from the request snapshot.", Parameters: obj(`"node_id":{"type":"string"}`, `"node_id"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "list_canvas_nodes", Description: "List Canvas node IDs and short identifiers without full content.", Parameters: obj(`"types":{"type":"array","items":{"type":"string"}}`, ``)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "propose_transform", Description: "Propose a non-destructive summarize, compare, or counterpoint Text node derived from nodes already read with read_canvas_node.", Parameters: obj(`"operation":{"type":"string","enum":["summarize","compare","counterpoint"]},"source_node_ids":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"summary":{"type":"string"},"reason":{"type":"string"},"suggested_relations":{"type":"array","items":{"type":"object"}}`, `"operation","source_node_ids","content","summary"`)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "propose_relation", Description: "Propose a typed Relation between two nodes already read with read_canvas_node. Does not mutate until the human accepts.", Parameters: obj(`"source_node_id":{"type":"string"},"target_node_id":{"type":"string"},"kind":{"type":"string","enum":["source","derived","supports","opposes","similar"]},"reason":{"type":"string"},"direction":{"type":"string","enum":["forward","reverse"]}`, `"source_node_id","target_node_id","kind"`)}},
 	}
 }
 
@@ -160,6 +162,115 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 			result = append(result, map[string]string{"nodeId": node.ID, "type": node.Type, "identifier": truncate(identifier, 120)})
 		}
 		return jsonResult(result)
+
+	case "propose_transform":
+		op := stringArg("operation")
+		if op != "summarize" && op != "compare" && op != "counterpoint" {
+			return toolResult{Status: "error", Content: "unsupported transform operation"}
+		}
+		ids := []string{}
+		if values, ok := args["source_node_ids"].([]interface{}); ok {
+			for _, value := range values {
+				if id, ok := value.(string); ok {
+					ids = append(ids, id)
+				}
+			}
+		}
+		minimum := 1
+		if op == "compare" {
+			minimum = 2
+		}
+		if len(ids) < minimum {
+			return toolResult{Status: "error", Content: "invalid-source-arity"}
+		}
+		previews := make([]TransformSourcePreview, 0, len(ids))
+		for _, id := range ids {
+			node, ok := state.readNodes[id]
+			if !ok {
+				return toolResult{Status: "error", Content: "read_canvas_node must succeed for every source"}
+			}
+			if node.Type != "text" && node.Type != "artifact" {
+				return toolResult{Status: "error", Content: "source must be text-bearing"}
+			}
+			previews = append(previews, TransformSourcePreview{NodeID: id, Content: node.Markdown, Revision: state.readRevs[id]})
+		}
+		content := stringArg("content")
+		if strings.TrimSpace(content) == "" {
+			return toolResult{Status: "error", Content: "empty-transform-output"}
+		}
+		revisions := map[string]int64{}
+		for _, id := range ids {
+			revisions[id] = state.readRevs[id]
+		}
+		proposal := &ToolApplyProposal{
+			ToolCallID:      call.ID,
+			Operation:       "transform",
+			Proposed:        content,
+			LastEditSummary: stringArg("summary"),
+			Transform: &TransformProposal{
+				Operation:       op,
+				SourceNodeIDs:   ids,
+				SourceRevisions: revisions,
+				Content:         content,
+				Summary:         stringArg("summary"),
+				Reason:          stringArg("reason"),
+				Sources:         previews,
+			},
+		}
+		return awaitApproval(ctx, state, proposal)
+
+	case "propose_relation":
+		sourceID := stringArg("source_node_id")
+		targetID := stringArg("target_node_id")
+		kind := stringArg("kind")
+		if sourceID == "" || targetID == "" {
+			return toolResult{Status: "error", Content: "source_node_id and target_node_id are required"}
+		}
+		if sourceID == targetID {
+			return toolResult{Status: "error", Content: "self-relation"}
+		}
+		if kind != "source" && kind != "derived" && kind != "supports" && kind != "opposes" && kind != "similar" {
+			return toolResult{Status: "error", Content: "invalid relation kind"}
+		}
+		source, okSource := state.readNodes[sourceID]
+		target, okTarget := state.readNodes[targetID]
+		if !okSource || !okTarget {
+			return toolResult{Status: "error", Content: "read_canvas_node must succeed for both relation endpoints"}
+		}
+		_ = source
+		_ = target
+		direction := stringArg("direction")
+		if direction == "" {
+			direction = "forward"
+		}
+		if direction != "forward" && direction != "reverse" {
+			return toolResult{Status: "error", Content: "invalid relation direction"}
+		}
+		fromID, toID := sourceID, targetID
+		if direction == "reverse" {
+			fromID, toID = targetID, sourceID
+		}
+		revisions := map[string]int64{
+			sourceID: state.readRevs[sourceID],
+			targetID: state.readRevs[targetID],
+		}
+		reason := stringArg("reason")
+		summary := fmt.Sprintf("%s %s→%s", kind, fromID, toID)
+		proposal := &ToolApplyProposal{
+			ToolCallID:      call.ID,
+			Operation:       "relation",
+			Proposed:        summary,
+			LastEditSummary: reason,
+			Relation: &RelationProposal{
+				SourceNodeID:    fromID,
+				TargetNodeID:    toID,
+				Kind:            kind,
+				Reason:          reason,
+				Direction:       direction,
+				SourceRevisions: revisions,
+			},
+		}
+		return awaitApproval(ctx, state, proposal)
 
 	case "list_artifacts":
 		result := make([]map[string]interface{}, 0)

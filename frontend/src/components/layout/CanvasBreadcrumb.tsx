@@ -5,7 +5,10 @@ import { useAppStore } from "../../store/useAppStore";
 const CanvasBreadcrumb: React.FC = () => {
   const getBreadcrumb = useAppStore((s) => s.getBreadcrumb);
   const navigateCanvas = useAppStore((s) => s.navigateCanvas);
-  const navigateBack = useAppStore((s) => s.navigateBack);
+  const navigateParent = useAppStore((s) => s.navigateParent);
+  const parentCanvasId = useAppStore((s) =>
+    s.workspace.document.canvases[s.workspace.runtime.currentCanvasId]?.parentCanvasId,
+  );
   const useCanvasAsContext = useAppStore((s) => s.useCanvasAsContext);
   const boundaryAggregates = useAppStore((s) => s.boundaryAggregates);
   const crumbs = getBreadcrumb();
@@ -21,13 +24,14 @@ const CanvasBreadcrumb: React.FC = () => {
     >
       <button
         type="button"
-        onClick={() => navigateBack()}
-        className="inline-flex items-center gap-1 rounded px-2 py-1 text-gray-600 hover:bg-gray-100"
-        aria-label="Back to previous canvas"
-        title="Back"
+        onClick={() => navigateParent()}
+        disabled={!parentCanvasId}
+        className="inline-flex items-center gap-1 rounded px-2 py-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        aria-label="Go to parent canvas"
+        title="Parent canvas"
       >
         <CornerUpLeft size={14} />
-        Back
+        Parent
       </button>
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
         {crumbs.map((c, i) => (

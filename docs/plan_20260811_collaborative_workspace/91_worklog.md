@@ -257,3 +257,13 @@ worklog: enabled
 - Artifacts updated: `native_smoke_req17.md`、`human_ux_req19.md`、`90_status.md`、`91_worklog.md`。
 - Open questions / risks: 既知の細かいUI挙動は受入後の改善候補だが、F1受入を妨げない。
 - Handoff to next step: F1 foundation slice は受入完了。後続機能は別planで扱う。
+
+## WL-021 — Step 9 patch: structural Parent navigation
+
+- Date: 2026-08-13
+- Actor/session: Codex repair session
+- Purpose: breadcrumb 左端の Back が navigation history を戻すため、親 Canvas 移動と Undo が混同され、編集後・多階層で機能不全になる問題を修正する。
+- Actions: `navigateParent` domain command/store action を追加。`CanvasBreadcrumb` を構造上の `parentCanvasId` へ1階層移動する `Parent` ボタンへ変更し、root では disabled。navigation は selection/context scope をclear/cancelするが document mutation historyを消費しない。旧 Back/history 記述を仕様から修正。
+- Checks: domain testでchild内編集保持とhistory長不変を確認。CE2Eで2階層 Parent 移動、編集保持、history不変、root disabledを確認。`mise run test`、`mise run e2e`（17/17）、Go vet、Frontend/Wails buildがpass。
+- Artifacts updated: `workspace.ts`、`workspaceCommands.ts`、`useAppStore.ts`、`CanvasBreadcrumb.tsx`、domain/E2E tests、`40_specification.md`、`90_status.md` implementer evidence、`91_worklog.md`。
+- Handoff: 受入担当は実画面の多階層 Parent navigation を再確認する。既存 Acceptance 欄は本実装sessionでは変更しない。

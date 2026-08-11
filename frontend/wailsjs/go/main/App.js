@@ -6,6 +6,10 @@ export function CancelChat(arg1) {
   return window['go']['main']['App']['CancelChat'](arg1);
 }
 
+export function DirectTransform(arg1) {
+  return window['go']['main']['App']['DirectTransform'](arg1);
+}
+
 export function ExportImage(arg1) {
   return window['go']['main']['App']['ExportImage'](arg1);
 }

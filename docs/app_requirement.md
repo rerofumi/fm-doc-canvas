@@ -13,14 +13,18 @@
 
 ## User Experience
 
-- 起動時に空キャンバスであれば初期 Artifact ノードを 1 つ追加する。
+- 起動時は空の Workspace を表示し、Text / Artifact はユーザーが明示的に追加する。
 - ヘッダーから新規 Text / Artifact ノード追加、オートレイアウト、ChatDrawer、設定ドロワ表示を行える。
 - Text / Artifact ノードはクリックで選択し、ダブルクリックで左側エディタドロワを開く。
 - 画像ノードはキャンバス上で表示し、ダブルクリックでオーバーレイ表示できる。
 - 画面下部のプロンプトバーで Text / Image モードを切り替え、選択中ノードを文脈として生成できる。
 - 右側の ChatDrawer では、対象ノードと接続元を直接文脈にし、必要に応じて Canvas 上の別ノードを tool で読ませながら AI と対話できる。
 - ChatDrawer から AI が提案した Text / Artifact 編集は、revision が一致する場合だけ Canvas へ適用する。
-- チャットセッションは Canvas ごとに分離して保持し、明示的に切り替えられる。
+- Dialogue session は active Workspace のメモリ内で分離して保持し、アプリ終了・New Workspace・Discard後に復元しない。
+- ユーザーは nested SubCanvas を breadcrumb と構造上の `Parent` で移動でき、Canvas navigation は文書の Undo 履歴を消費しない。
+- 選択した Text-bearing Nodeを summarize / compare / counterpoint し、元Nodeを変更せずderived Nodeとprovenanceを作成できる。
+- DialogueではTransform / Relation ProposalをModify / Accept / Rejectでき、Direct Actionでは適用後diffとUndoを確認できる。
+- typed Relationはkind、方向、reasonを作成・編集・反転・削除できる。
 - 右クリックメニューからノード/エッジ削除、ノード単体エクスポート、選択ノードの Marp エクスポートを実行できる。
 
 ## MVP Features
@@ -33,8 +37,9 @@
 - 画像生成プロバイダの選択と画像ノード生成。
 - 画像ノードを参照画像としてテキスト生成または画像生成に利用。
 - キャンバス JSON の保存/読込。
-- Canvas file V1.2 の `canvasId` と Artifact 永続化、V1.0 / V1.1 読込互換。
-- Canvas ごとのチャットセッション永続化。
+- Workspace / Canvas tree、Text / Artifact、typed Relation、provenanceを含む Canvas file V1.3 と旧形式migration。
+- memory-only Dialogue、bounded active history、scope / generation / revisionによるstale result拒否。
+- non-destructive transform、structured Proposal、Direct Action、atomic apply / one undo。
 - テキストファイルと画像ファイルのインポート。
 - Markdown、画像、Marp Markdown のエクスポート。
 

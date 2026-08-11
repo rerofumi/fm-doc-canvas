@@ -119,6 +119,58 @@ run("subcanvas move cycle guard and dissolve undo", () => {
   assert(!!state.document.canvases[childCanvasId], "canvas restored");
 });
 
+run("parent navigation follows canvas hierarchy without undoing edits", () => {
+  const s = services();
+  let history = createHistory();
+  let state = createEmptyWorkspace(s);
+  let r = applyCommand(state, { type: "createText", role: "text", input: { content: "A" } }, s, history);
+  state = r.state; history = r.history!;
+  const a = r.createdNodeId!;
+  r = applyCommand(state, { type: "createText", role: "text", input: { content: "B" } }, s, history);
+  state = r.state; history = r.history!;
+  const b = r.createdNodeId!;
+  r = applyCommand(state, { type: "createSubCanvas", nodeIds: [a, b], label: "Child" }, s, history);
+  state = r.state; history = r.history!;
+  const childCanvasId = r.createdCanvasId!;
+  r = applyCommand(state, { type: "navigateCanvas", canvasId: childCanvasId }, s, history);
+  state = r.state;
+  r = applyCommand(state, {
+    type: "editTextContent",
+    nodeId: a,
+    content: "edited in child",
+    baseRevision: state.document.nodes[a].revision,
+  }, s, history);
+  assert(r.ok, r.error || "edit child node");
+  state = r.state; history = r.history!;
+  const historyLength = history.past.length;
+  r = applyCommand(state, { type: "navigateParent" }, s, history);
+  assert(r.ok, r.error || "navigate parent");
+  assert(r.state.runtime.currentCanvasId === r.state.document.rootCanvasId, "parent is root");
+  assert(isTextBearing(r.state.document.nodes[a]) && r.state.document.nodes[a].content === "edited in child", "edit retained");
+  assert(r.history?.past.length === historyLength, "parent navigation does not consume edit history");
+});
+
+run("relation reverse preserves renderable handle roles", () => {
+  const s = services();
+  let state = createEmptyWorkspace(s);
+  let r = applyCommand(state, { type: "createText", role: "text", input: { content: "A" } }, s);
+  state = r.state;
+  const a = r.createdNodeId!;
+  r = applyCommand(state, { type: "createText", role: "text", input: { content: "B" } }, s);
+  state = r.state;
+  const b = r.createdNodeId!;
+  const relation = createRelation(s, a, b);
+  relation.presentation = { sourceHandle: "right-source", targetHandle: "left-target" };
+  r = applyCommand(state, { type: "addRelation", relation }, s);
+  state = r.state;
+  r = applyCommand(state, { type: "reverseRelation", id: relation.id }, s);
+  assert(r.ok, r.error || "reverse relation");
+  const reversed = r.state.document.relations[relation.id];
+  assert(reversed.sourceNodeId === b && reversed.targetNodeId === a, "endpoints reversed");
+  assert(reversed.presentation?.sourceHandle === "right-source", "source handle role retained");
+  assert(reversed.presentation?.targetHandle === "left-target", "target handle role retained");
+});
+
 run("V1.2 migration and V1.3 roundtrip", () => {
   const s = services();
   const legacy = {

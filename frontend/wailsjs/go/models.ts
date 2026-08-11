@@ -376,6 +376,52 @@ export namespace backend {
 		}
 	}
 	
+	export class DirectTransformRequest {
+	    operation: string;
+	    sourceNodeIds: string[];
+	    sourceRevisions: Record<string, number>;
+	    workspaceId: string;
+	    canvasId: string;
+	    runtimeGeneration: string;
+	    scopeEpoch: number;
+	    contextDigest: string;
+	    sourceNodes: NodeSnapshot[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DirectTransformRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.operation = source["operation"];
+	        this.sourceNodeIds = source["sourceNodeIds"];
+	        this.sourceRevisions = source["sourceRevisions"];
+	        this.workspaceId = source["workspaceId"];
+	        this.canvasId = source["canvasId"];
+	        this.runtimeGeneration = source["runtimeGeneration"];
+	        this.scopeEpoch = source["scopeEpoch"];
+	        this.contextDigest = source["contextDigest"];
+	        this.sourceNodes = this.convertValues(source["sourceNodes"], NodeSnapshot);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	
 	
@@ -426,6 +472,96 @@ export namespace backend {
 	        this.runEpoch = source["runEpoch"];
 	    }
 	}
+	export class TransformSourcePreview {
+	    nodeId: string;
+	    content: string;
+	    revision: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransformSourcePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.content = source["content"];
+	        this.revision = source["revision"];
+	    }
+	}
+	export class TransformRelationProposal {
+	    sourceNodeId: string;
+	    targetNodeId?: string;
+	    kind: string;
+	    reason?: string;
+	    direction?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransformRelationProposal(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceNodeId = source["sourceNodeId"];
+	        this.targetNodeId = source["targetNodeId"];
+	        this.kind = source["kind"];
+	        this.reason = source["reason"];
+	        this.direction = source["direction"];
+	    }
+	}
+	export class TransformProposal {
+	    operation: string;
+	    sourceNodeIds: string[];
+	    sourceRevisions: Record<string, number>;
+	    content: string;
+	    summary: string;
+	    reason?: string;
+	    suggestedRelations?: TransformRelationProposal[];
+	    sources?: TransformSourcePreview[];
+	    workspaceId?: string;
+	    canvasId?: string;
+	    runtimeGeneration?: string;
+	    scopeEpoch?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransformProposal(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.operation = source["operation"];
+	        this.sourceNodeIds = source["sourceNodeIds"];
+	        this.sourceRevisions = source["sourceRevisions"];
+	        this.content = source["content"];
+	        this.summary = source["summary"];
+	        this.reason = source["reason"];
+	        this.suggestedRelations = this.convertValues(source["suggestedRelations"], TransformRelationProposal);
+	        this.sources = this.convertValues(source["sources"], TransformSourcePreview);
+	        this.workspaceId = source["workspaceId"];
+	        this.canvasId = source["canvasId"];
+	        this.runtimeGeneration = source["runtimeGeneration"];
+	        this.scopeEpoch = source["scopeEpoch"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 
 }
 

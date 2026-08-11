@@ -1,8 +1,9 @@
 import { ResolveToolApplication } from "../../../wailsjs/go/main/App";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAppStore } from "../../store/useAppStore";
 import { useChatStore } from "../../store/useChatStore";
-import { ChatToolEvent } from "../../types/chat";
+import { ChatToolEvent, ChatToolProposal } from "../../types/chat";
+import { isTextBearing } from "../../domain/workspace";
 
 function correlation(proposal: NonNullable<ChatToolEvent["proposal"]>) {
   return {
@@ -26,6 +27,14 @@ const labels: Record<string, string> = {
   done: "完了",
 };
 
+type RelationDraft = NonNullable<ChatToolProposal["relation"]>;
+type SuggestedRelation = NonNullable<NonNullable<ChatToolProposal["transform"]>["suggestedRelations"]>[number];
+
+function previewText(content: string, max = 180) {
+  const trimmed = content.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
+}
+
 export default function ToolCard({
   event,
   sessionId,
@@ -36,17 +45,54 @@ export default function ToolCard({
   runId?: string;
 }) {
   const proposal = event.proposal;
-  const [modifiedContent, setModifiedContent] = useState(proposal?.proposed || "");
+  const workspace = useAppStore((state) => state.workspace);
   const [isModifying, setIsModifying] = useState(false);
+  const [modifiedContent, setModifiedContent] = useState(proposal?.proposed || proposal?.transform?.content || "");
+  const [modifiedReason, setModifiedReason] = useState(
+    proposal?.transform?.reason || proposal?.relation?.reason || "",
+  );
+  const [modifiedRelation, setModifiedRelation] = useState<RelationDraft | null>(
+    proposal?.relation ? { ...proposal.relation } : null,
+  );
+  const [modifiedSuggested, setModifiedSuggested] = useState<SuggestedRelation[]>(
+    proposal?.transform?.suggestedRelations ? [...proposal.transform.suggestedRelations] : [],
+  );
+
+  const sourcePreviews = useMemo(() => {
+    if (!proposal?.transform) return [];
+    const fromProposal = proposal.transform.sources ?? [];
+    if (fromProposal.length) {
+      return fromProposal.map((source) => ({
+        nodeId: source.nodeId,
+        revision: source.revision,
+        content: source.content,
+      }));
+    }
+    return (proposal.transform.sourceNodeIds || []).map((nodeId) => {
+      const node = workspace.document.nodes[nodeId];
+      return {
+        nodeId,
+        revision: proposal.transform?.sourceRevisions?.[nodeId] ?? (node?.revision ?? 0),
+        content: node && isTextBearing(node) ? node.content : `(source ${nodeId})`,
+      };
+    });
+  }, [proposal, workspace.document.nodes]);
 
   const decide = async (decision: "accept" | "modify" | "reject") => {
     if (!proposal) return;
-    const result = useAppStore.getState().decideToolProposal(
-      proposal,
-      decision,
-      runId,
-      decision === "modify" ? modifiedContent : undefined,
-    );
+    const modified =
+      decision === "modify"
+        ? proposal.operation === "transform"
+          ? {
+              content: modifiedContent,
+              reason: modifiedReason,
+              suggestedRelations: modifiedSuggested,
+            }
+          : proposal.operation === "relation" && modifiedRelation
+            ? { relation: modifiedRelation, content: modifiedContent, reason: modifiedReason }
+            : modifiedContent
+        : undefined;
+    const result = useAppStore.getState().decideToolProposal(proposal, decision, runId, modified);
     if (decision === "reject" || result.status === "rejected") {
       useChatStore.getState().upsertToolEvent(sessionId || "", runId || "", {
         ...event,
@@ -91,6 +137,16 @@ export default function ToolCard({
     setIsModifying(false);
   };
 
+  const reverseRelationDraft = () => {
+    if (!modifiedRelation) return;
+    setModifiedRelation({
+      ...modifiedRelation,
+      sourceNodeId: modifiedRelation.targetNodeId,
+      targetNodeId: modifiedRelation.sourceNodeId,
+      direction: modifiedRelation.direction === "reverse" ? "forward" : "reverse",
+    });
+  };
+
   return (
     <div
       className="my-1 rounded border border-gray-200 bg-white/70 px-2 py-1.5 text-xs text-gray-600"
@@ -112,35 +168,262 @@ export default function ToolCard({
           {labels[event.status] ?? event.status}
         </span>
       </div>
-      {(proposal?.targetNodeId || proposal?.nodeId) && (
+
+      {proposal && (
+        <div className="mt-1 space-y-1 text-[11px] text-gray-600" data-testid="proposal-metadata">
+          <div>
+            <span className="font-semibold">Proposal ID:</span> {proposal.toolCallId}
+          </div>
+          <div>
+            <span className="font-semibold">operation:</span> {proposal.operation}
+            {proposal.transform?.operation ? ` / ${proposal.transform.operation}` : ""}
+          </div>
+          {(proposal.canvasId || proposal.workspaceId) && (
+            <div>
+              <span className="font-semibold">placement:</span> canvas {proposal.canvasId || "current"} · workspace{" "}
+              {proposal.workspaceId || "current"}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(proposal?.targetNodeId || proposal?.nodeId) && proposal?.operation !== "transform" && proposal?.operation !== "relation" && (
         <div className="mt-1 truncate text-gray-500">
           対象: {proposal.targetNodeId || proposal.nodeId}
         </div>
       )}
+
       {proposal?.operation === "edit" && (
         <div className="mt-1 grid grid-cols-2 gap-1">
           <div className="rounded bg-red-50 p-1 line-through">{proposal.searchText}</div>
           <div className="rounded bg-green-50 p-1">{proposal.replacement}</div>
         </div>
       )}
-      {proposal?.operation !== "edit" && proposal?.filename && (
-        <div className="mt-1 truncate">{proposal.filename}</div>
-      )}
-      {proposal?.proposed && proposal.operation !== "edit" && (
-        <div className="mt-1 max-h-16 overflow-auto rounded bg-gray-50 p-1 whitespace-pre-wrap">
-          {proposal.proposed.slice(0, 400)}
+
+      {proposal?.operation === "transform" && proposal.transform && (
+        <div className="mt-2 space-y-2" data-testid="transform-comparison">
+          <div className="font-semibold text-gray-700">Source → Output comparison</div>
+          {sourcePreviews.map((source) => (
+            <div key={source.nodeId} className="grid grid-cols-2 gap-1" data-testid={`source-preview-${source.nodeId}`}>
+              <div className="rounded bg-red-50 p-1">
+                <div className="mb-0.5 font-semibold text-red-800">
+                  source {source.nodeId} · rev {source.revision}
+                </div>
+                <div className="max-h-20 overflow-auto whitespace-pre-wrap">{previewText(source.content)}</div>
+              </div>
+              <div className="rounded bg-green-50 p-1">
+                <div className="mb-0.5 font-semibold text-green-800">output preview</div>
+                <div className="max-h-20 overflow-auto whitespace-pre-wrap">
+                  {previewText(isModifying ? modifiedContent : proposal.transform!.content)}
+                </div>
+              </div>
+            </div>
+          ))}
+          <div>
+            <span className="font-semibold">reason:</span>{" "}
+            {isModifying ? (
+              <input
+                aria-label="Modified transform reason"
+                className="ml-1 rounded border border-blue-300 px-1 py-0.5"
+                value={modifiedReason}
+                onChange={(event) => setModifiedReason(event.target.value)}
+              />
+            ) : (
+              proposal.transform.reason || "(none)"
+            )}
+          </div>
+          <div>
+            <span className="font-semibold">base revisions:</span>{" "}
+            {Object.entries(proposal.transform.sourceRevisions || {})
+              .map(([id, rev]) => `${id}@${rev}`)
+              .join(", ")}
+          </div>
+          <div>
+            <span className="font-semibold">provenance:</span> origin=llm
+            {proposal.transform.provenance?.provider ? ` · ${proposal.transform.provenance.provider}` : ""}
+            {proposal.transform.provenance?.model ? ` / ${proposal.transform.provenance.model}` : ""}
+          </div>
+          <div data-testid="suggested-relations">
+            <div className="font-semibold">suggested Relation</div>
+            {(isModifying ? modifiedSuggested : proposal.transform.suggestedRelations || []).length === 0 && (
+              <div className="text-gray-400">none</div>
+            )}
+            {(isModifying ? modifiedSuggested : proposal.transform.suggestedRelations || []).map((relation, index) => (
+              <div key={`${relation.sourceNodeId}-${index}`} className="mt-1 rounded border border-gray-100 p-1">
+                {isModifying ? (
+                  <div className="grid gap-1">
+                    <label className="flex items-center gap-1">
+                      kind
+                      <select
+                        aria-label={`Suggested relation kind ${index + 1}`}
+                        value={relation.kind}
+                        onChange={(event) => {
+                          const next = [...modifiedSuggested];
+                          next[index] = { ...relation, kind: event.target.value as SuggestedRelation["kind"] };
+                          setModifiedSuggested(next);
+                        }}
+                      >
+                        {["source", "derived", "supports", "opposes", "similar"].map((kind) => (
+                          <option key={kind} value={kind}>
+                            {kind}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center gap-1">
+                      direction
+                      <select
+                        aria-label={`Suggested relation direction ${index + 1}`}
+                        value={relation.direction || "forward"}
+                        onChange={(event) => {
+                          const next = [...modifiedSuggested];
+                          const direction = event.target.value as "forward" | "reverse";
+                          next[index] = {
+                            ...relation,
+                            direction,
+                            sourceNodeId: direction === "reverse" && relation.targetNodeId
+                              ? relation.targetNodeId
+                              : relation.sourceNodeId,
+                            targetNodeId:
+                              direction === "reverse"
+                                ? relation.sourceNodeId
+                                : relation.targetNodeId,
+                          };
+                          setModifiedSuggested(next);
+                        }}
+                      >
+                        <option value="forward">forward</option>
+                        <option value="reverse">reverse</option>
+                      </select>
+                    </label>
+                    <input
+                      aria-label={`Suggested relation reason ${index + 1}`}
+                      className="rounded border border-blue-300 px-1 py-0.5"
+                      value={relation.reason || ""}
+                      onChange={(event) => {
+                        const next = [...modifiedSuggested];
+                        next[index] = { ...relation, reason: event.target.value };
+                        setModifiedSuggested(next);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    {relation.sourceNodeId}
+                    {" → "}
+                    {relation.targetNodeId || "(derived output)"} · {relation.kind}
+                    {relation.reason ? ` · ${relation.reason}` : ""}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
-      {event.error && <div className="mt-1 text-red-600">{event.error}</div>}
-      {event.summary && <div className="mt-1 truncate text-gray-500">{event.summary}</div>}
-      {event.status === "proposed" && proposal && (
-        <div className="mt-2 flex gap-2">
+
+      {proposal?.operation === "relation" && proposal.relation && (
+        <div className="mt-2 space-y-1" data-testid="relation-proposal">
+          <div>
+            <span className="font-semibold">source:</span>{" "}
+            {(isModifying ? modifiedRelation : proposal.relation)?.sourceNodeId}
+          </div>
+          <div>
+            <span className="font-semibold">target:</span>{" "}
+            {(isModifying ? modifiedRelation : proposal.relation)?.targetNodeId}
+          </div>
+          <div>
+            <span className="font-semibold">kind:</span>{" "}
+            {isModifying && modifiedRelation ? (
+              <select
+                aria-label="Modified relation kind"
+                value={modifiedRelation.kind}
+                onChange={(event) =>
+                  setModifiedRelation({
+                    ...modifiedRelation,
+                    kind: event.target.value as RelationDraft["kind"],
+                  })
+                }
+              >
+                {["source", "derived", "supports", "opposes", "similar"].map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              proposal.relation.kind
+            )}
+          </div>
+          <div>
+            <span className="font-semibold">reason:</span>{" "}
+            {isModifying ? (
+              <input
+                aria-label="Modified relation reason"
+                className="rounded border border-blue-300 px-1 py-0.5"
+                value={modifiedReason}
+                onChange={(event) => {
+                  setModifiedReason(event.target.value);
+                  if (modifiedRelation) {
+                    setModifiedRelation({ ...modifiedRelation, reason: event.target.value });
+                  }
+                }}
+              />
+            ) : (
+              proposal.relation.reason || "(none)"
+            )}
+          </div>
           {isModifying && (
+            <button
+              type="button"
+              className="rounded bg-slate-600 px-2 py-1 text-[11px] font-bold text-white"
+              aria-label="Reverse proposed relation"
+              onClick={reverseRelationDraft}
+            >
+              Reverse
+            </button>
+          )}
+        </div>
+      )}
+
+      {proposal?.operation !== "edit" &&
+        proposal?.operation !== "transform" &&
+        proposal?.operation !== "relation" &&
+        proposal?.filename && <div className="mt-1 truncate">{proposal.filename}</div>}
+      {proposal?.proposed &&
+        proposal.operation !== "edit" &&
+        proposal.operation !== "transform" &&
+        proposal.operation !== "relation" && (
+          <div className="mt-1 max-h-16 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-1">
+            {proposal.proposed.slice(0, 400)}
+          </div>
+        )}
+
+      {event.error && (
+        <div className="mt-1 rounded border border-red-200 bg-red-50 p-1 text-red-700" role="alert">
+          <div>{event.error}</div>
+          <div className="mt-1 text-[10px] text-red-600">
+            次の操作: Reject で閉じる、Modify で内容を直す、Undo で直前適用を戻す、再送で retry。
+          </div>
+        </div>
+      )}
+      {event.summary && <div className="mt-1 truncate text-gray-500">{event.summary}</div>}
+
+      {event.status === "proposed" && proposal && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {isModifying && proposal.operation !== "relation" && proposal.operation !== "transform" && (
             <textarea
               value={modifiedContent}
               onChange={(event) => setModifiedContent(event.target.value)}
               aria-label="Modified proposal content"
               className="min-h-16 flex-1 rounded border border-blue-300 p-1 text-[11px]"
+            />
+          )}
+          {isModifying && proposal.operation === "transform" && (
+            <textarea
+              value={modifiedContent}
+              onChange={(event) => setModifiedContent(event.target.value)}
+              aria-label="Modified proposal content"
+              className="min-h-16 w-full rounded border border-blue-300 p-1 text-[11px]"
             />
           )}
           <button

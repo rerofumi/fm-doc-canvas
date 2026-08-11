@@ -110,5 +110,42 @@ test("CE2E keyboard role switch and undo accessible", async ({ page }) => {
   const after = await api.snapshot();
   expect(after.nodeCount).toBe(0);
   await expect(page.getByRole("button", { name: "Use this Canvas as context" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Back to previous canvas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Go to parent canvas" })).toBeVisible();
+});
+
+test("CE2E parent button climbs hierarchy without consuming edit history", async ({ page }) => {
+  const api = await e2e(page);
+  await api.newWorkspace();
+  const rootA = await api.addText("root-a");
+  const rootB = await api.addText("root-b");
+  const level1 = await api.createSubCanvas([rootA!, rootB!], "Level 1");
+  await api.navigate(level1.childCanvasId);
+
+  const innerA = await api.addText("inner-a");
+  const innerB = await api.addText("inner-b");
+  await api.createSubCanvas([innerA!, innerB!], "Level 2");
+  let snap = await api.snapshot();
+  const level2 = snap.canvases.find(
+    (canvas: any) => canvas.parentCanvasId === level1.childCanvasId,
+  );
+  expect(level2?.id).toBeTruthy();
+  await api.navigate(level2.id);
+
+  await api.editText(innerA!, "edited inside level 2");
+  snap = await api.snapshot();
+  const historyAfterEdit = snap.historyLength;
+
+  await page.getByRole("button", { name: "Go to parent canvas" }).click();
+  snap = await api.snapshot();
+  expect(snap.currentCanvasId).toBe(level1.childCanvasId);
+  expect(snap.historyLength).toBe(historyAfterEdit);
+  expect(snap.domainNodes.find((node: any) => node.id === innerA).content).toBe(
+    "edited inside level 2",
+  );
+
+  await page.getByRole("button", { name: "Go to parent canvas" }).click();
+  snap = await api.snapshot();
+  expect(snap.currentCanvasId).toBe(snap.rootCanvasId);
+  expect(snap.historyLength).toBe(historyAfterEdit);
+  await expect(page.getByRole("button", { name: "Go to parent canvas" })).toBeDisabled();
 });
