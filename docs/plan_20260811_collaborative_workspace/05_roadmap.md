@@ -1,7 +1,7 @@
 # `fm-doc-canvas` 進化ロードマップ
 
 - 作成日: 2026-08-11
-- 最終更新: 2026-08-11
+- 最終更新: 2026-08-13
 - 状態: 検討用。上位概念はロードマップ上の作業仮説として採用
 - プロセス区分: Patch 相当の方向性ロードマップ
 - 利用傾向の分析: [01_research.md](./01_research.md)
@@ -9,7 +9,7 @@
 - canonical 用語: [08_glossary.md](./08_glossary.md)
 - 基準実装計画（2026-08-11 完了）: [plan_20260810_chat_artifact](../plan_20260810_chat_artifact/)
 - 正式 Full plan: [10_claim.md](./10_claim.md)、[30_requirement.md](./30_requirement.md)、[40_specification.md](./40_specification.md)、[90_status.md](./90_status.md)
-- 昇格済み範囲: D-12・D-02・F-1 foundation slice（`state: planned`）。F-2〜F-6 は各 Gate 後の別 plan とする。
+- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 core は各 plan で受理済み。F-4 core は [plan_20260813_multimodal_context](../plan_20260813_multimodal_context/)（`planned`）。F-3C / F-4B 後半 / F-5 / F-6 は各 Gate 後の別 plan とする。
 
 ## 1. 本書の目的
 
@@ -619,7 +619,8 @@ F-3BとF-3Cは独立してGo / Hold / Stopにできる。Specialist subagent bra
 ### F-4: Multimodal Transform を接続する
 
 **対応概念**: CW-3B  
-**候補計画名**: `multimodal_context`
+**候補計画名**: `multimodal_context`  
+**個別計画**: [plan_20260813_multimodal_context](../plan_20260813_multimodal_context/)（2026-08-13、`planned`）。F-4A + Vision Context の core slice。確認付き再生成 / AL-3 / `fm-image-assistant` は後続候補。
 
 #### F-4A: 既存生成器への最小導線
 
@@ -834,7 +835,7 @@ Specialist Subagent BridgeがStop / Holdでも、GoになったDirect Toolや他
 | `collaborative_transform` | 非破壊 transform、typed Relation、人間操作の feedback | Light から開始可能 | F-1 Go |
 | `web_context` | Web取得、Direct Tool、Context Packet、Evidence synthesis、明示Promote。MCP clientは対象外 | Full・[plan_20260813_web_context](../plan_20260813_web_context/) が F-3A/B Direct Tool/D coreを`done`、Gate Go | 2026-08-13受入完了。F-3Cは`specialist_agent_bridge`へdefer |
 | `specialist_agent_bridge` | read-only Specialist subagent（CLI 実装候補）、Repository / 複数段階 Web 調査、scope / permission、session handle、Context Packet | Full 候補・**有力な将来候補** | F-1 / F-2 Go、深い外部 Context の反復利用例あり |
-| `multimodal_context` | 既存画像生成、実画像入力、Variant、共同評価 | Full 候補 | F-2 Go |
+| `multimodal_context` | 既存画像生成、実画像入力、Variant、共同評価 | Full・[plan_20260813_multimodal_context](../plan_20260813_multimodal_context/) が F-4A + Vision を `planned` | 2026-08-13 plan 作成。実装未着手。再生成ループは対象外 |
 | `saved_workspace_recall` | 明示Save済みWorkspaceの検索・再発見、read-only外部参照 | Light / Full 候補 | 保存物を実際に探せなかった実例あり。Pause / ResumeやSave催促は対象外 |
 | `generated_views` | Relation、Cluster View / Library View、必要時 layout | Light から開始可能 | F-2 実セッション蓄積後 |
 | `collaboration_orchestration` | 役割提案、AL 選択、Acquisition Route の選択、限定委譲、上限・観測・停止 | Full 候補 | 複数能力が Go。Specialist Subagent Bridge は必須ではない |

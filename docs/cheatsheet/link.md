@@ -157,6 +157,23 @@
 - Related local cheatsheet: `web_context_providers.md`
 - Reason: Fallback candidate schema (`title` / `url` / `content`) and the `include_answer` trap for this product.
 
+## OpenAI Images and Vision
+
+- URL: https://developers.openai.com/api/docs/guides/images-vision
+- Source type: Official documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `multimodal_vision.md`
+- Related local files: `backend/llm.go`, `backend/agent_loop.go`
+- Reason: Confirms Chat Completions can take image inputs; Responses `image_generation` is not the F-4 path.
+
+## OpenAI Chat Completions content parts
+
+- URL: https://developers.openai.com/api/reference/resources/chat
+- Source type: Official API reference
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `multimodal_vision.md`
+- Reason: Confirms user `content` may be `text` + `image_url` (data URL) on the same Chat Completions API the agent loop already uses.
+
 ## xAI Web Search Tool
 
 - URL: https://docs.x.ai/developers/tools/web-search
