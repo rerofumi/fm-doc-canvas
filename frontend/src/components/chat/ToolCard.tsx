@@ -169,6 +169,21 @@ export default function ToolCard({
         </span>
       </div>
 
+      {event.packet && (
+        <div className="mt-1 space-y-1 text-[11px]">
+          <div>query: {event.packet.query}</div>
+          <div>{event.packet.sources.length} sources · {event.packet.claims.length} claims</div>
+          <button
+            type="button"
+            className="font-semibold text-sky-800 underline"
+            aria-label="Open projected context"
+            onClick={() => useAppStore.getState().applyIncomingPacket(event.packet!, "dialogue-agent")}
+          >
+            Open projected context
+          </button>
+        </div>
+      )}
+
       {proposal && (
         <div className="mt-1 space-y-1 text-[11px] text-gray-600" data-testid="proposal-metadata">
           <div>

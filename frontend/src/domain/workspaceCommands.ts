@@ -1,4 +1,5 @@
 import { validateDocument, isDescendantCanvas, collectSubtreeFolderNodeIds } from "./invariants";
+import { MAX_PROMOTE_ITEMS, countPromoteItems, normalizeHttpsUrl } from "./contextPacket";
 import {
   CommandResult,
   DomainServices,
@@ -414,6 +415,147 @@ export function applyCommand(
         cancelledRunIds,
         history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
       };
+    }
+    case "promoteContextItems": {
+      isMutation = true;
+      const input = command.input;
+      if (!input.packetId || input.packetId !== input.packet.packetId) return fail(state, "promote-stale");
+      if (
+        input.workspaceId !== next.document.workspaceId ||
+        input.canvasId !== next.runtime.currentCanvasId ||
+        input.runtimeGeneration !== next.runtime.runtimeGeneration ||
+        input.scopeEpoch !== next.runtime.scopeEpoch
+      ) {
+        return fail(state, "promote-stale");
+      }
+      const selectedClaimIds = [...new Set(input.selectedClaimIds)];
+      const selectedSourceIds = [...new Set(input.selectedSourceIds)];
+      if (countPromoteItems(selectedClaimIds, selectedSourceIds) === 0) {
+        return fail(state, "promote-empty-selection");
+      }
+      if (countPromoteItems(selectedClaimIds, selectedSourceIds) > MAX_PROMOTE_ITEMS) {
+        return fail(state, "promote-cap-exceeded");
+      }
+      const claimById = new Map(input.packet.claims.map((claim) => [claim.claimId, claim]));
+      const sourceById = new Map(input.packet.sources.map((source) => [source.sourceId, source]));
+      for (const id of selectedClaimIds) {
+        if (!claimById.has(id)) return fail(state, "promote-stale");
+      }
+      for (const id of selectedSourceIds) {
+        if (!sourceById.has(id)) return fail(state, "promote-stale");
+      }
+      if (
+        services.faultPlan?.failOnceAt === "promote-before-commit" &&
+        services.faultState &&
+        !services.faultState.consumed["promote-before-commit"]
+      ) {
+        services.faultState.consumed["promote-before-commit"] = true;
+        return fail(state, "E2E fault: promote-before-commit");
+      }
+      const createdIds: string[] = [];
+      const claimNodeIds = new Map<string, string>();
+      const sourceNodeIds = new Map<string, string>();
+      let order = nextOrder(next.document, next.runtime.currentCanvasId);
+      const place = (offset: number) => ({
+        x: 140 + offset * 36,
+        y: 140 + offset * 28,
+      });
+      const webProvenance = (
+        url?: string,
+        domain?: string,
+        retrievedAt?: string,
+      ): TextBearingNode["provenance"] => ({
+        origin: "web",
+        operation: "promote-context",
+        provider: input.packet.contextProvider,
+        contextProvider: input.packet.contextProvider,
+        query: input.packet.query,
+        url,
+        domain,
+        retrievedAt: retrievedAt ?? input.packet.retrievedAt,
+        createdAt: services.clock.nowISO(),
+      });
+      try {
+        selectedClaimIds.forEach((claimId, index) => {
+          const claim = claimById.get(claimId)!;
+          const cited = claim.sourceIds
+            .map((id) => sourceById.get(id))
+            .filter((source): source is NonNullable<typeof source> => Boolean(source));
+          const primary = cited[0];
+          const node = makeTextNode(services, next.runtime.currentCanvasId, "text", {
+            content: claim.text,
+            summary: claim.text.split(/\r?\n/, 1)[0] || claim.kind,
+            position: place(index),
+            order: order++,
+            provenance: webProvenance(primary?.url, primary?.domain, primary?.retrievedAt),
+          });
+          next.document.nodes[node.id] = node;
+          createdIds.push(node.id);
+          claimNodeIds.set(claimId, node.id);
+        });
+        selectedSourceIds.forEach((sourceId, index) => {
+          const source = sourceById.get(sourceId)!;
+          const parsed = normalizeHttpsUrl(source.url);
+          if ("error" in parsed) throw new Error("promote-invalid-url");
+          const content = [`# ${source.title}`, parsed.url, source.snippet].filter(Boolean).join("\n\n");
+          const node = makeTextNode(services, next.runtime.currentCanvasId, "text", {
+            content,
+            summary: source.title,
+            position: place(selectedClaimIds.length + index),
+            order: order++,
+            provenance: webProvenance(parsed.url, parsed.domain, source.retrievedAt),
+          });
+          next.document.nodes[node.id] = node;
+          createdIds.push(node.id);
+          sourceNodeIds.set(sourceId, node.id);
+        });
+        const relationIds: string[] = [];
+        for (const suggestion of input.acceptedRelations) {
+          const fromId = suggestion.claimId
+            ? claimNodeIds.get(suggestion.claimId)
+            : suggestion.sourceId
+              ? sourceNodeIds.get(suggestion.sourceId)
+              : undefined;
+          if (!fromId) throw new Error("relation-endpoint-missing");
+          const target = next.document.nodes[suggestion.targetNodeId];
+          if (!target) throw new Error("relation-endpoint-missing");
+          if (target.parentCanvasId !== next.runtime.currentCanvasId) {
+            throw new Error("promote-out-of-scope");
+          }
+          if (fromId === suggestion.targetNodeId) throw new Error("self-relation");
+          if (!["supports", "opposes", "similar"].includes(suggestion.kind)) {
+            throw new Error("invalid relation kind");
+          }
+          const relation = createRelation(services, fromId, suggestion.targetNodeId, suggestion.kind);
+          relation.reason = suggestion.reason;
+          relation.provenance = next.document.nodes[fromId]?.provenance;
+          next.document.relations[relation.id] = relation;
+          relationIds.push(relation.id);
+        }
+        const err = validateDocument(next.document);
+        if (err) return fail(state, err);
+        next.runtime.selection = {
+          selectedNodeIds: createdIds,
+          activeNodeId: createdIds[0],
+          revision: next.runtime.selection.revision + 1,
+        };
+        historyEntry = {
+          label: "promoteContextItems",
+          undo: snapshotRestoreCommand(before),
+          redo: command,
+        };
+        return {
+          ok: true,
+          state: next,
+          historyEntry,
+          createdNodeId: createdIds[0],
+          createdRelationIds: relationIds,
+          cancelledRunIds,
+          history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
+        };
+      } catch (error) {
+        return fail(state, error instanceof Error ? error.message : "promote failed");
+      }
     }
     case "editTextContent": {
       isMutation = true;

@@ -49,6 +49,14 @@ import {
 } from "../domain/transform";
 import { DirectTransformReceipt } from "../types/chat";
 import {
+  ContextPacket,
+  WebSearchEntryRoute,
+  WebSearchRequest,
+  hintExcerpt,
+  incomingPacketRejection,
+  resolveWebSearchQuery,
+} from "../domain/contextPacket";
+import {
   createProductionClock,
   createProductionIds,
   RuntimeEnvironment,
@@ -85,6 +93,12 @@ const initialConfig: AppConfig = {
   },
   generation: {
     summaryMaxChars: 100,
+  },
+  webSearch: {
+    provider: "ollama",
+    ollama: { apiKey: "" },
+    kagi: { apiKey: "" },
+    brave: { apiKey: "" },
   },
 };
 
@@ -138,6 +152,23 @@ interface StoreExtras {
   useCanvasAsContext: () => void;
   runDirectTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
   lastDirectReceipt: DirectTransformReceipt | null;
+  activePacket: ContextPacket | null;
+  lastSearchRequest: WebSearchRequest | null;
+  lastOpenedURL: string | null;
+  lastSearchReceipt: { entryRoute: WebSearchEntryRoute; packet: ContextPacket } | null;
+  isWebSearchPending: boolean;
+  runWebSearch: (
+    query: string,
+    options?: { entryRoute?: WebSearchEntryRoute; knownUrls?: string[] },
+  ) => Promise<boolean>;
+  applyIncomingPacket: (packet: ContextPacket, entryRoute: WebSearchEntryRoute) => boolean;
+  promoteActivePacket: (selection: {
+    selectedClaimIds: string[];
+    selectedSourceIds: string[];
+    acceptedRelations: NonNullable<ContextPacket["suggestedRelations"]>;
+  }) => boolean;
+  dismissPacket: () => void;
+  openExternalURL: (url: string) => Promise<boolean>;
 }
 
 export type FullAppState = AppState & StoreExtras;
@@ -342,6 +373,16 @@ function createToolProposalDecider(
   };
 }
 
+const mergeWebSearchConfig = (webSearch: any = {}): NonNullable<AppConfig["webSearch"]> => ({
+  provider:
+    webSearch.provider === "kagi" || webSearch.provider === "brave" || webSearch.provider === "ollama"
+      ? webSearch.provider
+      : "ollama",
+  ollama: { apiKey: "", ...(webSearch.ollama || {}) },
+  kagi: { apiKey: "", ...(webSearch.kagi || {}) },
+  brave: { apiKey: "", ...(webSearch.brave || {}) },
+});
+
 const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
   const provider = imageGen.provider || initialConfig.imageGen.provider;
   const downloadPath = imageGen.downloadPath || initialConfig.imageGen.downloadPath;
@@ -388,6 +429,11 @@ export const useAppStore = create<FullAppState>((set, get) => {
     history: initialHistory,
     lastError: null,
     lastDirectReceipt: null,
+    activePacket: null,
+    lastSearchRequest: null,
+    lastOpenedURL: null,
+    lastSearchReceipt: null,
+    isWebSearchPending: false,
     boundaryAggregates: initialProjection.boundaryAggregates,
     nodes: initialProjection.nodes,
     edges: initialProjection.edges,
@@ -402,11 +448,11 @@ export const useAppStore = create<FullAppState>((set, get) => {
 
     newWorkspace: () => {
       dispatch({ type: "newWorkspace" });
-      set({ isEditorOpen: false });
+      set({ isEditorOpen: false, activePacket: null, lastSearchReceipt: null, lastSearchRequest: null });
     },
     discardWorkspace: () => {
       dispatch({ type: "discardWorkspace" });
-      set({ isEditorOpen: false });
+      set({ isEditorOpen: false, activePacket: null, lastSearchReceipt: null, lastSearchRequest: null });
     },
     switchTextRole: (nodeId, role) => {
       dispatch({ type: "switchTextRole", nodeId, role });
@@ -519,6 +565,168 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return true;
       } catch (caught) {
         set({ lastError: caught instanceof Error ? caught.message : "direct transform failed" });
+        return false;
+      }
+    },
+    applyIncomingPacket: (packet, entryRoute) => {
+      const current = get().workspace;
+      const run = packet.runId ? current.runtime.asyncRuns[packet.runId] : undefined;
+      const rejection = incomingPacketRejection(
+        packet,
+        {
+          workspaceId: current.document.workspaceId,
+          canvasId: current.runtime.currentCanvasId,
+          runtimeGeneration: current.runtime.runtimeGeneration,
+          scopeEpoch: current.runtime.scopeEpoch,
+        },
+        entryRoute,
+        run
+          ? { runId: run.runId, epoch: run.epoch, status: run.status }
+          : undefined,
+      );
+      if (rejection) {
+        set({ lastError: rejection });
+        return false;
+      }
+      set({
+        activePacket: packet,
+        lastSearchReceipt: entryRoute === "direct-action" ? { entryRoute, packet } : get().lastSearchReceipt,
+        lastError: packet.status === "failed" ? packet.error?.code || "web-search-provider-error" : null,
+      });
+      return true;
+    },
+    runWebSearch: async (query, options) => {
+      const entryRoute = options?.entryRoute ?? "direct-action";
+      const current = get().workspace;
+      const envelope = resolveContext({
+        document: current.document,
+        runtime: current.runtime,
+        mode: entryRoute === "dialogue-agent" ? "dialogue" : "direct",
+        operation: "web-search",
+      });
+      const hintNodeIds: string[] = [];
+      const hintSummaries: string[] = [];
+      for (const id of envelope.bodyAllowlistNodeIds) {
+        const node = current.document.nodes[id];
+        if (!node || !isTextBearing(node)) continue;
+        hintNodeIds.push(id);
+        hintSummaries.push(hintExcerpt(node.summary, node.content));
+      }
+      const request: WebSearchRequest = {
+        query: entryRoute === "direct-action"
+          ? resolveWebSearchQuery(query, hintSummaries)
+          : resolveWebSearchQuery(query, []),
+        hintNodeIds,
+        hintSummaries,
+        knownUrls: options?.knownUrls,
+        workspaceId: current.document.workspaceId,
+        canvasId: current.runtime.currentCanvasId,
+        runtimeGeneration: current.runtime.runtimeGeneration,
+        scopeEpoch: current.runtime.scopeEpoch,
+        entryRoute,
+      };
+      set({ lastSearchRequest: request });
+      if (!request.query) {
+        set({ lastError: "web-search-invalid-query" });
+        return false;
+      }
+      set({ isWebSearchPending: true, lastError: null });
+      let runId: string | undefined;
+      if (entryRoute === "dialogue-agent") {
+        runId = `search-${Date.now()}`;
+        get().dispatch({ type: "startAsyncRun", kind: "dialogue", runId });
+        const runEpoch = get().workspace.runtime.asyncRuns[runId]?.epoch;
+        request.runId = runId;
+        request.runEpoch = runEpoch;
+        set({ lastSearchRequest: request });
+      }
+      try {
+        const packet = (await (backend() as any).SearchWeb(request)) as ContextPacket;
+        if (entryRoute === "dialogue-agent") {
+          const chat = (await import("./useChatStore")).useChatStore.getState();
+          const sessionId = chat.activeSessionId ?? chat.createSession().id;
+          const packetRunId = packet.runId || runId || `search-${Date.now()}`;
+          const assistantId = `search-assistant-${Date.now()}`;
+          if (!chat.sessions.find((session) => session.id === sessionId)?.messages.some((message) => message.runId === packetRunId)) {
+            chat.appendMessage(sessionId, {
+              id: assistantId,
+              role: "assistant",
+              content: "",
+              createdAt: Date.now(),
+              runId: packetRunId,
+              status: "complete",
+              toolEvents: [],
+            });
+          }
+          chat.upsertToolEvent(sessionId, packetRunId, {
+            toolCallId: packet.packetId,
+            name: "web_search",
+            status: packet.status === "failed" ? "error" : "done",
+            summary: packet.query,
+            packet,
+            error: packet.error?.message,
+          });
+        }
+        const accepted = get().applyIncomingPacket(packet, entryRoute);
+        const rejection = accepted ? null : get().lastError;
+        if (runId) {
+          get().dispatch({ type: accepted ? "completeAsyncRun" : "cancelAsyncRun", runId });
+        }
+        if (rejection) set({ lastError: rejection });
+        set({ isWebSearchPending: false });
+        return accepted;
+      } catch (caught) {
+        if (runId) {
+          get().dispatch({ type: "cancelAsyncRun", runId });
+        }
+        set({
+          isWebSearchPending: false,
+          lastError: caught instanceof Error ? caught.message : "web-search-provider-error",
+        });
+        return false;
+      }
+    },
+    promoteActivePacket: (selection) => {
+      const packet = get().activePacket;
+      const workspace = get().workspace;
+      if (!packet) {
+        set({ lastError: "promote-stale" });
+        return false;
+      }
+      const applied = dispatch({
+        type: "promoteContextItems",
+        input: {
+          packetId: packet.packetId,
+          workspaceId: workspace.document.workspaceId,
+          canvasId: workspace.runtime.currentCanvasId,
+          runtimeGeneration: workspace.runtime.runtimeGeneration,
+          scopeEpoch: workspace.runtime.scopeEpoch,
+          selectedClaimIds: selection.selectedClaimIds,
+          selectedSourceIds: selection.selectedSourceIds,
+          acceptedRelations: selection.acceptedRelations,
+          packet: {
+            packetId: packet.packetId,
+            query: packet.query,
+            retrievedAt: packet.retrievedAt,
+            contextProvider: packet.contextProvider,
+            sources: packet.sources,
+            claims: packet.claims,
+          },
+        },
+      });
+      if (applied) {
+        set({ activePacket: null, lastSearchReceipt: null });
+      }
+      return applied;
+    },
+    dismissPacket: () => set({ activePacket: null, lastSearchReceipt: null }),
+    openExternalURL: async (url) => {
+      try {
+        await (backend() as any).OpenExternalURL(url);
+        set({ lastOpenedURL: url, lastError: null });
+        return true;
+      } catch (caught) {
+        set({ lastError: caught instanceof Error ? caught.message : "web-search-invalid-url" });
         return false;
       }
     },
@@ -683,6 +891,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
           imageGen: config.imageGen
             ? mergeImageGenConfig({ ...state.config.imageGen, ...config.imageGen })
             : state.config.imageGen,
+          webSearch: config.webSearch
+            ? mergeWebSearchConfig({ ...state.config.webSearch, ...config.webSearch })
+            : state.config.webSearch,
         },
       }));
     },
@@ -694,6 +905,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           llm: (config as any).llm || initialConfig.llm,
           generation: (config as any).generation || initialConfig.generation,
           imageGen: mergeImageGenConfig((config as any).imageGen),
+          webSearch: mergeWebSearchConfig((config as any).webSearch),
         };
         set({ config: fullConfig });
       } catch (error) {
@@ -707,6 +919,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           llm: config.llm || initialConfig.llm,
           generation: config.generation || initialConfig.generation,
           imageGen: mergeImageGenConfig(config.imageGen),
+          webSearch: mergeWebSearchConfig(config.webSearch),
         };
         await backend().SaveConfig(fullConfig as any);
         set({ config: fullConfig });

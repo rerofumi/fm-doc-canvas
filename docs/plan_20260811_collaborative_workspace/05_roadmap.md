@@ -533,7 +533,8 @@ F-1 で Specialist subagent の起動機能まで実装する必要はない。�
 ### F-3: External Research / Context Acquisition を接続する
 
 **対応概念**: CW-3A  
-**候補計画名**: 最小取得は `web_context`、将来の専門委譲は `specialist_agent_bridge`
+**候補計画名**: 最小取得は `web_context`、将来の専門委譲は `specialist_agent_bridge`  
+**個別計画**: [plan_20260813_web_context](../plan_20260813_web_context/)（2026-08-13、`done` / Gate Go）。F-3A / F-3B Direct Tool / F-3D の core sliceは受入完了。F-3Cは`specialist_agent_bridge`将来候補へdeferした。
 
 Canvasから調査できることと、Agent Runtime自身が検索・Repository解析を実装することを分離する。最初のExternal SourceはWebとし、Acquisition RouteはDirect Toolまたはread-only Specialist subagentを実験して決める。MCP clientは今回の実装から外すが、Workspaceへ戻す契約は実行方法によらず共通にする。
 
@@ -831,7 +832,7 @@ Specialist Subagent BridgeがStop / Holdでも、GoになったDirect Toolや他
 | `text_node_contract` | Text / Artifact の意味、共通text-bearing契約、作成導線、role / capability、V1.2互換adapter | Light / Full 候補 | F-0後、F-1前にD-12を決定 |
 | `shared_workspace` | 対象・寿命、Workspace Context / Delegated Session / Projected Context の概念予約、Proposal / undo、開始・終了 | Full 候補 | Gate D-12 完了後 |
 | `collaborative_transform` | 非破壊 transform、typed Relation、人間操作の feedback | Light から開始可能 | F-1 Go |
-| `web_context` | Web取得、Direct Tool / read-only Specialist subagent比較、Context Packet、Evidence synthesis。MCP clientは対象外 | Full 候補 | F-2 Go |
+| `web_context` | Web取得、Direct Tool、Context Packet、Evidence synthesis、明示Promote。MCP clientは対象外 | Full・[plan_20260813_web_context](../plan_20260813_web_context/) が F-3A/B Direct Tool/D coreを`done`、Gate Go | 2026-08-13受入完了。F-3Cは`specialist_agent_bridge`へdefer |
 | `specialist_agent_bridge` | read-only Specialist subagent（CLI 実装候補）、Repository / 複数段階 Web 調査、scope / permission、session handle、Context Packet | Full 候補・**有力な将来候補** | F-1 / F-2 Go、深い外部 Context の反復利用例あり |
 | `multimodal_context` | 既存画像生成、実画像入力、Variant、共同評価 | Full 候補 | F-2 Go |
 | `saved_workspace_recall` | 明示Save済みWorkspaceの検索・再発見、read-only外部参照 | Light / Full 候補 | 保存物を実際に探せなかった実例あり。Pause / ResumeやSave催促は対象外 |

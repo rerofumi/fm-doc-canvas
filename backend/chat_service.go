@@ -22,6 +22,9 @@ type pendingToolApplication struct {
 // ChatService owns run cancellation and the Frontend acknowledgment handshake.
 type ChatService struct {
 	llm                *LLMService
+	search             WebSearchPort
+	ids                IDGenerator
+	clock              Clock
 	mu                 sync.Mutex
 	runs               map[string]*chatRun
 	sessions           map[string]string
@@ -34,6 +37,14 @@ func NewChatService(llm *LLMService) *ChatService {
 	// applicationTimeout=0 means wait indefinitely for human decision (F-1).
 	// Technical cancel still happens via Cancel/context.
 	return &ChatService{llm: llm, runs: map[string]*chatRun{}, sessions: map[string]string{}, pending: map[string]*pendingToolApplication{}, emit: func(ChatEvent) {}, applicationTimeout: 0}
+}
+
+func (s *ChatService) SetWebSearch(search WebSearchPort, ids IDGenerator, clock Clock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.search = search
+	s.ids = ids
+	s.clock = clock
 }
 
 func (s *ChatService) SetEmitter(emit func(ChatEvent)) {
@@ -70,7 +81,7 @@ func (s *ChatService) Send(req ChatRequest) error {
 func (s *ChatService) execute(req ChatRequest, ctx context.Context) {
 	err := runAgent(ctx, s.llm, req, s.emitEvent, func(waitCtx context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
 		return s.waitForApplication(waitCtx, req, proposal)
-	})
+	}, s.search, s.ids, s.clock)
 	s.mu.Lock()
 	delete(s.runs, req.RunID)
 	if s.sessions[req.SessionID] == req.RunID {

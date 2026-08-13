@@ -19,6 +19,7 @@ export interface ChatToolEvent {
   summary?: string;
   error?: string;
   proposal?: ChatToolProposal;
+  packet?: import("../domain/contextPacket").ContextPacket;
 }
 
 export interface ChatToolProposal {
@@ -112,6 +113,7 @@ export interface ChatEvent {
   text?: string;
   toolEvent?: ChatToolEvent;
   apply?: ChatToolProposal;
+  packet?: import("../domain/contextPacket").ContextPacket;
   error?: string;
 }
 

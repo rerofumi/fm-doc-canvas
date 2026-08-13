@@ -23,7 +23,8 @@ export type ResolveOperation =
   | "mutate-text"
   | "relate"
   | "group"
-  | "move";
+  | "move"
+  | "web-search";
 
 export interface ResolveContextInput {
   document: Readonly<WorkspaceDocument>;
@@ -184,8 +185,9 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     }
   }
 
-  // Upstream context relations BFS within current canvas
-  const queue = [...activeContextNodeIds];
+  // Upstream context relations BFS within current canvas.
+  // web-search only uses explicit selection as query hints; do not pull hidden related bodies.
+  const queue = operation === "web-search" ? [] : [...activeContextNodeIds];
   const visited = new Set(activeContextNodeIds);
   const relations = Object.values(document.relations).sort((a, b) => a.id.localeCompare(b.id));
   while (queue.length) {
@@ -257,7 +259,13 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     (id) => document.nodes[id] && !excluded.has(id),
   );
 
-  const bodyAllowlistNodeIds = [...activeContextNodeIds];
+  const bodyAllowlistNodeIds =
+    operation === "web-search"
+      ? activeContextNodeIds.filter((id) => {
+          const node = document.nodes[id];
+          return !!node && isTextBearing(node);
+        })
+      : [...activeContextNodeIds];
   if (mutationTarget?.kind === "nodes" && (operation === "mutate-text" || operation === "read")) {
     for (const id of mutationTarget.nodeIds) pushUnique(bodyAllowlistNodeIds, id);
   }

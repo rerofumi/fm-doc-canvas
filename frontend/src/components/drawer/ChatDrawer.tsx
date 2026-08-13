@@ -38,7 +38,7 @@ const ChatDrawer = () => {
   }, [setDrawerWidth]);
 
   useEffect(() => {
-    const eventNames = ["chat:stream", "chat:tool_start", "chat:tool_apply", "chat:tool_done", "chat:done", "chat:cancelled", "chat:error"];
+    const eventNames = ["chat:stream", "chat:tool_start", "chat:tool_apply", "chat:tool_done", "chat:context_packet", "chat:done", "chat:cancelled", "chat:error"];
     const unsubscribers = eventNames.map((name) => EventsOn(name, (payload: ChatEvent) => {
       const event = payload;
       if (!event?.runId || !event.sessionId) {
@@ -54,6 +54,33 @@ const ChatDrawer = () => {
       if (event.type === "chat:stream" && event.text) chat.appendStream(event.sessionId, event.runId, event.text);
       if (event.type === "chat:tool_start" && event.toolEvent) chat.upsertToolEvent(event.sessionId, event.runId, event.toolEvent);
       if (event.type === "chat:tool_done" && event.toolEvent) chat.upsertToolEvent(event.sessionId, event.runId, event.toolEvent);
+      if (event.type === "chat:context_packet" && event.packet) {
+        const appState = useAppStore.getState();
+        const domainRun = appState.workspace.runtime.asyncRuns[event.runId];
+        const active = useChatStore.getState().activeRuns[event.sessionId];
+        if (active?.runId !== event.runId || !domainRun || domainRun.status !== "active") {
+          chat.upsertToolEvent(event.sessionId, event.runId, {
+            toolCallId: event.packet.packetId,
+            name: "web_search",
+            status: "stale",
+            summary: "stale/cancelled run",
+            packet: event.packet,
+          });
+          return;
+        }
+        chat.upsertToolEvent(event.sessionId, event.runId, {
+          toolCallId: event.packet.packetId,
+          name: "web_search",
+          status: event.packet.status === "failed" ? "error" : "done",
+          summary: event.packet.query,
+          packet: event.packet,
+          error: event.packet.error?.message,
+        });
+        useAppStore.getState().applyIncomingPacket(
+          { ...event.packet, runId: event.packet.runId || event.runId },
+          "dialogue-agent",
+        );
+      }
 if (event.type === "chat:tool_apply" && event.apply) {
         const active = useChatStore.getState().activeRuns[event.sessionId];
         const appState = useAppStore.getState();

@@ -1,4 +1,6 @@
 import "./domainFoundation.test";
+import "./f3ContextPacket.test";
+import "./f3Promote.test";
 import { applyCommand, createHistory } from "../domain/workspaceCommands";
 import {
   buildTransformRequest,

@@ -15,6 +15,16 @@ export type E2EBridge = {
   moveNode: (nodeId: string, x: number, y: number) => Promise<void>;
   openContextMenu: (target: { type: "node" | "edge"; id: string; x?: number; y?: number }) => Promise<void>;
   directTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
+  searchWeb: (query: string, options?: { entryRoute?: "dialogue-agent" | "direct-action"; knownUrls?: string[] }) => Promise<boolean>;
+  promotePacket: (selection: { selectedClaimIds: string[]; selectedSourceIds: string[]; acceptedRelations?: any[] }) => Promise<boolean>;
+  dismissPacket: () => Promise<void>;
+  openPacketURL: (url: string) => Promise<boolean>;
+  selectPacketItems: (claimIds: string[], sourceIds: string[]) => Promise<void>;
+  armSearchFault: (code: string) => Promise<void>;
+  armDelayedSearchWeb: () => Promise<void>;
+  releaseDelayedSearchWeb: () => Promise<void>;
+  stopActiveDialogue: () => Promise<void>;
+  injectPacket: (packet: any, entryRoute?: "dialogue-agent" | "direct-action") => Promise<boolean>;
   createSubCanvas: (nodeIds: string[], label?: string) => Promise<any>;
   dissolveChildOfRoot: () => Promise<void>;
   navigate: (canvasId: string) => Promise<void>;
@@ -118,6 +128,24 @@ export async function e2e(page: Page): Promise<E2EBridge> {
         page.evaluate((t) => (window as any).__E2E__.openContextMenu(t), target),
       directTransform: (operation) =>
         page.evaluate((value) => (window as any).__E2E__.directTransform(value), operation),
+      searchWeb: (query, options) =>
+        page.evaluate(({ q, o }) => (window as any).__E2E__.searchWeb(q, o), { q: query, o: options }),
+      promotePacket: (selection) =>
+        page.evaluate((s) => (window as any).__E2E__.promotePacket(s), selection),
+      dismissPacket: () => page.evaluate(() => (window as any).__E2E__.dismissPacket()),
+      openPacketURL: (url) => page.evaluate((u) => (window as any).__E2E__.openPacketURL(u), url),
+      selectPacketItems: (claimIds, sourceIds) =>
+        page.evaluate(({ c, s }) => (window as any).__E2E__.selectPacketItems(c, s), { c: claimIds, s: sourceIds }),
+      armSearchFault: (code) =>
+        page.evaluate((c) => (window as any).__E2E__.armSearchFault(c), code),
+      armDelayedSearchWeb: () =>
+        page.evaluate(() => (window as any).__E2E__.armDelayedSearchWeb()),
+      releaseDelayedSearchWeb: () =>
+        page.evaluate(() => (window as any).__E2E__.releaseDelayedSearchWeb()),
+      stopActiveDialogue: () =>
+        page.evaluate(() => (window as any).__E2E__.stopActiveDialogue()),
+      injectPacket: (packet, entryRoute) =>
+        page.evaluate(({ p, r }) => (window as any).__E2E__.injectPacket(p, r), { p: packet, r: entryRoute }),
       createSubCanvas: (nodeIds: string[], label?: string) =>
         page.evaluate(
           ({ ids, l }) => (window as any).__E2E__.createSubCanvas(ids, l),

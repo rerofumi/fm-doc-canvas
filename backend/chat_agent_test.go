@@ -72,10 +72,10 @@ func TestToolContractsReadAndApplyExactlyOneMatch(t *testing.T) {
 
 func TestEightToolDefinitionsAndReadTools(t *testing.T) {
 	definitions := toolDefinitions()
-	if len(definitions) != 9 {
-		t.Fatalf("tool count = %d, want 9", len(definitions))
+	if len(definitions) != 10 {
+		t.Fatalf("tool count = %d, want 10", len(definitions))
 	}
-	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation"}
+	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "web_search"}
 	for index, want := range wantNames {
 		if definitions[index].Function.Name != want {
 			t.Fatalf("tool %d = %q, want %q", index, definitions[index].Function.Name, want)
@@ -107,6 +107,24 @@ func TestEightToolDefinitionsAndReadTools(t *testing.T) {
 	missing.Function.Arguments = `{"node_id":"missing"}`
 	if result := executeTool(context.Background(), state, missing); result.Status != "error" {
 		t.Fatalf("missing node should fail: %#v", result)
+	}
+}
+
+func TestMergedListAndWebSearchToolCallUsesFinalJSONObject(t *testing.T) {
+	call := ToolCall{ID: "merged-1"}
+	call.Function.Name = "list_canvas_nodesweb_search"
+	call.Function.Arguments = `{}{"query":"current topic"}`
+	normalized := normalizeMergedToolCall(call)
+	if normalized.Function.Name != "web_search" || normalized.Function.Arguments != `{"query":"current topic"}` {
+		t.Fatalf("unexpected normalized call: %#v", normalized.Function)
+	}
+	state := &agentRunState{
+		request: testChatRequest("search the web"), readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{},
+		search: NewFixtureWebSearch(), ids: NewSeededIDGenerator("t"), clock: NewFakeClock(time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)),
+	}
+	result := executeTool(context.Background(), state, call)
+	if result.Status != "done" || !strings.Contains(result.Content, `"status":"complete"`) {
+		t.Fatalf("merged web search failed: %#v", result)
 	}
 }
 
@@ -359,7 +377,7 @@ func TestAgentStopsAfterTenToolRounds(t *testing.T) {
 	}))
 	defer server.Close()
 	llm := NewLLMService(&ConfigService{config: &Config{LLM: LLMConfig{BaseURL: server.URL, Model: "test"}}})
-	err := runAgent(context.Background(), llm, testChatRequest("inspect"), func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult { return ToolApplicationResult{} })
+	err := runAgent(context.Background(), llm, testChatRequest("inspect"), func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult { return ToolApplicationResult{} }, nil, nil, nil)
 	if err == nil || requests.Load() != 10 {
 		t.Fatalf("expected ten tool rounds and an error, requests=%d err=%v", requests.Load(), err)
 	}
@@ -493,7 +511,7 @@ func TestAgentPreservesGeminiThoughtSignatureAcrossToolRound(t *testing.T) {
 	}, func(context.Context, *ToolApplyProposal) ToolApplicationResult {
 		t.Fatal("read-only tool unexpectedly requested approval")
 		return ToolApplicationResult{}
-	})
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

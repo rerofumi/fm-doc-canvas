@@ -60,6 +60,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
           revision: n.revision,
           label: "label" in n ? n.label : undefined,
           childCanvasId: "childCanvasId" in n ? n.childCanvasId : undefined,
+          provenance: n.provenance,
         })),
         canvases: Object.values(app.workspace.document.canvases),
         breadcrumb: app.getBreadcrumb(),
@@ -79,6 +80,10 @@ historyLength: app.history.past.length,
         asyncRuns: app.workspace.runtime.asyncRuns,
         boundaryAggregates: app.boundaryAggregates,
         lastDirectReceipt: app.lastDirectReceipt,
+        activePacket: app.activePacket,
+        lastSearchRequest: app.lastSearchRequest,
+        lastOpenedURL: app.lastOpenedURL,
+        lastSearchReceipt: app.lastSearchReceipt,
         json: workspaceToPrettyJSON(app.workspace, services().clock.nowISO()),
       };
     },
@@ -137,6 +142,63 @@ historyLength: app.history.past.length,
     },
     async directTransform(operation: "summarize" | "compare" | "counterpoint") {
       return useAppStore.getState().runDirectTransform(operation);
+    },
+    async searchWeb(query: string, options?: { entryRoute?: "dialogue-agent" | "direct-action"; knownUrls?: string[] }) {
+      return useAppStore.getState().runWebSearch(query, options);
+    },
+    async promotePacket(selection: {
+      selectedClaimIds: string[];
+      selectedSourceIds: string[];
+      acceptedRelations?: any[];
+    }) {
+      return useAppStore.getState().promoteActivePacket({
+        selectedClaimIds: selection.selectedClaimIds,
+        selectedSourceIds: selection.selectedSourceIds,
+        acceptedRelations: selection.acceptedRelations ?? [],
+      });
+    },
+    async dismissPacket() {
+      useAppStore.getState().dismissPacket();
+    },
+    async openPacketURL(url: string) {
+      return useAppStore.getState().openExternalURL(url);
+    },
+    async armSearchFault(code: string) {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ArmE2ESearchFault(code);
+    },
+    async armDelayedSearchWeb() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ArmDelayedSearchWeb();
+    },
+    async releaseDelayedSearchWeb() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ReleaseDelayedSearchWeb();
+    },
+    async stopActiveDialogue() {
+      const app = useAppStore.getState();
+      const chat = useChatStore.getState();
+      for (const run of Object.values(app.workspace.runtime.asyncRuns)) {
+        if (run.status === "active") {
+          app.dispatch({ type: "cancelAsyncRun", runId: run.runId });
+        }
+      }
+      if (chat.activeSessionId) chat.cancelRun(chat.activeSessionId);
+    },
+    async injectPacket(packet: any, entryRoute: "dialogue-agent" | "direct-action" = "dialogue-agent") {
+      return useAppStore.getState().applyIncomingPacket(packet, entryRoute);
+    },
+    async selectPacketItems(claimIds: string[], sourceIds: string[]) {
+      const panel = document.querySelector('[data-testid="projected-context-panel"]');
+      if (!panel) throw new Error("packet panel missing");
+      for (const id of claimIds) {
+        const input = panel.querySelector<HTMLInputElement>(`[data-testid="packet-claim-${id}"] input[type="checkbox"]`);
+        if (input && !input.checked) input.click();
+      }
+      for (const id of sourceIds) {
+        const input = panel.querySelector<HTMLInputElement>(`[data-testid="packet-source-${id}"] input[type="checkbox"]`);
+        if (input && !input.checked) input.click();
+      }
     },
     async createSubCanvas(nodeIds: string[], label?: string) {
       useAppStore.getState().createSubCanvas(nodeIds, label);

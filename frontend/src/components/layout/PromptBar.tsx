@@ -22,6 +22,8 @@ const PromptBar: React.FC = () => {
     config,
     promptInput,
     setPromptInput,
+    runWebSearch,
+    isWebSearchPending,
   } = useAppStore();
 
   useEffect(() => {
@@ -208,6 +210,16 @@ const PromptBar: React.FC = () => {
             aria-label="Prompt"
             className={`w-full p-3 pr-14 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm transition-all min-h-[56px] max-h-32 ${isLoading ? "bg-gray-50 opacity-70" : ""}`}
           />
+          <button
+            type="button"
+            onClick={() => void runWebSearch(promptInput, { entryRoute: "direct-action" })}
+            disabled={!promptInput.trim() || isLoading || isWebSearchPending}
+            aria-label="Search Web"
+            title="Search Web"
+            className={`absolute right-12 bottom-2 px-2 py-2 rounded-md text-[11px] font-bold transition-all ${promptInput.trim() && !isLoading && !isWebSearchPending ? "bg-sky-600 text-white hover:bg-sky-700" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
+          >
+            {isWebSearchPending ? <Loader2 size={16} className="animate-spin" /> : "Search Web"}
+          </button>
           <button
             type="button"
             onClick={() => void handleSubmit()}

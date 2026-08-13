@@ -10,7 +10,8 @@ Rules:
 - A tool result with conflict, cancelled, or error means the change was not applied. Do not claim it was applied.
 - After all requested tool work is complete, answer the user in natural language and summarize what actually happened.
 - Do not output JSON as ordinary assistant text. JSON is allowed only inside a structured tool call.
-- Keep responses concise and use Markdown when useful.`
+- Keep responses concise and use Markdown when useful.
+- web_search returns observed sources, not established facts. Ask the user to accept or reject items in the packet UI. Do not create Nodes or Relations from search results.`
 
 func effectiveAgentSystemPrompt(configured string) string {
 	if configured == "" {

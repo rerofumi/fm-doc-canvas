@@ -136,6 +136,12 @@ export interface AppConfig {
   generation: {
     summaryMaxChars: number; // サマリー上限文字数
   };
+  webSearch?: {
+    provider: "ollama" | "kagi" | "brave";
+    ollama?: { apiKey: string };
+    kagi?: { apiKey: string };
+    brave?: { apiKey: string };
+  };
 }
 
 export type ImageGenProvider = "openrouter" | "openai" | "google" | "xai";

@@ -572,6 +572,67 @@ const SettingsDrawer: React.FC = () => {
             </div>
           </div>
 
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="font-bold text-gray-700 mb-3">Web Search</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Provider</label>
+                <select
+                  aria-label="Web Search provider"
+                  value={localConfig.webSearch?.provider || "ollama"}
+                  onChange={(e) =>
+                    setLocalConfig({
+                      ...localConfig,
+                      webSearch: {
+                        provider: e.target.value as "ollama" | "kagi" | "brave",
+                        ollama: localConfig.webSearch?.ollama || { apiKey: "" },
+                        kagi: localConfig.webSearch?.kagi || { apiKey: "" },
+                        brave: localConfig.webSearch?.brave || { apiKey: "" },
+                      },
+                    })
+                  }
+                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                >
+                  <option value="ollama">Ollama</option>
+                  <option value="kagi">Kagi</option>
+                  <option value="brave">Brave</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
+                <input
+                  type="password"
+                  aria-label="Web Search API key"
+                  value={
+                    (localConfig.webSearch?.provider === "kagi"
+                      ? localConfig.webSearch?.kagi?.apiKey
+                      : localConfig.webSearch?.provider === "brave"
+                        ? localConfig.webSearch?.brave?.apiKey
+                        : localConfig.webSearch?.ollama?.apiKey) || ""
+                  }
+                  onChange={(e) => {
+                    const provider = localConfig.webSearch?.provider || "ollama";
+                    const current = {
+                      provider,
+                      ollama: localConfig.webSearch?.ollama || { apiKey: "" },
+                      kagi: localConfig.webSearch?.kagi || { apiKey: "" },
+                      brave: localConfig.webSearch?.brave || { apiKey: "" },
+                    };
+                    setLocalConfig({
+                      ...localConfig,
+                      webSearch: {
+                        ...current,
+                        [provider]: { apiKey: e.target.value },
+                      },
+                    });
+                  }}
+                  placeholder="search api key"
+                  className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Generation Settings */}
           <div className="bg-gray-50 p-4 rounded-lg">
             <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">

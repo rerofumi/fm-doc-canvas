@@ -13,12 +13,13 @@ func TestAppOptionsValidateE2ERequiresRoot(t *testing.T) {
 		Dialog: FixedDialog{},
 		Files:  OSFileSystem{},
 		Assets: noopAssets{},
-		LLM:    FixtureLLM{},
-		Image:  FixtureImage{},
-		Events: &CapturingEventPort{},
-		Clock:  SystemClock{},
-		IDs:    NewSeededIDGenerator("t"),
-		Mode:   RuntimeModeE2E,
+		LLM:       FixtureLLM{},
+		Image:     FixtureImage{},
+		WebSearch: NewFixtureWebSearch(),
+		Events:    &CapturingEventPort{},
+		Clock:     SystemClock{},
+		IDs:       NewSeededIDGenerator("t"),
+		Mode:      RuntimeModeE2E,
 	}
 	if err := opts.Validate(); err == nil {
 		t.Fatal("expected e2e without temp root to fail")
@@ -61,6 +62,7 @@ func TestProductionFaultPlanRejected(t *testing.T) {
 		Assets:    noopAssets{},
 		LLM:       FixtureLLM{},
 		Image:     FixtureImage{},
+		WebSearch: NewFixtureWebSearch(),
 		Events:    &CapturingEventPort{},
 		Clock:     SystemClock{},
 		IDs:       RandomIDGenerator{},

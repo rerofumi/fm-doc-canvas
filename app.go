@@ -27,6 +27,9 @@ type App struct {
 	clock              backend.Clock
 	ids                backend.IDGenerator
 	faultPlan          *backend.E2EFaultPlan
+	webSearch          backend.WebSearchPort
+	searchFixture      *backend.FixtureWebSearch
+	lastOpenedURL      string
 }
 
 // NewProductionApp builds the production composition root.
@@ -40,6 +43,11 @@ func NewProductionApp() *App {
 	llmService := backend.NewLLMService(configService)
 	imageGenService := backend.NewImageGenService(configService)
 	imageAssetService := backend.NewImageAssetService(configService)
+	ids := backend.RandomIDGenerator{}
+	clock := backend.SystemClock{}
+	search := backend.ConfigWebSearch{Store: configService}
+	chatService := backend.NewChatService(llmService)
+	chatService.SetWebSearch(search, ids, clock)
 
 	return &App{
 		mode:              backend.RuntimeModeProduction,
@@ -48,10 +56,11 @@ func NewProductionApp() *App {
 		llmService:        llmService,
 		imageGenService:   imageGenService,
 		imageAssetService: imageAssetService,
-		chatService:       backend.NewChatService(llmService),
+		chatService:       chatService,
 		events:            &backend.CapturingEventPort{},
-		clock:             backend.SystemClock{},
-		ids:               backend.RandomIDGenerator{},
+		clock:             clock,
+		ids:               ids,
+		webSearch:         search,
 	}
 }
 
@@ -96,12 +105,13 @@ func NewE2EAppFromEnv() (*App, error) {
 		},
 		Files:  fs,
 		Assets: backend.TempAssetStore{Root: abs, FS: fs},
-		LLM:    backend.FixtureLLM{Text: "fixture-llm-response"},
-		Image:  backend.FixtureImage{Path: "generated/fixture.png"},
-		Events: &backend.CapturingEventPort{},
-		Clock:  backend.NewFakeClock(time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)),
-		IDs:    backend.NewSeededIDGenerator("e2e"),
-		Mode:   backend.RuntimeModeE2E,
+		LLM:       backend.FixtureLLM{Text: "fixture-llm-response"},
+		Image:     backend.FixtureImage{Path: "generated/fixture.png"},
+		WebSearch: backend.NewFixtureWebSearch(),
+		Events:    &backend.CapturingEventPort{},
+		Clock:     backend.NewFakeClock(time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)),
+		IDs:       backend.NewSeededIDGenerator("e2e"),
+		Mode:      backend.RuntimeModeE2E,
 	}
 	if v := strings.TrimSpace(os.Getenv("FM_E2E_FAULT")); v != "" {
 		opts.FaultPlan = &backend.E2EFaultPlan{FailOnceAt: v}
@@ -133,6 +143,21 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		fileService.SetFixedDialogPaths(d.SavePath, d.OpenPath, exportPath)
 	}
 	// LLM/Image services are not used by WP-0 smoke; chat remains available but fixture-backed later.
+	search := opts.WebSearch
+	fixture, _ := search.(*backend.FixtureWebSearch)
+	if search == nil {
+		fixture = backend.NewFixtureWebSearch()
+		search = fixture
+	}
+	if opts.FaultPlan != nil && strings.HasPrefix(opts.FaultPlan.FailOnceAt, "web-search-") {
+		if fixture == nil {
+			fixture = backend.NewFixtureWebSearch()
+			search = fixture
+		}
+		fixture.SetFault(opts.FaultPlan.FailOnceAt)
+	}
+	chatService := backend.NewChatService(nil)
+	chatService.SetWebSearch(search, opts.IDs, opts.Clock)
 	app := &App{
 		mode:              opts.Mode,
 		configService:     cfgService,
@@ -140,11 +165,13 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		llmService:        nil,
 		imageGenService:   nil,
 		imageAssetService: nil,
-		chatService:       backend.NewChatService(nil),
+		chatService:       chatService,
 		events:            opts.Events,
 		clock:             opts.Clock,
 		ids:               opts.IDs,
 		faultPlan:         opts.FaultPlan,
+		webSearch:         search,
+		searchFixture:     fixture,
 	}
 	return app, nil
 }
@@ -171,6 +198,9 @@ func (a *App) GetRuntimeEnvironment() map[string]interface{} {
 		}
 		if a.faultPlan != nil {
 			out["faultPlan"] = map[string]string{"failOnceAt": a.faultPlan.FailOnceAt}
+		}
+		if a.lastOpenedURL != "" {
+			out["lastOpenedURL"] = a.lastOpenedURL
 		}
 	}
 	return out
@@ -303,6 +333,76 @@ func (a *App) DirectTransform(req backend.DirectTransformRequest) (backend.Trans
 		RuntimeGeneration: req.RuntimeGeneration,
 		ScopeEpoch:        req.ScopeEpoch,
 	}, nil
+}
+
+// SearchWeb runs the selected WebSearchPort once and returns a Context Packet.
+// It does not mutate the Workspace document.
+func (a *App) SearchWeb(req backend.WebSearchRequest) (backend.ContextPacket, error) {
+	if a.webSearch == nil || a.ids == nil || a.clock == nil {
+		return backend.ContextPacket{}, fmt.Errorf("web search is unavailable")
+	}
+	var llm backend.LLMPort
+	if a.llmService != nil {
+		llm = a.llmService
+	}
+	return backend.ExecuteWebSearch(context.Background(), a.webSearch, req, a.ids, a.clock, llm)
+}
+
+// OpenExternalURL opens a validated https URL in the OS browser. E2E records the URL only.
+func (a *App) OpenExternalURL(raw string) error {
+	normalized, err := backend.NormalizeHTTPSURL(raw)
+	if err != nil {
+		return err
+	}
+	a.lastOpenedURL = normalized.URL
+	if a.mode == backend.RuntimeModeE2E {
+		return nil
+	}
+	if a.ctx == nil {
+		return fmt.Errorf("runtime context is unavailable")
+	}
+	runtime.BrowserOpenURL(a.ctx, normalized.URL)
+	return nil
+}
+
+func (a *App) requireSearchFixture() (*backend.FixtureWebSearch, error) {
+	if a.mode != backend.RuntimeModeE2E {
+		return nil, fmt.Errorf("e2e search controls are unavailable outside e2e mode")
+	}
+	if a.searchFixture == nil {
+		return nil, fmt.Errorf("e2e search fixture is unavailable")
+	}
+	return a.searchFixture, nil
+}
+
+// ArmE2ESearchFault sets a one-shot fake search error for Core E2E.
+func (a *App) ArmE2ESearchFault(code string) error {
+	fixture, err := a.requireSearchFixture()
+	if err != nil {
+		return err
+	}
+	fixture.SetFault(strings.TrimSpace(code))
+	return nil
+}
+
+// ArmDelayedSearchWeb holds the next fake search until ReleaseDelayedSearchWeb.
+func (a *App) ArmDelayedSearchWeb() error {
+	fixture, err := a.requireSearchFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ArmDelay()
+	return nil
+}
+
+// ReleaseDelayedSearchWeb releases a held fake search.
+func (a *App) ReleaseDelayedSearchWeb() error {
+	fixture, err := a.requireSearchFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ReleaseDelay()
+	return nil
 }
 
 // GenerateSummary calls the LLM service to summarize text

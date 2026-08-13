@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import CanvasArea from "./components/canvas/CanvasArea";
 import EditorDrawer from "./components/drawer/EditorDrawer";
 import PromptBar from "./components/layout/PromptBar";
+import ProjectedContextPanel from "./components/context/ProjectedContextPanel";
 import SettingsDrawer from "./components/drawer/SettingsDrawer";
 import ChatDrawer from "./components/drawer/ChatDrawer";
 import LayoutButton from "./components/layout/LayoutButton";
@@ -9,7 +10,7 @@ import ChatToggleButton from "./components/layout/ChatToggleButton";
 import CanvasBreadcrumb from "./components/layout/CanvasBreadcrumb";
 import { useAppStore } from "./store/useAppStore";
 import { useChatStore } from "./store/useChatStore";
-import { Save, FolderOpen, Plus, Menu, Trash2, Undo2 } from "lucide-react";
+import { Save, FolderOpen, Plus, Menu, Trash2, Undo2, Loader2 } from "lucide-react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useE2EBridge } from "./runtime/e2eBridge";
 
@@ -26,6 +27,7 @@ function App() {
     lastError,
     workspace,
     lastDirectReceipt,
+    isWebSearchPending,
   } = useAppStore();
 
   const clearDirectReceipt = () => {
@@ -158,6 +160,18 @@ function App() {
         </div>
       </header>
 
+      {isWebSearchPending && (
+        <div
+          className="flex shrink-0 items-center gap-2 border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-800"
+          role="status"
+          aria-label="Web search in progress"
+          data-testid="web-search-progress"
+        >
+          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+          Web検索中…
+        </div>
+      )}
+
       {lastError && (
         <div
           className="border-b border-red-200 bg-red-50 px-4 py-1 text-xs text-red-700"
@@ -170,6 +184,8 @@ function App() {
           </div>
         </div>
       )}
+
+      <ProjectedContextPanel />
 
       {lastDirectReceipt && (
         <div

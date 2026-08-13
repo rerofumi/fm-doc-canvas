@@ -167,11 +167,25 @@ func (c *ImageGenConfig) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WebSearchProviderKeys holds the API key for one search strategy.
+type WebSearchProviderKeys struct {
+	APIKey string `json:"apiKey"`
+}
+
+// WebSearchConfig selects the active search strategy and keeps per-provider keys.
+type WebSearchConfig struct {
+	Provider string                 `json:"provider"`
+	Ollama   *WebSearchProviderKeys `json:"ollama,omitempty"`
+	Kagi     *WebSearchProviderKeys `json:"kagi,omitempty"`
+	Brave    *WebSearchProviderKeys `json:"brave,omitempty"`
+}
+
 // Config represents the application's local settings
 type Config struct {
 	LLM        LLMConfig        `json:"llm"`
 	Generation GenerationConfig `json:"generation"`
 	ImageGen   ImageGenConfig   `json:"imageGen"`
+	WebSearch  WebSearchConfig  `json:"webSearch"`
 }
 
 // ConfigService handles loading and saving application configuration
@@ -365,6 +379,12 @@ func defaultConfig() *Config {
 				APIKey: "",
 			},
 		},
+		WebSearch: WebSearchConfig{
+			Provider: "ollama",
+			Ollama:   &WebSearchProviderKeys{},
+			Kagi:     &WebSearchProviderKeys{},
+			Brave:    &WebSearchProviderKeys{},
+		},
 	}
 }
 
@@ -400,5 +420,17 @@ func applyConfigDefaults(cfg *Config) {
 	}
 	if cfg.ImageGen.XAI == nil {
 		cfg.ImageGen.XAI = defaults.ImageGen.XAI
+	}
+	if cfg.WebSearch.Provider == "" {
+		cfg.WebSearch.Provider = defaults.WebSearch.Provider
+	}
+	if cfg.WebSearch.Ollama == nil {
+		cfg.WebSearch.Ollama = &WebSearchProviderKeys{}
+	}
+	if cfg.WebSearch.Kagi == nil {
+		cfg.WebSearch.Kagi = &WebSearchProviderKeys{}
+	}
+	if cfg.WebSearch.Brave == nil {
+		cfg.WebSearch.Brave = &WebSearchProviderKeys{}
 	}
 }

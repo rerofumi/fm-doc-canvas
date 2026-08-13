@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -75,6 +77,19 @@ type ImagePort interface {
 	GenerateImageWithProvider(prompt, contextData string, refImages []string, provider string) (string, error)
 }
 
+// WebSearchHit is the provider-normalized observation returned by a search strategy.
+type WebSearchHit struct {
+	Title   string
+	URL     string
+	Snippet string
+}
+
+// WebSearchPort is a single Context Provider strategy. Callers never failover.
+type WebSearchPort interface {
+	ID() string
+	Search(ctx context.Context, query string, maxResults int) ([]WebSearchHit, error)
+}
+
 // EventPort emits chat/proposal events to the Frontend.
 type EventPort interface {
 	Emit(event ChatEvent)
@@ -105,6 +120,7 @@ type AppOptions struct {
 	Assets    AssetStore
 	LLM       LLMPort
 	Image     ImagePort
+	WebSearch WebSearchPort
 	Events    EventPort
 	Clock     Clock
 	IDs       IDGenerator
@@ -117,7 +133,7 @@ func (o AppOptions) Validate() error {
 	if o.Mode != RuntimeModeProduction && o.Mode != RuntimeModeE2E {
 		return fmt.Errorf("invalid runtime mode %q", o.Mode)
 	}
-	if o.Config == nil || o.Dialog == nil || o.Files == nil || o.Assets == nil || o.LLM == nil || o.Image == nil || o.Events == nil || o.Clock == nil || o.IDs == nil {
+	if o.Config == nil || o.Dialog == nil || o.Files == nil || o.Assets == nil || o.LLM == nil || o.Image == nil || o.WebSearch == nil || o.Events == nil || o.Clock == nil || o.IDs == nil {
 		return fmt.Errorf("all AppOptions ports must be non-nil")
 	}
 	if o.Mode == RuntimeModeProduction && o.FaultPlan != nil {
@@ -154,9 +170,9 @@ func sameOrChildPath(parent, child string) bool {
 // SystemClock is the production wall clock.
 type SystemClock struct{}
 
-func (SystemClock) Now() time.Time         { return time.Now() }
-func (SystemClock) NowISO() string         { return time.Now().UTC().Format(time.RFC3339) }
-func (SystemClock) NowUnixMilli() int64    { return time.Now().UnixMilli() }
+func (SystemClock) Now() time.Time      { return time.Now() }
+func (SystemClock) NowISO() string      { return time.Now().UTC().Format(time.RFC3339) }
+func (SystemClock) NowUnixMilli() int64 { return time.Now().UnixMilli() }
 
 // FakeClock is a fixed/seedable clock for E2E.
 type FakeClock struct {
@@ -204,6 +220,13 @@ func (g *SeededIDGenerator) Next(kind string) string {
 type RandomIDGenerator struct{}
 
 func (RandomIDGenerator) Next(kind string) string {
+	// Windows' wall-clock resolution can return the same UnixNano value for
+	// several consecutive calls. Packet items use these IDs as checkbox keys,
+	// so a collision makes multiple rows behave like one selection.
+	bytes := make([]byte, 12)
+	if _, err := rand.Read(bytes); err == nil {
+		return kind + "-" + hex.EncodeToString(bytes)
+	}
 	return fmt.Sprintf("%s-%d-%d", kind, time.Now().UnixNano(), os.Getpid())
 }
 
@@ -265,13 +288,13 @@ func (s *MemoryConfigStore) ResolveImagePath(src string) (string, error) {
 // OSFileSystem is an unconstrained production filesystem.
 type OSFileSystem struct{}
 
-func (OSFileSystem) ReadFile(path string) ([]byte, error)  { return os.ReadFile(path) }
+func (OSFileSystem) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
 func (OSFileSystem) WriteFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0o644)
 }
-func (OSFileSystem) MkdirAll(path string) error { return os.MkdirAll(path, 0o755) }
+func (OSFileSystem) MkdirAll(path string) error            { return os.MkdirAll(path, 0o755) }
 func (OSFileSystem) Stat(path string) (os.FileInfo, error) { return os.Stat(path) }
-func (OSFileSystem) Root() string                 { return "" }
+func (OSFileSystem) Root() string                          { return "" }
 func (OSFileSystem) CopyFile(src, dst string) error {
 	in, err := os.ReadFile(src)
 	if err != nil {
@@ -416,7 +439,7 @@ func (f FixtureLLM) GenerateText(string, string) (string, error) { return f.repl
 func (f FixtureLLM) GenerateTextWithImages(string, string, []string) (string, error) {
 	return f.reply(), nil
 }
-func (f FixtureLLM) GenerateSummary(string) (string, error)       { return "fixture summary", nil }
+func (f FixtureLLM) GenerateSummary(string) (string, error)           { return "fixture summary", nil }
 func (f FixtureLLM) GenerateChatReply(string, string) (string, error) { return f.reply(), nil }
 
 // FixtureImage returns a deterministic relative asset path without network.
@@ -432,6 +455,94 @@ func (f FixtureImage) GenerateImage(string, string, []string) (string, error) {
 }
 func (f FixtureImage) GenerateImageWithProvider(prompt, contextData string, refImages []string, _ string) (string, error) {
 	return f.GenerateImage(prompt, contextData, refImages)
+}
+
+// FixtureWebSearch returns deterministic search hits without network access.
+type FixtureWebSearch struct {
+	mu        sync.Mutex
+	Hits      []WebSearchHit
+	FaultCode string
+	hold      chan struct{}
+}
+
+func NewFixtureWebSearch() *FixtureWebSearch { return &FixtureWebSearch{} }
+
+func (f *FixtureWebSearch) ID() string { return "fake" }
+
+func (f *FixtureWebSearch) SetFault(code string) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.FaultCode = code
+}
+
+func (f *FixtureWebSearch) ArmDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hold = make(chan struct{})
+}
+
+func (f *FixtureWebSearch) ReleaseDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	hold := f.hold
+	f.hold = nil
+	f.mu.Unlock()
+	if hold != nil {
+		close(hold)
+	}
+}
+
+func FixtureWebSearchHits() []WebSearchHit {
+	return []WebSearchHit{
+		{Title: "Alpha Paper", URL: "https://example.com/alpha", Snippet: "Alpha reports a shared finding."},
+		{Title: "Alpha Mirror", URL: "https://example.com/alpha/", Snippet: "Duplicate of the Alpha Paper URL."},
+		{Title: "Beta Note", URL: "https://news.example.com/beta", Snippet: "Beta disagrees about timing."},
+		{Title: "Gamma Blog", URL: "https://example.com/gamma", Snippet: "Same domain as Alpha, independent page."},
+	}
+}
+
+func (f *FixtureWebSearch) Search(ctx context.Context, query string, maxResults int) ([]WebSearchHit, error) {
+	if f == nil {
+		return nil, &WebSearchError{Code: ErrWebSearchProviderError, Message: "nil fixture"}
+	}
+	f.mu.Lock()
+	hold := f.hold
+	fault := f.FaultCode
+	hits := f.Hits
+	f.mu.Unlock()
+	if hold != nil {
+		select {
+		case <-ctx.Done():
+			return nil, &WebSearchError{Code: ErrWebSearchTimeout, Message: "search timed out"}
+		case <-hold:
+		}
+	}
+	if fault == ErrWebSearchEmpty {
+		return []WebSearchHit{}, nil
+	}
+	if fault != "" {
+		return nil, &WebSearchError{Code: fault, Message: "fixture search fault"}
+	}
+	if strings.TrimSpace(query) == "" {
+		return nil, &WebSearchError{Code: ErrWebSearchInvalidQuery, Message: "query is required"}
+	}
+	if hits == nil {
+		hits = FixtureWebSearchHits()
+	}
+	if maxResults > 0 && len(hits) > maxResults {
+		hits = hits[:maxResults]
+	}
+	out := make([]WebSearchHit, len(hits))
+	copy(out, hits)
+	return out, nil
 }
 
 // Ensure unused imports stay intentional for future adapter helpers.

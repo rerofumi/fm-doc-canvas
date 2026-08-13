@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,11 @@ type agentRunState struct {
 	readRevs  map[string]int64
 	readNodes map[string]NodeSnapshot
 	approve   func(context.Context, *ToolApplyProposal) ToolApplicationResult
+	search    WebSearchPort
+	ids       IDGenerator
+	clock     Clock
+	emit      func(ChatEvent)
+	llm       *LLMService
 }
 
 func toolDefinitions() []ToolDefinition {
@@ -35,11 +41,12 @@ func toolDefinitions() []ToolDefinition {
 		{Type: "function", Function: ToolFunctionDef{Name: "list_canvas_nodes", Description: "List Canvas node IDs and short identifiers without full content.", Parameters: obj(`"types":{"type":"array","items":{"type":"string"}}`, ``)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "propose_transform", Description: "Propose a non-destructive summarize, compare, or counterpoint Text node derived from nodes already read with read_canvas_node.", Parameters: obj(`"operation":{"type":"string","enum":["summarize","compare","counterpoint"]},"source_node_ids":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"summary":{"type":"string"},"reason":{"type":"string"},"suggested_relations":{"type":"array","items":{"type":"object"}}`, `"operation","source_node_ids","content","summary"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "propose_relation", Description: "Propose a typed Relation between two nodes already read with read_canvas_node. Does not mutate until the human accepts.", Parameters: obj(`"source_node_id":{"type":"string"},"target_node_id":{"type":"string"},"kind":{"type":"string","enum":["source","derived","supports","opposes","similar"]},"reason":{"type":"string"},"direction":{"type":"string","enum":["forward","reverse"]}`, `"source_node_id","target_node_id","kind"`)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "web_search", Description: "Search the web for a query and return a Context Packet of observed sources. Does not create nodes. Optional known_urls must be https.", Parameters: obj(`"query":{"type":"string"},"known_urls":{"type":"array","items":{"type":"string"}}`, `"query"`)}},
 	}
 }
 
-func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult) error {
-	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve}
+func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult, search WebSearchPort, ids IDGenerator, clock Clock) error {
+	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve, search: search, ids: ids, clock: clock, emit: emit, llm: llm}
 	cfg := llm.configService.GetConfig()
 	system := effectiveAgentSystemPrompt(cfg.LLM.SystemPrompt)
 	direct := req.Snapshot.directContext(req.DirectContextNodeIDs)
@@ -66,6 +73,7 @@ func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(C
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			call = normalizeMergedToolCall(call)
 			correlationID := fmt.Sprintf("%s:%d:%d:%s", req.RunID, round, index, call.ID)
 			eventCall := call
 			eventCall.ID = correlationID
@@ -89,6 +97,7 @@ func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(C
 }
 
 func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolResult {
+	call = normalizeMergedToolCall(call)
 	args := map[string]interface{}{}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return toolResult{Status: "error", Content: "invalid tool arguments: " + err.Error()}
@@ -363,9 +372,87 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 		}
 		proposal := &ToolApplyProposal{ToolCallID: call.ID, Operation: "create", Filename: filename, Proposed: content, LastEditSummary: stringArg("edit_summary")}
 		return awaitApproval(ctx, state, proposal)
+
+	case "web_search":
+		query := stringArg("query")
+		known := []string{}
+		if values, ok := args["known_urls"].([]interface{}); ok {
+			for _, value := range values {
+				if item, ok := value.(string); ok {
+					known = append(known, item)
+				}
+			}
+		}
+		hints, summaries := searchHintsFromRequest(state.request)
+		var llm LLMPort
+		if state.llm != nil {
+			llm = state.llm
+		}
+		packet, err := ExecuteWebSearch(ctx, state.search, WebSearchRequest{
+			Query:             query,
+			HintNodeIDs:       hints,
+			HintSummaries:     summaries,
+			KnownURLs:         known,
+			WorkspaceID:       state.request.WorkspaceID,
+			CanvasID:          state.request.CanvasID,
+			RuntimeGeneration: state.request.RuntimeGeneration,
+			ScopeEpoch:        state.request.ScopeEpoch,
+			EntryRoute:        "dialogue-agent",
+			RunID:             state.request.RunID,
+			RunEpoch:          state.request.RunEpoch,
+		}, fallbackIDs(state.ids), fallbackClock(state.clock), llm)
+		if err != nil {
+			return toolResult{Status: "error", Content: err.Error()}
+		}
+		if state.emit != nil {
+			copy := packet
+			state.emit(ChatEvent{RunID: state.request.RunID, SessionID: state.request.SessionID, Type: "chat:context_packet", Packet: &copy})
+		}
+		return jsonResult(map[string]interface{}{
+			"packetId": packet.PacketID,
+			"status":   packet.Status,
+			"summary":  packetModelSummary(packet),
+		})
 	default:
 		return toolResult{Status: "error", Content: "unknown tool: " + call.Function.Name}
 	}
+}
+
+// Some OpenAI-compatible providers occasionally concatenate two tool names
+// and their JSON arguments into one call (for example
+// list_canvas_nodesweb_search with {}{"query":"..."}). Recover the final
+// requested tool and final complete JSON object so a harmless preceding read
+// does not prevent the user's web search. Unknown malformed calls still fail
+// through the normal validation path.
+func normalizeMergedToolCall(call ToolCall) ToolCall {
+	known := []string{
+		"read_artifact", "apply_edit", "write_artifact", "list_artifacts",
+		"search_artifact", "read_canvas_node", "list_canvas_nodes",
+		"propose_transform", "propose_relation", "web_search",
+	}
+	name := call.Function.Name
+	for _, candidate := range known {
+		if name == candidate || !strings.HasSuffix(name, candidate) {
+			continue
+		}
+		decoder := json.NewDecoder(strings.NewReader(call.Function.Arguments))
+		var last json.RawMessage
+		for {
+			var value json.RawMessage
+			if err := decoder.Decode(&value); err == io.EOF {
+				break
+			} else if err != nil {
+				return call
+			}
+			last = value
+		}
+		if len(last) > 0 {
+			call.Function.Name = candidate
+			call.Function.Arguments = string(last)
+		}
+		return call
+	}
+	return call
 }
 
 func awaitApproval(ctx context.Context, state *agentRunState, proposal *ToolApplyProposal) toolResult {
@@ -391,6 +478,50 @@ func awaitApproval(ctx context.Context, state *agentRunState, proposal *ToolAppl
 		}
 		return toolResult{Status: "error", Content: result.Error}
 	}
+}
+
+func searchHintsFromRequest(req ChatRequest) ([]string, []string) {
+	allow := map[string]bool{}
+	for _, id := range req.DirectContextNodeIDs {
+		allow[id] = true
+	}
+	for _, id := range req.BodyAllowlistNodeIDs {
+		allow[id] = true
+	}
+	ids := make([]string, 0)
+	summaries := make([]string, 0)
+	for _, node := range req.Snapshot.Nodes {
+		if !allow[node.ID] {
+			continue
+		}
+		if node.Type != "text" && node.Type != "artifact" {
+			continue
+		}
+		excerpt := firstLine(node.Markdown)
+		if excerpt == "" {
+			continue
+		}
+		if len([]rune(excerpt)) > 240 {
+			excerpt = string([]rune(excerpt)[:240])
+		}
+		ids = append(ids, node.ID)
+		summaries = append(summaries, excerpt)
+	}
+	return ids, summaries
+}
+
+func fallbackIDs(ids IDGenerator) IDGenerator {
+	if ids != nil {
+		return ids
+	}
+	return RandomIDGenerator{}
+}
+
+func fallbackClock(clock Clock) Clock {
+	if clock != nil {
+		return clock
+	}
+	return SystemClock{}
 }
 
 func firstLine(text string) string {

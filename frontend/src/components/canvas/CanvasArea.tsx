@@ -422,6 +422,7 @@ const CanvasArea: React.FC = () => {
             else alert("Select 2+ nodes to create a SubCanvas");
           } : undefined}
           onTransform={menu.type === "node" ? (operation) => { void runDirectTransform(operation); } : undefined}
+          onSearchWeb={menu.type === "node" ? () => { void useAppStore.getState().runWebSearch(useAppStore.getState().promptInput, { entryRoute: "direct-action" }); } : undefined}
           onAddRelation={menu.type === "node" ? openCreateRelation : undefined}
           onEditRelation={menu.type === "edge" ? openEditRelation : undefined}
           onReverseRelation={menu.type === "edge" ? () => { dispatch({ type: "reverseRelation", id: menu.id }); } : undefined}

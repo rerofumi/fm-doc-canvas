@@ -9,6 +9,7 @@ interface ContextMenuProps {
   onExportMarp?: () => void;
   onCreateSubCanvas?: () => void;
   onTransform?: (operation: "summarize" | "compare" | "counterpoint") => void;
+  onSearchWeb?: () => void;
   onAddRelation?: () => void;
   onEditRelation?: () => void;
   onReverseRelation?: () => void;
@@ -24,6 +25,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onExportMarp,
   onCreateSubCanvas,
   onTransform,
+  onSearchWeb,
   onAddRelation,
   onEditRelation,
   onReverseRelation,
@@ -146,6 +148,21 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             </button>
           ))}
         </>
+      )}
+      {onSearchWeb && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSearchWeb();
+            onClose();
+          }}
+          className="w-full px-3 py-2 text-left text-sm font-medium text-sky-700 hover:bg-sky-50 focus:bg-sky-50 focus:outline-none"
+          aria-label="Search Web"
+        >
+          Search Web
+        </button>
       )}
       {onAddRelation && (
         <button

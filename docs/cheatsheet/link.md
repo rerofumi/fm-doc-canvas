@@ -89,3 +89,78 @@
 - Related local cheatsheet: `wails_playwright_e2e.md`
 - Related local files: future E2E setup
 - Reason: Confirms browser-side APIs can be installed before page scripts with `addInitScript`; useful only for boundaries that cannot use the real Wails bridge.
+
+## Ollama Cloud Web Search
+
+- URL: https://docs.ollama.com/capabilities/web-search
+- Source type: Official documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Related local files: future `backend/web_search.go`
+- Reason: Confirms `POST https://ollama.com/api/web_search`, bearer auth, `query` / `max_results`, and `results[].title|url|content`. Also documents `web_fetch`, which F-3 core must not call.
+
+## Kagi Search API (OpenAPI)
+
+- URL: https://kagi.com/api/docs/openapi/search/search
+- Source type: Official OpenAPI documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Related local files: future `backend/web_search.go`
+- Reason: Confirms request `query` / `workflow` / `limit` and response `data.search[].title|url|snippet`. Documents `extract`, which F-3 core must not send.
+
+## Kagi API overview
+
+- URL: https://kagi.com/api/docs
+- Source type: Official documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Reason: production server と generated OpenAPI を確認。2026-08-13 の認証付き実測で POST JSON + Bearer が HTTP 200 となり、adapter の採用根拠になった。
+
+## Kagi Search API (current help)
+
+- URL: https://help.kagi.com/kagi/api/search.html
+- Source type: Official documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Reason: GET + Bot の公式利用例との矛盾を確認するため参照。2026-08-13 の同一実キーでは GET + Bot が 404、POST JSON + Bearer が 200 だったため、help例は今回のkey/adapter契約には採用しない。
+
+## Brave Search API
+
+- URL: https://brave.com/search/api/
+- Source type: Official product documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Related local files: future `backend/web_search.go`
+- Reason: Independent Web index and structured SERP as the first Context Provider candidate.
+
+## Brave Web Search Get Started
+
+- URL: https://api-dashboard.search.brave.com/app/documentation/web-search/get-started
+- Source type: Official documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Reason: Confirms `GET /res/v1/web/search`, `X-Subscription-Token`, `title` / `url` / `description`, `extra_snippets`, `count`, freshness.
+
+## Brave Web Search API Reference
+
+- URL: https://api-dashboard.search.brave.com/api-reference/web/search/get
+- Source type: Official API reference
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Reason: Confirms response envelope and query parameters for the Web Search endpoint.
+
+## Tavily Search API
+
+- URL: https://docs.tavily.com/documentation/api-reference/endpoint/search
+- Source type: Official API reference
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Reason: Fallback candidate schema (`title` / `url` / `content`) and the `include_answer` trap for this product.
+
+## xAI Web Search Tool
+
+- URL: https://docs.x.ai/developers/tools/web-search
+- Source type: Official documentation
+- Confirmation date: 2026-08-13
+- Related local cheatsheet: `web_context_providers.md`
+- Reason: Confirms Responses API / SDK `web_search` is a grounded-answer tool, not a SERP Context Provider.

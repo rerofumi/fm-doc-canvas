@@ -6,13 +6,18 @@ export type NodeId = string;
 export type RelationId = string;
 
 export interface Provenance {
-  origin: "user" | "file-import" | "llm" | "migration";
+  origin: "user" | "file-import" | "llm" | "migration" | "web";
   sourceNodeIds?: NodeId[];
   operation?: string;
   provider?: string;
   model?: string;
   createdAt?: string;
   sourceRevisions?: Record<NodeId, number>;
+  url?: string;
+  domain?: string;
+  retrievedAt?: string;
+  query?: string;
+  contextProvider?: string;
 }
 
 export interface NodeBase {
@@ -245,6 +250,7 @@ export type WorkspaceCommand =
   | { type: "reverseRelation"; id: RelationId }
   | { type: "removeRelation"; id: RelationId }
   | { type: "applyTransform"; input: TransformApplyInput }
+  | { type: "promoteContextItems"; input: PromoteContextItemsInput }
   | { type: "setSelection"; state: SelectionState }
   | { type: "setFocus"; focus: FocusState | null }
   | { type: "addContextTarget"; target: WorkspaceTargetRef }
@@ -324,6 +330,43 @@ export interface CommandResult {
   createdNodeId?: NodeId;
   createdCanvasId?: CanvasId;
   createdRelationIds?: RelationId[];
+}
+
+export interface PromoteContextItemsInput {
+  packetId: string;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  selectedClaimIds: string[];
+  selectedSourceIds: string[];
+  acceptedRelations: Array<{
+    claimId?: string;
+    sourceId?: string;
+    targetNodeId: NodeId;
+    kind: "supports" | "opposes" | "similar";
+    reason?: string;
+  }>;
+  packet: {
+    packetId: string;
+    query: string;
+    retrievedAt: string;
+    contextProvider: string;
+    sources: Array<{
+      sourceId: string;
+      title: string;
+      url: string;
+      domain: string;
+      snippet: string;
+      retrievedAt: string;
+    }>;
+    claims: Array<{
+      claimId: string;
+      kind: string;
+      text: string;
+      sourceIds: string[];
+    }>;
+  };
 }
 
 export interface TransformApplyInput {

@@ -29,6 +29,8 @@ export interface AppBackendPort {
   SendChat?(req: unknown): Promise<void>;
   CancelChat?(runId: string): Promise<void>;
   ResolveToolApplication?(result: unknown): Promise<void>;
+  SearchWeb?(req: unknown): Promise<unknown>;
+  OpenExternalURL?(url: string): Promise<void>;
   GetRuntimeEnvironment?(): Promise<{
     mode: RuntimeMode;
     seed?: string;

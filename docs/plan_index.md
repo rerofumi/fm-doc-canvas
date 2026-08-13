@@ -8,6 +8,7 @@
 | plan_20260810_chat_artifact | Full | Artifact ノード + 右ドロワーチャット + エージェントループ | done | 2026-08-11 完了。Sprint A〜C 受理済み。残存 QA は明示的な EX waiver で closure |
 | plan_20260811_collaborative_workspace | Full | AI協働型Workspace基盤（Text role、Workspace scope、Context、Proposal） | done | 2026-08-12 完了。D-12・D-02・F-1を受理。Core E2E / worklog enabled |
 | plan_20260812_collaborative_workspace_F2 | Full | Collaborative Transform & Relate（非破壊派生・型付きRelation・共同Proposal） | done | 2026-08-13 user acceptance。REQ-18 Go、Core E2E 17/17。core slice完了後もロードマップ F-2 は後続候補の disposition 完了まで open |
+| plan_20260813_web_context | Full | F-3 Web Context Acquisition（Context Packet、Direct Tool 検索、明示 Promote） | done | 2026-08-13 人間が検索導線、結果パネル、選択、Promote、Node作成を実機確認しGate Go。Core E2E 23 passed。F-3Cは`specialist_agent_bridge`将来候補へdefer。worklog enabled |
 
 ## 状態凡例
 

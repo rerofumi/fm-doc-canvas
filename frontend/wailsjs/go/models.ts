@@ -205,6 +205,54 @@ export namespace backend {
 		}
 	}
 	
+	export class WebSearchProviderKeys {
+	    apiKey: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WebSearchProviderKeys(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.apiKey = source["apiKey"];
+	    }
+	}
+	export class WebSearchConfig {
+	    provider: string;
+	    ollama?: WebSearchProviderKeys;
+	    kagi?: WebSearchProviderKeys;
+	    brave?: WebSearchProviderKeys;
+	
+	    static createFrom(source: any = {}) {
+	        return new WebSearchConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.ollama = this.convertValues(source["ollama"], WebSearchProviderKeys);
+	        this.kagi = this.convertValues(source["kagi"], WebSearchProviderKeys);
+	        this.brave = this.convertValues(source["brave"], WebSearchProviderKeys);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class XAIConfig {
 	    apiKey: string;
 	    model: string;
@@ -345,6 +393,7 @@ export namespace backend {
 	    llm: LLMConfig;
 	    generation: GenerationConfig;
 	    imageGen: ImageGenConfig;
+	    webSearch: WebSearchConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -355,6 +404,7 @@ export namespace backend {
 	        this.llm = this.convertValues(source["llm"], LLMConfig);
 	        this.generation = this.convertValues(source["generation"], GenerationConfig);
 	        this.imageGen = this.convertValues(source["imageGen"], ImageGenConfig);
+	        this.webSearch = this.convertValues(source["webSearch"], WebSearchConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -375,6 +425,150 @@ export namespace backend {
 		    return a;
 		}
 	}
+	export class ContextClaim {
+	    claimId: string;
+	    kind: string;
+	    text: string;
+	    sourceIds: string[];
+	    relatedNodeIds?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextClaim(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.claimId = source["claimId"];
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.sourceIds = source["sourceIds"];
+	        this.relatedNodeIds = source["relatedNodeIds"];
+	    }
+	}
+	export class ContextPacketError {
+	    code: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextPacketError(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	    }
+	}
+	export class SuggestedPacketRelation {
+	    claimId?: string;
+	    sourceId?: string;
+	    targetNodeId: string;
+	    kind: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SuggestedPacketRelation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.claimId = source["claimId"];
+	        this.sourceId = source["sourceId"];
+	        this.targetNodeId = source["targetNodeId"];
+	        this.kind = source["kind"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class ContextSource {
+	    sourceId: string;
+	    title: string;
+	    url: string;
+	    domain: string;
+	    snippet: string;
+	    retrievedAt: string;
+	    clusterId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.title = source["title"];
+	        this.url = source["url"];
+	        this.domain = source["domain"];
+	        this.snippet = source["snippet"];
+	        this.retrievedAt = source["retrievedAt"];
+	        this.clusterId = source["clusterId"];
+	    }
+	}
+	export class ContextPacket {
+	    packetId: string;
+	    query: string;
+	    retrievedAt: string;
+	    executor: string;
+	    contextProvider: string;
+	    status: string;
+	    workspaceId: string;
+	    canvasId: string;
+	    runtimeGeneration: string;
+	    scopeEpoch: number;
+	    runId?: string;
+	    runEpoch?: number;
+	    sources: ContextSource[];
+	    claims: ContextClaim[];
+	    suggestedRelations: SuggestedPacketRelation[];
+	    unresolved: string[];
+	    followups: string[];
+	    error?: ContextPacketError;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextPacket(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.packetId = source["packetId"];
+	        this.query = source["query"];
+	        this.retrievedAt = source["retrievedAt"];
+	        this.executor = source["executor"];
+	        this.contextProvider = source["contextProvider"];
+	        this.status = source["status"];
+	        this.workspaceId = source["workspaceId"];
+	        this.canvasId = source["canvasId"];
+	        this.runtimeGeneration = source["runtimeGeneration"];
+	        this.scopeEpoch = source["scopeEpoch"];
+	        this.runId = source["runId"];
+	        this.runEpoch = source["runEpoch"];
+	        this.sources = this.convertValues(source["sources"], ContextSource);
+	        this.claims = this.convertValues(source["claims"], ContextClaim);
+	        this.suggestedRelations = this.convertValues(source["suggestedRelations"], SuggestedPacketRelation);
+	        this.unresolved = source["unresolved"];
+	        this.followups = source["followups"];
+	        this.error = this.convertValues(source["error"], ContextPacketError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	
 	export class DirectTransformRequest {
 	    operation: string;
@@ -442,6 +636,7 @@ export namespace backend {
 	        this.filename = source["filename"];
 	    }
 	}
+	
 	
 	
 	
@@ -562,6 +757,42 @@ export namespace backend {
 	}
 	
 	
+	
+	
+	export class WebSearchRequest {
+	    query: string;
+	    hintNodeIds?: string[];
+	    hintSummaries?: string[];
+	    knownUrls?: string[];
+	    workspaceId: string;
+	    canvasId: string;
+	    runtimeGeneration: string;
+	    scopeEpoch: number;
+	    entryRoute: string;
+	    maxSources?: number;
+	    runId?: string;
+	    runEpoch?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WebSearchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.query = source["query"];
+	        this.hintNodeIds = source["hintNodeIds"];
+	        this.hintSummaries = source["hintSummaries"];
+	        this.knownUrls = source["knownUrls"];
+	        this.workspaceId = source["workspaceId"];
+	        this.canvasId = source["canvasId"];
+	        this.runtimeGeneration = source["runtimeGeneration"];
+	        this.scopeEpoch = source["scopeEpoch"];
+	        this.entryRoute = source["entryRoute"];
+	        this.maxSources = source["maxSources"];
+	        this.runId = source["runId"];
+	        this.runEpoch = source["runEpoch"];
+	    }
+	}
 
 }
 

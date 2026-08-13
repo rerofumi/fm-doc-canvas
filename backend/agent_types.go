@@ -221,5 +221,6 @@ type ChatEvent struct {
 	Text      string             `json:"text,omitempty"`
 	ToolEvent *ToolEvent         `json:"toolEvent,omitempty"`
 	Apply     *ToolApplyProposal `json:"apply,omitempty"`
+	Packet    *ContextPacket     `json:"packet,omitempty"`
 	Error     string             `json:"error,omitempty"`
 }
