@@ -400,6 +400,27 @@ export default function ToolCard({
         </div>
       )}
 
+      {proposal?.operation === "image-variant" && proposal.imageVariant && (
+        <div className="mt-2 space-y-1" data-testid="image-variant-proposal">
+          <div className="font-semibold text-gray-700">Generated image preview</div>
+          <div className="rounded border border-gray-200 bg-gray-50 p-1">
+            <div className="text-[10px] text-gray-500">asset: {proposal.imageVariant.src}</div>
+            <div className="text-[10px] text-gray-500">prompt: {proposal.imageVariant.prompt}</div>
+            {proposal.imageVariant.provider && (
+              <div className="text-[10px] text-gray-500">provider: {proposal.imageVariant.provider}</div>
+            )}
+          </div>
+          <div>
+            <span className="font-semibold">sources:</span>{" "}
+            {(proposal.imageVariant.sourceNodeIds || []).length === 0
+              ? "(prompt only)"
+              : proposal.imageVariant.sourceNodeIds
+                  .map((id) => `${id}@${proposal.imageVariant?.sourceRevisions?.[id] ?? "?"}`)
+                  .join(", ")}
+          </div>
+        </div>
+      )}
+
       {proposal?.operation !== "edit" &&
         proposal?.operation !== "transform" &&
         proposal?.operation !== "relation" &&

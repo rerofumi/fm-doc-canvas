@@ -23,6 +23,7 @@ type pendingToolApplication struct {
 type ChatService struct {
 	llm                *LLMService
 	search             WebSearchPort
+	image              ImagePort
 	ids                IDGenerator
 	clock              Clock
 	mu                 sync.Mutex
@@ -45,6 +46,12 @@ func (s *ChatService) SetWebSearch(search WebSearchPort, ids IDGenerator, clock 
 	s.search = search
 	s.ids = ids
 	s.clock = clock
+}
+
+func (s *ChatService) SetImage(image ImagePort) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.image = image
 }
 
 func (s *ChatService) SetEmitter(emit func(ChatEvent)) {
@@ -81,7 +88,7 @@ func (s *ChatService) Send(req ChatRequest) error {
 func (s *ChatService) execute(req ChatRequest, ctx context.Context) {
 	err := runAgent(ctx, s.llm, req, s.emitEvent, func(waitCtx context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
 		return s.waitForApplication(waitCtx, req, proposal)
-	}, s.search, s.ids, s.clock)
+	}, s.search, s.image, s.ids, s.clock)
 	s.mu.Lock()
 	delete(s.runs, req.RunID)
 	if s.sessions[req.SessionID] == req.RunID {

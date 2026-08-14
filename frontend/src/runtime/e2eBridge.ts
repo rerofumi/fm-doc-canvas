@@ -60,6 +60,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
           revision: n.revision,
           label: "label" in n ? n.label : undefined,
           childCanvasId: "childCanvasId" in n ? n.childCanvasId : undefined,
+          src: "src" in n ? n.src : undefined,
           provenance: n.provenance,
         })),
         canvases: Object.values(app.workspace.document.canvases),
@@ -166,6 +167,10 @@ historyLength: app.history.past.length,
     async armSearchFault(code: string) {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       return (GeneratedBackend as any).ArmE2ESearchFault(code);
+    },
+    async getImageFixtureObservations() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).GetImageFixtureObservations();
     },
     async armDelayedSearchWeb() {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");

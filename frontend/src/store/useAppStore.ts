@@ -38,6 +38,7 @@ import {
   createProposalFromLegacyTool,
   createTransformProposal,
   createRelationProposal,
+  createImageVariantProposal,
   decideAndApplyProposal,
   applyDirectTransform,
 } from "../domain/proposal";
@@ -308,6 +309,49 @@ function createToolProposalDecider(
           decisionId: `decision-${proposal.toolCallId}-${decision}`,
           decision,
           modifiedRelation: decision === "modify" ? relation : undefined,
+        },
+        services(),
+        get().history,
+        activeRun,
+      );
+      if (result.status === "applied" && result.history) {
+        projectInto(set, result.state, result.history, { lastError: null });
+        return { status: "applied" as const };
+      }
+      if (result.status === "rejected") return { status: "rejected" as const };
+      if (result.status === "conflict") return { status: "conflict" as const };
+      if (result.status === "stale") return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled") return { status: "error" as const, error: result.error || "cancelled" };
+      return { status: "error" as const, error: result.error || result.status };
+    }
+    if (proposal.operation === "image-variant" && proposal.imageVariant) {
+      const variant = proposal.imageVariant;
+      const record = createImageVariantProposal({
+        proposalId: variant.proposalId || proposal.toolCallId,
+        providerToolCallId: proposal.toolCallId,
+        runId,
+        runEpoch,
+        workspaceId: variant.workspaceId || ws.document.workspaceId,
+        canvasId: variant.canvasId || ws.runtime.currentCanvasId,
+        runtimeGeneration: variant.runtimeGeneration || ws.runtime.runtimeGeneration,
+        scopeEpoch: variant.scopeEpoch ?? ws.runtime.scopeEpoch,
+        variant: {
+          src: variant.src,
+          alt: variant.alt,
+          prompt: variant.prompt,
+          provider: variant.provider,
+          model: variant.model,
+          sourceNodeIds: variant.sourceNodeIds,
+          sourceRevisions: variant.sourceRevisions,
+        },
+      });
+      const result = decideAndApplyProposal(
+        ws,
+        record,
+        {
+          proposalId: record.proposalId,
+          decisionId: `decision-${proposal.toolCallId}-${decision}`,
+          decision,
         },
         services(),
         get().history,

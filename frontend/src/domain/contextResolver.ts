@@ -26,6 +26,11 @@ export type ResolveOperation =
   | "move"
   | "web-search";
 
+// VISION_CAP is the maximum number of explicitly selected images that a single
+// Dialogue run may send as pixel (`image-binary`) to the LLM. The 4th+ selected
+// image degrades to metadata-only with a `vision-cap` warning.
+export const VISION_CAP = 3;
+
 export interface ResolveContextInput {
   document: Readonly<WorkspaceDocument>;
   runtime: Readonly<
@@ -294,6 +299,30 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   const destination: "llm" | "image-provider" =
     operation === "generate-image" ? "image-provider" : "llm";
 
+  // Vision allowlist: in Dialogue mode, explicitly selected (and not excluded)
+  // images are sent as pixel (`image-binary`) to the LLM, up to VISION_CAP.
+  // The 4th+ selected image degrades to metadata-only with a `vision-cap`
+  // warning. Images pulled in via context relations (not explicitly selected)
+  // stay metadata-only, matching F1 REQ-09.
+  const selectedImageIds = bodyAllowlistNodeIds.filter((id) => {
+    const node = document.nodes[id];
+    return !!node && node.kind === "image" && selection.selectedNodeIds.includes(id);
+  });
+  let visionBinaryCount = 0;
+  const visionBinaryIds = new Set<string>();
+  for (const id of selectedImageIds) {
+    if (visionBinaryCount < VISION_CAP) {
+      visionBinaryIds.add(id);
+      visionBinaryCount++;
+    } else {
+      warnings.push({
+        kind: "vision-cap",
+        message: `vision cap reached; image ${id} sent as metadata only`,
+        nodeId: id,
+      });
+    }
+  }
+
   for (const id of bodyAllowlistNodeIds) {
     const node = document.nodes[id];
     if (!node) continue;
@@ -301,7 +330,11 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
       payloadItems.push({ kind: "text", nodeId: id, destination: "llm" });
     } else if (node.kind === "image") {
       if (mode === "dialogue") {
-        payloadItems.push({ kind: "image-metadata", nodeId: id, destination: "llm" });
+        if (visionBinaryIds.has(id)) {
+          payloadItems.push({ kind: "image-binary", nodeId: id, destination: "llm" });
+        } else {
+          payloadItems.push({ kind: "image-metadata", nodeId: id, destination: "llm" });
+        }
       } else if (operation === "generate-text") {
         payloadItems.push({ kind: "image-binary", nodeId: id, destination: "llm" });
       } else if (operation === "generate-image") {

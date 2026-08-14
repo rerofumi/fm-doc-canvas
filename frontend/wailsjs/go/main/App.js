@@ -66,6 +66,10 @@ export function GetImageFileURL(arg1) {
   return window['go']['main']['App']['GetImageFileURL'](arg1);
 }
 
+export function GetImageFixtureObservations() {
+  return window['go']['main']['App']['GetImageFixtureObservations']();
+}
+
 export function GetRuntimeEnvironment() {
   return window['go']['main']['App']['GetRuntimeEnvironment']();
 }

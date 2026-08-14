@@ -77,6 +77,13 @@ type ImagePort interface {
 	GenerateImageWithProvider(prompt, contextData string, refImages []string, provider string) (string, error)
 }
 
+// ImageAssetPort resolves a stored image asset to a data URL for display.
+// ImageGenService (concrete) and TempAssetStore both satisfy it, so the App can
+// keep an asset service non-nil in E2E without reading a real API key.
+type ImageAssetPort interface {
+	GetImageDataURL(src string) (string, error)
+}
+
 // WebSearchHit is the provider-normalized observation returned by a search strategy.
 type WebSearchHit struct {
 	Title   string
@@ -443,18 +450,59 @@ func (f FixtureLLM) GenerateSummary(string) (string, error)           { return "
 func (f FixtureLLM) GenerateChatReply(string, string) (string, error) { return f.reply(), nil }
 
 // FixtureImage returns a deterministic relative asset path without network.
+// It records the last request so Core E2E can assert the prompt / context /
+// reference-image allowlist that was actually passed to the ImagePort.
 type FixtureImage struct {
 	Path string
+
+	mu           sync.Mutex
+	CallCount    int
+	LastPrompt   string
+	LastContext  string
+	LastProvider string
+	LastRefs     []string
+	RefCount     int
 }
 
-func (f FixtureImage) GenerateImage(string, string, []string) (string, error) {
-	if f.Path != "" {
-		return f.Path, nil
+func (f *FixtureImage) record(prompt, contextData string, refImages []string, provider string) {
+	if f == nil {
+		return
 	}
-	return "generated/fixture.png", nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.CallCount++
+	f.LastPrompt = prompt
+	f.LastContext = contextData
+	f.LastRefs = append([]string(nil), refImages...)
+	f.LastProvider = provider
+	f.RefCount = len(refImages)
 }
-func (f FixtureImage) GenerateImageWithProvider(prompt, contextData string, refImages []string, _ string) (string, error) {
-	return f.GenerateImage(prompt, contextData, refImages)
+
+// Observations returns a snapshot of the last recorded request. Safe for
+// concurrent read after a generation.
+func (f *FixtureImage) Observations() (prompt, context, provider string, refs []string, count int) {
+	if f == nil {
+		return "", "", "", nil, 0
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.LastPrompt, f.LastContext, f.LastProvider, append([]string(nil), f.LastRefs...), f.RefCount
+}
+
+func (f *FixtureImage) path() string {
+	if f == nil || f.Path == "" {
+		return "generated/fixture.png"
+	}
+	return f.Path
+}
+
+func (f *FixtureImage) GenerateImage(prompt, contextData string, refImages []string) (string, error) {
+	f.record(prompt, contextData, refImages, "")
+	return f.path(), nil
+}
+func (f *FixtureImage) GenerateImageWithProvider(prompt, contextData string, refImages []string, provider string) (string, error) {
+	f.record(prompt, contextData, refImages, provider)
+	return f.path(), nil
 }
 
 // FixtureWebSearch returns deterministic search hits without network access.

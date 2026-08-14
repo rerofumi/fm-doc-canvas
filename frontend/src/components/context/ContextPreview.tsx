@@ -68,6 +68,7 @@ const ContextPreview: React.FC<{
                   <span className="truncate">
                     {item.kind} → {item.destination}: {label}
                     {item.kind === "image-metadata" ? " (metadata only)" : ""}
+                    {item.kind === "image-binary" ? " (pixel to LLM)" : ""}
                   </span>
                 </label>
               );

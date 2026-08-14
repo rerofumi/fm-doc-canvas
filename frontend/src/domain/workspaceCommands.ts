@@ -416,6 +416,101 @@ export function applyCommand(
         history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
       };
     }
+    case "applyImageVariant": {
+      isMutation = true;
+      const input = command.input;
+      if (!input.src.trim()) return fail(state, "image-invalid-asset");
+      if (!input.prompt.trim()) return fail(state, "image-invalid-prompt");
+      // Stale guard: the variant must target the current workspace / canvas /
+      // runtime generation / scope epoch. A late-arriving proposal after New /
+      // Discard / Load / navigation / Stop is a no-op.
+      if (
+        input.workspaceId !== next.document.workspaceId ||
+        input.canvasId !== next.runtime.currentCanvasId ||
+        input.runtimeGeneration !== next.runtime.runtimeGeneration ||
+        input.scopeEpoch !== next.runtime.scopeEpoch
+      ) {
+        return fail(state, "image-variant-stale");
+      }
+      // Validate sources: each must exist, be on the current canvas, and match
+      // the recorded revision. Self / missing / off-canvas fail atomically.
+      const sourceIds = [...new Set(input.sourceNodeIds)];
+      const sourceNodes: WorkspaceNode[] = [];
+      for (const id of sourceIds) {
+        const node = next.document.nodes[id];
+        if (!node) return fail(state, "image-source-out-of-scope");
+        if (node.parentCanvasId !== next.runtime.currentCanvasId) return fail(state, "image-source-out-of-scope");
+        if (node.revision !== input.sourceRevisions[id]) return fail(state, "image-variant-stale");
+        sourceNodes.push(node);
+      }
+      if (
+        services.faultPlan?.failOnceAt === "apply-image-variant-before-commit" &&
+        services.faultState &&
+        !services.faultState.consumed["apply-image-variant-before-commit"]
+      ) {
+        services.faultState.consumed["apply-image-variant-before-commit"] = true;
+        return fail(state, "E2E fault: apply-image-variant-before-commit");
+      }
+      const id = services.ids.next("node");
+      const node: WorkspaceNode = {
+        id,
+        kind: "image",
+        parentCanvasId: next.runtime.currentCanvasId,
+        position: input.position ?? transformPosition(next, sourceIds),
+        order: nextOrder(next.document, next.runtime.currentCanvasId),
+        width: 300,
+        height: 200,
+        revision: 0,
+        src: input.src,
+        alt: input.alt,
+        prompt: input.prompt,
+        provider: input.provider,
+        model: input.model,
+        provenance: {
+          origin: "image",
+          sourceNodeIds: sourceIds,
+          sourceRevisions: input.sourceRevisions,
+          operation: "generate-image",
+          provider: input.provider,
+          model: input.model,
+          prompt: input.prompt,
+          createdAt: services.clock.nowISO(),
+        },
+      };
+      next.document.nodes[id] = node;
+      const relationIds: string[] = [];
+      try {
+        for (const source of sourceNodes) {
+          if (source.id === id) throw new Error("self-relation");
+          const relation = createRelation(services, source.id, id, "derived");
+          relation.provenance = node.provenance;
+          next.document.relations[relation.id] = relation;
+          relationIds.push(relation.id);
+        }
+      } catch (error) {
+        return fail(state, error instanceof Error ? error.message : "image-variant-relation-failed");
+      }
+      next.runtime.selection = {
+        selectedNodeIds: [id],
+        activeNodeId: id,
+        revision: next.runtime.selection.revision + 1,
+      };
+      createdNodeId = id;
+      historyEntry = {
+        label: "applyImageVariant",
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
+      return {
+        ok: true,
+        state: next,
+        historyEntry,
+        createdNodeId,
+        createdRelationIds: relationIds,
+        cancelledRunIds,
+        history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
+      };
+    }
     case "promoteContextItems": {
       isMutation = true;
       const input = command.input;

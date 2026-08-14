@@ -50,6 +50,18 @@ export interface ProposalRecord {
     | {
         kind: "add-relation";
         relation: { sourceNodeId: NodeId; targetNodeId: NodeId; kind: "source" | "derived" | "supports" | "opposes" | "similar"; reason?: string };
+      }
+    | {
+        kind: "create-image-variant";
+        variant: {
+          src: string;
+          alt?: string;
+          prompt: string;
+          provider?: string;
+          model?: string;
+          sourceNodeIds: NodeId[];
+          sourceRevisions: Record<NodeId, number>;
+        };
       };
   reason?: string;
   status: ProposalStatus;
@@ -191,6 +203,39 @@ export function createRelationProposal(input: {
     runtimeGeneration: input.runtimeGeneration,
     scopeEpoch: input.scopeEpoch,
     operation: { kind: "add-relation", relation: input.relation },
+    status: "proposed",
+  };
+}
+
+export function createImageVariantProposal(input: {
+  proposalId: string;
+  runId: string;
+  runEpoch: number;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  variant: {
+    src: string;
+    alt?: string;
+    prompt: string;
+    provider?: string;
+    model?: string;
+    sourceNodeIds: NodeId[];
+    sourceRevisions: Record<NodeId, number>;
+  };
+  providerToolCallId?: string;
+}): ProposalRecord {
+  return {
+    proposalId: input.proposalId,
+    providerToolCallId: input.providerToolCallId ?? input.proposalId,
+    runId: input.runId,
+    runEpoch: input.runEpoch,
+    workspaceId: input.workspaceId,
+    canvasId: input.canvasId,
+    runtimeGeneration: input.runtimeGeneration,
+    scopeEpoch: input.scopeEpoch,
+    operation: { kind: "create-image-variant", variant: input.variant },
     status: "proposed",
   };
 }
@@ -345,6 +390,46 @@ export function decideAndApplyProposal(
       return { status: "error", proposal: nextProposal, state, history: result.history, error: result.error };
     }
     nextProposal.status = "applied";
+    nextProposal.receiptId = `receipt-${proposal.proposalId}`;
+    return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
+  }
+
+  if (op.kind === "create-image-variant") {
+    const result = applyCommand(
+      state,
+      {
+        type: "applyImageVariant",
+        input: {
+          src: op.variant.src,
+          alt: op.variant.alt,
+          prompt: op.variant.prompt,
+          provider: op.variant.provider,
+          model: op.variant.model,
+          sourceNodeIds: op.variant.sourceNodeIds,
+          sourceRevisions: op.variant.sourceRevisions,
+          workspaceId: state.document.workspaceId,
+          canvasId: state.runtime.currentCanvasId,
+          runtimeGeneration: state.runtime.runtimeGeneration,
+          scopeEpoch: state.runtime.scopeEpoch,
+          proposalId: proposal.proposalId,
+        },
+      },
+      services,
+      history ?? createHistory(),
+    );
+    if (!result.ok) {
+      nextProposal.status = result.error === "image-variant-stale" ? "stale" : "error";
+      nextProposal.error = result.error;
+      return {
+        status: nextProposal.status === "stale" ? "stale" : "error",
+        proposal: nextProposal,
+        state,
+        history: result.history,
+        error: result.error,
+      };
+    }
+    nextProposal.status = "applied";
+    nextProposal.createdNodeId = result.createdNodeId;
     nextProposal.receiptId = `receipt-${proposal.proposalId}`;
     return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
   }

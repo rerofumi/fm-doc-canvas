@@ -21,6 +21,7 @@ type agentRunState struct {
 	readNodes map[string]NodeSnapshot
 	approve   func(context.Context, *ToolApplyProposal) ToolApplicationResult
 	search    WebSearchPort
+	image     ImagePort
 	ids       IDGenerator
 	clock     Clock
 	emit      func(ChatEvent)
@@ -42,11 +43,12 @@ func toolDefinitions() []ToolDefinition {
 		{Type: "function", Function: ToolFunctionDef{Name: "propose_transform", Description: "Propose a non-destructive summarize, compare, or counterpoint Text node derived from nodes already read with read_canvas_node.", Parameters: obj(`"operation":{"type":"string","enum":["summarize","compare","counterpoint"]},"source_node_ids":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"summary":{"type":"string"},"reason":{"type":"string"},"suggested_relations":{"type":"array","items":{"type":"object"}}`, `"operation","source_node_ids","content","summary"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "propose_relation", Description: "Propose a typed Relation between two nodes already read with read_canvas_node. Does not mutate until the human accepts.", Parameters: obj(`"source_node_id":{"type":"string"},"target_node_id":{"type":"string"},"kind":{"type":"string","enum":["source","derived","supports","opposes","similar"]},"reason":{"type":"string"},"direction":{"type":"string","enum":["forward","reverse"]}`, `"source_node_id","target_node_id","kind"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "web_search", Description: "Search the web for a query and return a Context Packet of observed sources. Does not create nodes. Optional known_urls must be https.", Parameters: obj(`"query":{"type":"string"},"known_urls":{"type":"array","items":{"type":"string"}}`, `"query"`)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "generate_image", Description: "Generate an image from a prompt using the configured Image Provider. Returns an asset path and a proposal; it does not place a node until the human accepts. Optional source_node_ids are the allowlisted reference images/text already read.", Parameters: obj(`"prompt":{"type":"string"},"source_node_ids":{"type":"array","items":{"type":"string"}}`, `"prompt"`)}},
 	}
 }
 
-func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult, search WebSearchPort, ids IDGenerator, clock Clock) error {
-	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve, search: search, ids: ids, clock: clock, emit: emit, llm: llm}
+func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult, search WebSearchPort, image ImagePort, ids IDGenerator, clock Clock) error {
+	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve, search: search, image: image, ids: ids, clock: clock, emit: emit, llm: llm}
 	cfg := llm.configService.GetConfig()
 	system := effectiveAgentSystemPrompt(cfg.LLM.SystemPrompt)
 	direct := req.Snapshot.directContext(req.DirectContextNodeIDs)
@@ -373,6 +375,66 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 		proposal := &ToolApplyProposal{ToolCallID: call.ID, Operation: "create", Filename: filename, Proposed: content, LastEditSummary: stringArg("edit_summary")}
 		return awaitApproval(ctx, state, proposal)
 
+	case "generate_image":
+		prompt := stringArg("prompt")
+		if strings.TrimSpace(prompt) == "" {
+			return toolResult{Status: "error", Content: "image-invalid-prompt"}
+		}
+		if state.image == nil {
+			return toolResult{Status: "error", Content: "image generation is unavailable"}
+		}
+		// Resolve allowlisted source references. Only nodes already read via
+		// read_canvas_node (or in the request snapshot allowlist) may be used as
+		// reference images / context. Hidden bodies are never sent.
+		sourceIDs := []string{}
+		if values, ok := args["source_node_ids"].([]interface{}); ok {
+			for _, value := range values {
+				if id, ok := value.(string); ok {
+					sourceIDs = append(sourceIDs, id)
+				}
+			}
+		}
+		refImages := []string{}
+		contextSections := []string{}
+		revisions := map[string]int64{}
+		for _, id := range sourceIDs {
+			node, ok := state.request.Snapshot.node(id)
+			if !ok {
+				return toolResult{Status: "error", Content: "image-source-out-of-scope"}
+			}
+			revisions[id] = node.Revision
+			if node.Type == "image" {
+				refImages = append(refImages, node.ImageRef)
+			} else if node.Type == "text" || node.Type == "artifact" {
+				contextSections = append(contextSections, fmt.Sprintf("Source %s (revision %d):\n%s", node.ID, node.Revision, node.Markdown))
+			}
+		}
+		contextData := strings.Join(contextSections, "\n\n")
+		src, err := state.image.GenerateImage(prompt, contextData, refImages)
+		if err != nil {
+			return toolResult{Status: "error", Content: "image-provider-error: " + err.Error()}
+		}
+		proposal := &ToolApplyProposal{
+			ToolCallID: call.ID,
+			Operation:  "image-variant",
+			Proposed:   src,
+			ImageVariant: &ImageVariantProposal{
+				ProposalID:        state.ids.Next("proposal"),
+				ToolCallID:        call.ID,
+				Src:               src,
+				Prompt:            prompt,
+				SourceNodeIDs:     sourceIDs,
+				SourceRevisions:   revisions,
+				WorkspaceID:       state.request.WorkspaceID,
+				CanvasID:          state.request.CanvasID,
+				RuntimeGeneration: state.request.RuntimeGeneration,
+				ScopeEpoch:        state.request.ScopeEpoch,
+				RunID:             state.request.RunID,
+				RunEpoch:          state.request.RunEpoch,
+			},
+		}
+		return awaitApproval(ctx, state, proposal)
+
 	case "web_search":
 		query := stringArg("query")
 		known := []string{}
@@ -428,7 +490,7 @@ func normalizeMergedToolCall(call ToolCall) ToolCall {
 	known := []string{
 		"read_artifact", "apply_edit", "write_artifact", "list_artifacts",
 		"search_artifact", "read_canvas_node", "list_canvas_nodes",
-		"propose_transform", "propose_relation", "web_search",
+		"propose_transform", "propose_relation", "web_search", "generate_image",
 	}
 	name := call.Function.Name
 	for _, candidate := range known {

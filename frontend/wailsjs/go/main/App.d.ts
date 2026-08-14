@@ -34,6 +34,8 @@ export function GetImageDataURL(arg1:string):Promise<string>;
 
 export function GetImageFileURL(arg1:string):Promise<string>;
 
+export function GetImageFixtureObservations():Promise<Record<string, any>>;
+
 export function GetRuntimeEnvironment():Promise<Record<string, any>>;
 
 export function Greet(arg1:string):Promise<string>;

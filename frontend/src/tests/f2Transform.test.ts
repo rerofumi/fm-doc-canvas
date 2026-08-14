@@ -1,6 +1,8 @@
 import "./domainFoundation.test";
 import "./f3ContextPacket.test";
 import "./f3Promote.test";
+import { runF4VisionTests } from "./f4VisionContext.test";
+import { runF4ImageVariantTests } from "./f4ImageVariant.test";
 import { applyCommand, createHistory } from "../domain/workspaceCommands";
 import {
   buildTransformRequest,
@@ -238,3 +240,6 @@ const modifiedNode = modified.state.document.nodes[modified.proposal.createdNode
 assert(isTextBearing(modifiedNode) && modifiedNode.content === "modified comparison output", "modified content applied");
 
 console.log("F2 transform domain tests passed");
+
+runF4VisionTests();
+runF4ImageVariantTests();

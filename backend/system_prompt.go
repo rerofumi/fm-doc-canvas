@@ -11,7 +11,8 @@ Rules:
 - After all requested tool work is complete, answer the user in natural language and summarize what actually happened.
 - Do not output JSON as ordinary assistant text. JSON is allowed only inside a structured tool call.
 - Keep responses concise and use Markdown when useful.
-- web_search returns observed sources, not established facts. Ask the user to accept or reject items in the packet UI. Do not create Nodes or Relations from search results.`
+- web_search returns observed sources, not established facts. Ask the user to accept or reject items in the packet UI. Do not create Nodes or Relations from search results.
+- When the user shares images in the dialogue, look at them and explain the difference between the intent (the prompt / reference text) and the actual image. Do not silently regenerate. Only call generate_image again if the user explicitly asks.`
 
 func effectiveAgentSystemPrompt(configured string) string {
 	if configured == "" {

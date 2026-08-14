@@ -27,7 +27,7 @@ export interface ChatToolProposal {
   nodeId?: string;
   targetNodeId?: string;
   baseRevision?: number;
-  operation: "create" | "replace" | "edit" | "transform" | "relation";
+  operation: "create" | "replace" | "edit" | "transform" | "relation" | "image-variant";
   filename?: string;
   proposed: string;
   searchText?: string;
@@ -38,6 +38,23 @@ export interface ChatToolProposal {
   runtimeGeneration?: string;
   scopeEpoch?: number;
   runEpoch?: number;
+  imageVariant?: {
+    proposalId: string;
+    toolCallId: string;
+    src: string;
+    alt?: string;
+    prompt: string;
+    provider?: string;
+    model?: string;
+    sourceNodeIds: string[];
+    sourceRevisions: Record<string, number>;
+    workspaceId: string;
+    canvasId: string;
+    runtimeGeneration: string;
+    scopeEpoch: number;
+    runId?: string;
+    runEpoch?: number;
+  };
   transform?: {
     operation: "summarize" | "compare" | "counterpoint";
     sourceNodeIds: string[];

@@ -72,10 +72,10 @@ func TestToolContractsReadAndApplyExactlyOneMatch(t *testing.T) {
 
 func TestEightToolDefinitionsAndReadTools(t *testing.T) {
 	definitions := toolDefinitions()
-	if len(definitions) != 10 {
-		t.Fatalf("tool count = %d, want 10", len(definitions))
+	if len(definitions) != 11 {
+		t.Fatalf("tool count = %d, want 11", len(definitions))
 	}
-	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "web_search"}
+	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "web_search", "generate_image"}
 	for index, want := range wantNames {
 		if definitions[index].Function.Name != want {
 			t.Fatalf("tool %d = %q, want %q", index, definitions[index].Function.Name, want)
@@ -377,7 +377,7 @@ func TestAgentStopsAfterTenToolRounds(t *testing.T) {
 	}))
 	defer server.Close()
 	llm := NewLLMService(&ConfigService{config: &Config{LLM: LLMConfig{BaseURL: server.URL, Model: "test"}}})
-	err := runAgent(context.Background(), llm, testChatRequest("inspect"), func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult { return ToolApplicationResult{} }, nil, nil, nil)
+	err := runAgent(context.Background(), llm, testChatRequest("inspect"), func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult { return ToolApplicationResult{} }, nil, nil, nil, nil)
 	if err == nil || requests.Load() != 10 {
 		t.Fatalf("expected ten tool rounds and an error, requests=%d err=%v", requests.Load(), err)
 	}
@@ -511,7 +511,7 @@ func TestAgentPreservesGeminiThoughtSignatureAcrossToolRound(t *testing.T) {
 	}, func(context.Context, *ToolApplyProposal) ToolApplicationResult {
 		t.Fatal("read-only tool unexpectedly requested approval")
 		return ToolApplicationResult{}
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

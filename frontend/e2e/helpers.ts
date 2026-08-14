@@ -21,6 +21,7 @@ export type E2EBridge = {
   openPacketURL: (url: string) => Promise<boolean>;
   selectPacketItems: (claimIds: string[], sourceIds: string[]) => Promise<void>;
   armSearchFault: (code: string) => Promise<void>;
+  getImageFixtureObservations: () => Promise<any>;
   armDelayedSearchWeb: () => Promise<void>;
   releaseDelayedSearchWeb: () => Promise<void>;
   stopActiveDialogue: () => Promise<void>;
@@ -138,6 +139,8 @@ export async function e2e(page: Page): Promise<E2EBridge> {
         page.evaluate(({ c, s }) => (window as any).__E2E__.selectPacketItems(c, s), { c: claimIds, s: sourceIds }),
       armSearchFault: (code) =>
         page.evaluate((c) => (window as any).__E2E__.armSearchFault(c), code),
+      getImageFixtureObservations: () =>
+        page.evaluate(() => (window as any).__E2E__.getImageFixtureObservations()),
       armDelayedSearchWeb: () =>
         page.evaluate(() => (window as any).__E2E__.armDelayedSearchWeb()),
       releaseDelayedSearchWeb: () =>

@@ -52,6 +52,28 @@ type ToolApplyProposal struct {
 	RunEpoch          int64              `json:"runEpoch,omitempty"`
 	Transform         *TransformProposal `json:"transform,omitempty"`
 	Relation          *RelationProposal  `json:"relation,omitempty"`
+	ImageVariant      *ImageVariantProposal `json:"imageVariant,omitempty"`
+}
+
+// ImageVariantProposal is the generate-then-place contract for a Dialogue image
+// generation. It carries the generated asset path and the allowlisted source
+// references. Accepting it applies an atomic Image Variant; rejecting / Stop
+// leaves the document unchanged.
+type ImageVariantProposal struct {
+	ProposalID        string            `json:"proposalId"`
+	ToolCallID        string            `json:"toolCallId"`
+	Src               string            `json:"src"`
+	Prompt            string            `json:"prompt"`
+	Provider          string            `json:"provider,omitempty"`
+	Model             string            `json:"model,omitempty"`
+	SourceNodeIDs     []string          `json:"sourceNodeIds"`
+	SourceRevisions   map[string]int64  `json:"sourceRevisions"`
+	WorkspaceID       string            `json:"workspaceId"`
+	CanvasID          string            `json:"canvasId"`
+	RuntimeGeneration string            `json:"runtimeGeneration"`
+	ScopeEpoch        int64             `json:"scopeEpoch"`
+	RunID             string            `json:"runId,omitempty"`
+	RunEpoch          int64             `json:"runEpoch,omitempty"`
 }
 
 type TransformRelationProposal struct {

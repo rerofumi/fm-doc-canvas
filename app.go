@@ -19,8 +19,8 @@ type App struct {
 	configService      *backend.ConfigService
 	fileService        *backend.FileService
 	llmService         *backend.LLMService
-	imageGenService    *backend.ImageGenService
-	imageAssetService  *backend.ImageAssetService
+	imageGenService    backend.ImagePort
+	imageAssetService  backend.ImageAssetPort
 	chatSessionService *backend.ChatSessionService // legacy; not used on active path
 	chatService        *backend.ChatService
 	events             backend.EventPort
@@ -29,6 +29,7 @@ type App struct {
 	faultPlan          *backend.E2EFaultPlan
 	webSearch          backend.WebSearchPort
 	searchFixture      *backend.FixtureWebSearch
+	imageFixture       *backend.FixtureImage
 	lastOpenedURL      string
 }
 
@@ -48,6 +49,7 @@ func NewProductionApp() *App {
 	search := backend.ConfigWebSearch{Store: configService}
 	chatService := backend.NewChatService(llmService)
 	chatService.SetWebSearch(search, ids, clock)
+	chatService.SetImage(imageGenService)
 
 	return &App{
 		mode:              backend.RuntimeModeProduction,
@@ -106,7 +108,7 @@ func NewE2EAppFromEnv() (*App, error) {
 		Files:  fs,
 		Assets: backend.TempAssetStore{Root: abs, FS: fs},
 		LLM:       backend.FixtureLLM{Text: "fixture-llm-response"},
-		Image:     backend.FixtureImage{Path: "generated/fixture.png"},
+		Image:     &backend.FixtureImage{Path: "generated/fixture.png"},
 		WebSearch: backend.NewFixtureWebSearch(),
 		Events:    &backend.CapturingEventPort{},
 		Clock:     backend.NewFakeClock(time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)),
@@ -158,13 +160,28 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 	}
 	chatService := backend.NewChatService(nil)
 	chatService.SetWebSearch(search, opts.IDs, opts.Clock)
+	if opts.Image != nil {
+		chatService.SetImage(opts.Image)
+	}
+
+	// Wire image services from the injected ports so the E2E composition root
+	// is non-nil. opts.Image is FixtureImage (no network); opts.Assets is the
+	// TempAssetStore confined to the temp root.
+	var imageFixture *backend.FixtureImage
+	if f, ok := opts.Image.(*backend.FixtureImage); ok {
+		imageFixture = f
+	}
+	var imagePort backend.ImagePort
+	if opts.Image != nil {
+		imagePort = opts.Image
+	}
 	app := &App{
 		mode:              opts.Mode,
 		configService:     cfgService,
 		fileService:       fileService,
 		llmService:        nil,
-		imageGenService:   nil,
-		imageAssetService: nil,
+		imageGenService:   imagePort,
+		imageAssetService: opts.Assets,
 		chatService:       chatService,
 		events:            opts.Events,
 		clock:             opts.Clock,
@@ -172,6 +189,7 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		faultPlan:         opts.FaultPlan,
 		webSearch:         search,
 		searchFixture:     fixture,
+		imageFixture:      imageFixture,
 	}
 	return app, nil
 }
@@ -375,6 +393,27 @@ func (a *App) requireSearchFixture() (*backend.FixtureWebSearch, error) {
 	return a.searchFixture, nil
 }
 
+// GetImageFixtureObservations returns the last image generation request recorded
+// by the FixtureImage in E2E mode. Core E2E uses this to assert the allowlisted
+// prompt / context / reference-image payload without a real provider.
+func (a *App) GetImageFixtureObservations() (map[string]interface{}, error) {
+	if a.mode != backend.RuntimeModeE2E {
+		return nil, fmt.Errorf("e2e image observations are unavailable outside e2e mode")
+	}
+	if a.imageFixture == nil {
+		return nil, fmt.Errorf("e2e image fixture is unavailable")
+	}
+	prompt, contextData, provider, refs, refCount := a.imageFixture.Observations()
+	return map[string]interface{}{
+		"prompt":    prompt,
+		"context":   contextData,
+		"provider":  provider,
+		"refs":      refs,
+		"refCount":  refCount,
+		"callCount": a.imageFixture.CallCount,
+	}, nil
+}
+
 // ArmE2ESearchFault sets a one-shot fake search error for Core E2E.
 func (a *App) ArmE2ESearchFault(code string) error {
 	fixture, err := a.requireSearchFixture()
@@ -420,16 +459,25 @@ func (a *App) Greet(name string) string {
 
 // GenerateImage generates an image based on a prompt and reference images
 func (a *App) GenerateImage(prompt string, contextData string, refImages []string) (string, error) {
+	if a.imageGenService == nil {
+		return "", fmt.Errorf("image generation is unavailable")
+	}
 	return a.imageGenService.GenerateImage(prompt, contextData, refImages)
 }
 
 // GenerateImageWithProvider generates an image with a request-level provider override
 func (a *App) GenerateImageWithProvider(prompt string, contextData string, refImages []string, provider string) (string, error) {
+	if a.imageGenService == nil {
+		return "", fmt.Errorf("image generation is unavailable")
+	}
 	return a.imageGenService.GenerateImageWithProvider(prompt, contextData, refImages, provider)
 }
 
 // GetImageDataURL converts a relative image path to a Data URL for display
 func (a *App) GetImageDataURL(src string) (string, error) {
+	if a.imageAssetService == nil {
+		return "", fmt.Errorf("image asset service is unavailable")
+	}
 	return a.imageAssetService.GetImageDataURL(src)
 }
 

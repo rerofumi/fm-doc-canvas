@@ -6,7 +6,7 @@ export type NodeId = string;
 export type RelationId = string;
 
 export interface Provenance {
-  origin: "user" | "file-import" | "llm" | "migration" | "web";
+  origin: "user" | "file-import" | "llm" | "migration" | "web" | "image";
   sourceNodeIds?: NodeId[];
   operation?: string;
   provider?: string;
@@ -18,6 +18,7 @@ export interface Provenance {
   retrievedAt?: string;
   query?: string;
   contextProvider?: string;
+  prompt?: string;
 }
 
 export interface NodeBase {
@@ -250,6 +251,7 @@ export type WorkspaceCommand =
   | { type: "reverseRelation"; id: RelationId }
   | { type: "removeRelation"; id: RelationId }
   | { type: "applyTransform"; input: TransformApplyInput }
+  | { type: "applyImageVariant"; input: ApplyImageVariantInput }
   | { type: "promoteContextItems"; input: PromoteContextItemsInput }
   | { type: "setSelection"; state: SelectionState }
   | { type: "setFocus"; focus: FocusState | null }
@@ -384,6 +386,25 @@ export interface TransformApplyInput {
     reason?: string;
   }>;
   provenance?: Provenance;
+}
+
+// ApplyImageVariantInput is the atomic command that places a generated image as
+// a new Image Node on the Current Canvas, with a `derived` Relation to each
+// explicit source and `origin=image` provenance. It never overwrites the source.
+export interface ApplyImageVariantInput {
+  src: string;
+  alt?: string;
+  prompt: string;
+  provider?: string;
+  model?: string;
+  sourceNodeIds: NodeId[];
+  sourceRevisions: Record<NodeId, number>;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  proposalId?: string;
+  position?: { x: number; y: number };
 }
 
 export interface DomainServices {
