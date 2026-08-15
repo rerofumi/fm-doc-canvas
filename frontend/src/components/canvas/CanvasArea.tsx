@@ -1,11 +1,12 @@
-import React, { useCallback, useState, useEffect } from "react";
+import type React from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
   Panel,
-  NodeTypes,
+  type NodeTypes,
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -15,12 +16,14 @@ import CustomNode from "./CustomNode";
 import ImageNode from "./ImageNode";
 import ArtifactNode from "./ArtifactNode";
 import FolderNode from "./FolderNode";
+import ClusterHullNode, { type ClusterHullNodeType } from "./ClusterHullNode";
+import { clusterColor } from "./GeneratedViewBanner";
 import ContextMenu from "../ui/ContextMenu";
 import RelationEditorDialog, {
-  RelationEditorValue,
-  RelationKindOption,
+  type RelationEditorValue,
+  type RelationKindOption,
 } from "../ui/RelationEditorDialog";
-import { AppNode, AppEdge } from "../../types";
+import type { AppNode, AppEdge } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
 import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime";
 import { isTextBearing } from "../../domain/workspace";
@@ -30,6 +33,7 @@ const nodeTypes: NodeTypes = {
   imageNode: ImageNode as any, // 型の不一致を一時的に回避
   artifactNode: ArtifactNode as any,
   folderNode: FolderNode as any,
+  clusterHull: ClusterHullNode as any,
 };
 
 const MIN_ZOOM = 0.1;
@@ -47,6 +51,13 @@ const CanvasArea: React.FC = () => {
     deleteNode,
     deleteEdge,
   } = useAppStore();
+  const activeGeneratedView = useAppStore((s) => s.activeGeneratedView);
+  const runDirectSuggestRelations = useAppStore(
+    (s) => s.runDirectSuggestRelations,
+  );
+  const runDirectSuggestClusters = useAppStore(
+    (s) => s.runDirectSuggestClusters,
+  );
 
   const [menu, setMenu] = useState<{
     x: number;
@@ -54,22 +65,69 @@ const CanvasArea: React.FC = () => {
     id: string;
     type: "node" | "edge";
   } | null>(null);
-  const [relationEditor, setRelationEditor] = useState<
-    | {
-        mode: "create" | "edit";
-        relationId?: string;
-        initial: RelationEditorValue;
-        nodeOptions: Array<{ id: string; label: string }>;
-      }
-    | null
-  >(null);
+  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const [relationEditor, setRelationEditor] = useState<{
+    mode: "create" | "edit";
+    relationId?: string;
+    initial: RelationEditorValue;
+    nodeOptions: Array<{ id: string; label: string }>;
+  } | null>(null);
   const reactFlowInstance = useReactFlow();
-  const { addNode, navigateCanvas, createSubCanvas, dispatch, runDirectTransform } = useAppStore() as any;
+  const {
+    addNode,
+    navigateCanvas,
+    createSubCanvas,
+    dispatch,
+    runDirectTransform,
+  } = useAppStore() as any;
+
+  const hullNodes: ClusterHullNodeType[] = useMemo(() => {
+    if (!activeGeneratedView) return [];
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const hulls: ClusterHullNodeType[] = [];
+    for (const cluster of activeGeneratedView.clusters) {
+      const members = cluster.nodeIds
+        .map((id) => byId.get(id))
+        .filter((node): node is NonNullable<typeof node> => Boolean(node));
+      if (members.length === 0) continue;
+      const minX = Math.min(...members.map((n) => n.position.x));
+      const minY = Math.min(...members.map((n) => n.position.y));
+      const maxX = Math.max(
+        ...members.map((n) => n.position.x + (n.width ?? 250)),
+      );
+      const maxY = Math.max(
+        ...members.map((n) => n.position.y + (n.height ?? 150)),
+      );
+      const pad = 24;
+      const color = clusterColor(cluster.id);
+      hulls.push({
+        id: `cluster-hull-${cluster.id}`,
+        type: "clusterHull",
+        position: { x: minX - pad, y: minY - pad },
+        width: Math.max(1, maxX - minX + pad * 2),
+        height: Math.max(1, maxY - minY + pad * 2),
+        selectable: false,
+        draggable: false,
+        connectable: false,
+        data: {
+          label: cluster.label,
+          width: Math.max(1, maxX - minX + pad * 2),
+          height: Math.max(1, maxY - minY + pad * 2),
+          color,
+        },
+      } as ClusterHullNodeType);
+    }
+    return hulls;
+  }, [activeGeneratedView, nodes]);
 
   const nodeOptionsForEditor = useCallback(() => {
     const workspace = useAppStore.getState().workspace;
     return Object.values(workspace.document.nodes)
-      .filter((node) => node.parentCanvasId === workspace.runtime.currentCanvasId)
+      .filter(
+        (node) => node.parentCanvasId === workspace.runtime.currentCanvasId,
+      )
       .map((node) => ({
         id: node.id,
         label: isTextBearing(node)
@@ -80,7 +138,9 @@ const CanvasArea: React.FC = () => {
 
   const openCreateRelation = useCallback(() => {
     if (!menu || menu.type !== "node") return;
-    const selected = nodes.filter((node) => node.selected).map((node) => node.id);
+    const selected = nodes
+      .filter((node) => node.selected)
+      .map((node) => node.id);
     const ids = selected.includes(menu.id) ? selected : [...selected, menu.id];
     if (ids.length < 2) {
       useAppStore.setState({ lastError: "Select 2+ nodes to add a Relation" });
@@ -102,7 +162,8 @@ const CanvasArea: React.FC = () => {
 
   const openEditRelation = useCallback(() => {
     if (!menu || menu.type !== "edge") return;
-    const relation = useAppStore.getState().workspace.document.relations[menu.id];
+    const relation =
+      useAppStore.getState().workspace.document.relations[menu.id];
     if (!relation) return;
     setRelationEditor({
       mode: "edit",
@@ -110,7 +171,9 @@ const CanvasArea: React.FC = () => {
       initial: {
         sourceNodeId: relation.sourceNodeId,
         targetNodeId: relation.targetNodeId,
-        kind: (relation.kind === "context" ? "supports" : relation.kind) as RelationKindOption,
+        kind: (relation.kind === "context"
+          ? "supports"
+          : relation.kind) as RelationKindOption,
         reason: relation.reason || "",
         direction: "forward",
       },
@@ -120,8 +183,10 @@ const CanvasArea: React.FC = () => {
 
   const submitRelationEditor = useCallback(
     (value: RelationEditorValue) => {
-      const sourceNodeId = value.direction === "reverse" ? value.targetNodeId : value.sourceNodeId;
-      const targetNodeId = value.direction === "reverse" ? value.sourceNodeId : value.targetNodeId;
+      const sourceNodeId =
+        value.direction === "reverse" ? value.targetNodeId : value.sourceNodeId;
+      const targetNodeId =
+        value.direction === "reverse" ? value.sourceNodeId : value.targetNodeId;
       if (relationEditor?.mode === "create") {
         dispatch({
           type: "addRelation",
@@ -136,7 +201,10 @@ const CanvasArea: React.FC = () => {
           },
         });
       } else if (relationEditor?.mode === "edit" && relationEditor.relationId) {
-        const current = useAppStore.getState().workspace.document.relations[relationEditor.relationId];
+        const current =
+          useAppStore.getState().workspace.document.relations[
+            relationEditor.relationId
+          ];
         dispatch({
           type: "updateRelation",
           id: relationEditor.relationId,
@@ -206,19 +274,26 @@ const CanvasArea: React.FC = () => {
           });
 
           if (result.type === "text") {
-            const basename = (result as any).filename || filePath.split(/[/\\\\]/).pop() || "untitled.md";
+            const basename =
+              (result as any).filename ||
+              filePath.split(/[/\\\\]/).pop() ||
+              "untitled.md";
             const newNode: AppNode = {
               id: `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: "artifactNode",
               position: flowPosition,
               data: {
                 content: result.content,
-                summary: result.content.substring(0, 100) + (result.content.length > 100 ? "..." : ""),
+                summary:
+                  result.content.substring(0, 100) +
+                  (result.content.length > 100 ? "..." : ""),
                 filename: basename,
                 language: "markdown",
                 revision: 0,
                 charCount: result.content.length,
-                wordCount: result.content.trim() ? result.content.trim().split(/\s+/).length : 0,
+                wordCount: result.content.trim()
+                  ? result.content.trim().split(/\s+/).length
+                  : 0,
               },
               width: 300,
               height: 220,
@@ -262,7 +337,8 @@ const CanvasArea: React.FC = () => {
       // that latest set for modifier-key clicks instead of collapsing it back
       // to the clicked node. An explicit call also keeps controlled domain and
       // projected React Flow selection synchronized across rerenders.
-      const preserveSelection = event.ctrlKey || event.metaKey || event.shiftKey;
+      const preserveSelection =
+        event.ctrlKey || event.metaKey || event.shiftKey;
       // Modifier-clicking an already selected node is React Flow's toggle-off
       // path. Let its onNodesChange event remove the node instead of adding it
       // back through the active-node synchronization below.
@@ -296,7 +372,16 @@ const CanvasArea: React.FC = () => {
     setActiveNode(null);
     setEditorOpen(false);
     setMenu(null);
+    setPaneMenu(null);
   }, [setActiveNode, setEditorOpen]);
+
+  const onPaneContextMenu = useCallback(
+    (event: React.MouseEvent | MouseEvent) => {
+      event.preventDefault();
+      setPaneMenu({ x: event.clientX, y: event.clientY });
+    },
+    [],
+  );
 
   const onNodeContextMenu = useCallback(
     (event: React.MouseEvent, node: AppNode) => {
@@ -375,7 +460,7 @@ const CanvasArea: React.FC = () => {
       style={{ "--wails-drop-target": "drop" } as React.CSSProperties}
     >
       <ReactFlow
-        nodes={nodes}
+        nodes={[...nodes, ...hullNodes] as AppNode[]}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -383,6 +468,7 @@ const CanvasArea: React.FC = () => {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
+        onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}
         nodeTypes={nodeTypes}
@@ -415,23 +501,81 @@ const CanvasArea: React.FC = () => {
           onDelete={handleDelete}
           onExport={menu.type === "node" ? handleExport : undefined}
           onExportMarp={menu.type === "node" ? handleExportMarp : undefined}
-          onCreateSubCanvas={menu.type === "node" ? () => {
-            const selected = nodes.filter(n => n.selected).map(n => n.id);
-            const ids = selected.length >= 2 ? selected : [menu.id, ...selected].filter((v,i,a)=>a.indexOf(v)===i);
-            if (ids.length >= 2) createSubCanvas(ids);
-            else alert("Select 2+ nodes to create a SubCanvas");
-          } : undefined}
-          onTransform={menu.type === "node" ? (operation) => { void runDirectTransform(operation); } : undefined}
-          onSearchWeb={menu.type === "node" ? () => { void useAppStore.getState().runWebSearch(useAppStore.getState().promptInput, { entryRoute: "direct-action" }); } : undefined}
+          onCreateSubCanvas={
+            menu.type === "node"
+              ? () => {
+                  const selected = nodes
+                    .filter((n) => n.selected)
+                    .map((n) => n.id);
+                  const ids =
+                    selected.length >= 2
+                      ? selected
+                      : [menu.id, ...selected].filter(
+                          (v, i, a) => a.indexOf(v) === i,
+                        );
+                  if (ids.length >= 2) createSubCanvas(ids);
+                  else alert("Select 2+ nodes to create a SubCanvas");
+                }
+              : undefined
+          }
+          onTransform={
+            menu.type === "node"
+              ? (operation) => {
+                  void runDirectTransform(operation);
+                }
+              : undefined
+          }
+          onSearchWeb={
+            menu.type === "node"
+              ? () => {
+                  void useAppStore
+                    .getState()
+                    .runWebSearch(useAppStore.getState().promptInput, {
+                      entryRoute: "direct-action",
+                    });
+                }
+              : undefined
+          }
           onAddRelation={menu.type === "node" ? openCreateRelation : undefined}
           onEditRelation={menu.type === "edge" ? openEditRelation : undefined}
-          onReverseRelation={menu.type === "edge" ? () => { dispatch({ type: "reverseRelation", id: menu.id }); } : undefined}
+          onReverseRelation={
+            menu.type === "edge"
+              ? () => {
+                  dispatch({ type: "reverseRelation", id: menu.id });
+                }
+              : undefined
+          }
+          onSuggestRelations={
+            menu.type === "node"
+              ? () => {
+                  void runDirectSuggestRelations();
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {paneMenu && (
+        <ContextMenu
+          x={paneMenu.x}
+          y={paneMenu.y}
+          label="Canvas"
+          onClose={() => setPaneMenu(null)}
+          onDelete={() => setPaneMenu(null)}
+          onSuggestRelations={() => {
+            void runDirectSuggestRelations();
+          }}
+          onSuggestClusters={() => {
+            void runDirectSuggestClusters();
+          }}
         />
       )}
 
       {relationEditor && (
         <RelationEditorDialog
-          title={relationEditor.mode === "create" ? "Add Relation" : "Edit Relation"}
+          title={
+            relationEditor.mode === "create" ? "Add Relation" : "Edit Relation"
+          }
           initial={relationEditor.initial}
           nodeOptions={relationEditor.nodeOptions}
           onSubmit={submitRelationEditor}
@@ -443,5 +587,3 @@ const CanvasArea: React.FC = () => {
 };
 
 export default CanvasArea;
-
-

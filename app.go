@@ -363,6 +363,143 @@ func (a *App) DirectTransform(req backend.DirectTransformRequest) (backend.Trans
 	}, nil
 }
 
+// SuggestRelations performs one structured one-shot Relation batch suggestion.
+// It never enters the agent loop or creates a proposal acknowledgement; the
+// returned RelationBatchProposal is displayed for explicit human accept.
+func (a *App) SuggestRelations(req backend.DirectSuggestRelationsRequest) (backend.RelationBatchProposal, error) {
+	if err := req.Validate(); err != nil {
+		return backend.RelationBatchProposal{}, err
+	}
+	body, previews, err := backend.BuildSuggestSourceBody(req.SourceNodeIDs, req.SourceNodes)
+	if err != nil {
+		return backend.RelationBatchProposal{}, err
+	}
+	vision, err := backend.ResolveSuggestVisionImages(req.SourceNodeIDs, req.SourceNodes, a.imageAssetService)
+	if err != nil {
+		return backend.RelationBatchProposal{}, err
+	}
+	prompt := "Propose up to 8 typed Relations between the provided Canvas nodes. Return JSON only with exactly this shape: {\"relations\":[{\"sourceNodeId\":\"...\",\"targetNodeId\":\"...\",\"kind\":\"supports\",\"reason\":\"...\",\"direction\":\"forward\"}]}. kind must be one of source, derived, supports, opposes, similar. Only reference the provided node IDs.\n\n" + body
+	raw, err := a.suggestRaw(prompt, body, vision, req.SourceNodeIDs, "relation-batch")
+	if err != nil {
+		return backend.RelationBatchProposal{}, err
+	}
+	relations, err := backend.ParseSuggestRelations(raw, req.SourceNodeIDs)
+	if err != nil {
+		return backend.RelationBatchProposal{}, err
+	}
+	return backend.RelationBatchProposal{
+		Relations:         relations,
+		SourceRevisions:   copyRevisions(req.SourceRevisions),
+		Sources:           previews,
+		WorkspaceID:       req.WorkspaceID,
+		CanvasID:          req.CanvasID,
+		RuntimeGeneration: req.RuntimeGeneration,
+		ScopeEpoch:        req.ScopeEpoch,
+	}, nil
+}
+
+// SuggestClusters performs one structured one-shot Cluster View suggestion.
+// It never enters the agent loop or creates a proposal acknowledgement.
+func (a *App) SuggestClusters(req backend.DirectSuggestClustersRequest) (backend.ClusterViewProposal, error) {
+	if err := req.Validate(); err != nil {
+		return backend.ClusterViewProposal{}, err
+	}
+	body, _, err := backend.BuildSuggestSourceBody(req.SourceNodeIDs, req.SourceNodes)
+	if err != nil {
+		return backend.ClusterViewProposal{}, err
+	}
+	vision, err := backend.ResolveSuggestVisionImages(req.SourceNodeIDs, req.SourceNodes, a.imageAssetService)
+	if err != nil {
+		return backend.ClusterViewProposal{}, err
+	}
+	prompt := "Group the provided Canvas nodes into 2 to 8 named clusters that share an argument or viewpoint. Return JSON only with exactly this shape: {\"label\":\"...\",\"clusters\":[{\"label\":\"...\",\"reason\":\"...\",\"nodeIds\":[\"...\"]}],\"ungroupedNodeIds\":[\"...\"]}. Assign each node to at most one cluster. Only reference the provided node IDs.\n\n" + body
+	raw, err := a.suggestRaw(prompt, body, vision, req.SourceNodeIDs, "cluster-view")
+	if err != nil {
+		return backend.ClusterViewProposal{}, err
+	}
+	viewLabel, clusters, ungrouped, err := backend.ParseSuggestClusters(raw, req.SourceNodeIDs)
+	if err != nil {
+		return backend.ClusterViewProposal{}, err
+	}
+	return backend.ClusterViewProposal{
+		ViewLabel:         viewLabel,
+		Clusters:          clusters,
+		UngroupedNodeIDs:  ungrouped,
+		SourceRevisions:   copyRevisions(req.SourceRevisions),
+		WorkspaceID:       req.WorkspaceID,
+		CanvasID:          req.CanvasID,
+		RuntimeGeneration: req.RuntimeGeneration,
+		ScopeEpoch:        req.ScopeEpoch,
+	}, nil
+}
+
+// suggestRaw dispatches a Direct suggestion through the FixtureLLM (E2E, with
+// delay/fault support) or the real LLM port (text or multimodal).
+func (a *App) suggestRaw(prompt, body string, vision []string, sourceNodeIDs []string, kind string) (string, error) {
+	if fixture, ok := a.llmPort.(*backend.FixtureLLM); ok {
+		if kind == "relation-batch" {
+			return fixture.SuggestRelationsText(sourceNodeIDs)
+		}
+		return fixture.SuggestClustersText(sourceNodeIDs)
+	}
+	if a.llmPort == nil {
+		return "", fmt.Errorf("LLM service is unavailable")
+	}
+	if len(vision) > 0 {
+		return a.llmPort.GenerateTextWithImages(prompt, body, vision)
+	}
+	return a.llmPort.GenerateText(prompt, body)
+}
+
+func copyRevisions(in map[string]int64) map[string]int64 {
+	out := make(map[string]int64, len(in))
+	for id, rev := range in {
+		out[id] = rev
+	}
+	return out
+}
+
+func (a *App) requireSuggestFixture() (*backend.FixtureLLM, error) {
+	if a.mode != backend.RuntimeModeE2E {
+		return nil, fmt.Errorf("e2e suggest controls are unavailable outside e2e mode")
+	}
+	fixture, ok := a.llmPort.(*backend.FixtureLLM)
+	if !ok || fixture == nil {
+		return nil, fmt.Errorf("e2e LLM fixture is unavailable")
+	}
+	return fixture, nil
+}
+
+// ArmDelayedSuggest holds the next Direct suggestion until ReleaseDelayedSuggest.
+func (a *App) ArmDelayedSuggest() error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ArmSuggestDelay()
+	return nil
+}
+
+// ReleaseDelayedSuggest releases a held Direct suggestion.
+func (a *App) ReleaseDelayedSuggest() error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ReleaseSuggestDelay()
+	return nil
+}
+
+// ArmE2ESuggestFault sets a one-shot Direct suggestion error code.
+func (a *App) ArmE2ESuggestFault(code string) error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.SetSuggestFault(strings.TrimSpace(code))
+	return nil
+}
+
 // SearchWeb runs the selected WebSearchPort once and returns a Context Packet.
 // It does not mutate the Workspace document.
 func (a *App) SearchWeb(req backend.WebSearchRequest) (backend.ContextPacket, error) {

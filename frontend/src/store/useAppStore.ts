@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import {
-  Connection,
-  EdgeChange,
-  NodeChange,
+  type Connection,
+  type EdgeChange,
+  type NodeChange,
   applyEdgeChanges,
   applyNodeChanges,
   MarkerType,
 } from "@xyflow/react";
-import {
+import type {
   AppConfig,
   AppEdge,
   AppNode,
@@ -17,20 +17,21 @@ import {
   ImportFileResult,
   TextNodeData,
 } from "../types";
-import { ChatToolProposal } from "../types/chat";
+import type { ChatToolProposal } from "../types/chat";
 import {
   applyCommand,
   createHistory,
   createRelation,
-  HistoryState,
+  type HistoryState,
 } from "../domain/workspaceCommands";
 import {
-  ApplyImageVariantInput,
+  type ApplyImageVariantInput,
   createEmptyWorkspace,
-  DomainServices,
+  type DomainServices,
   isFolder,
   isTextBearing,
-  WorkspaceState,
+  nodesOnCanvas,
+  type WorkspaceState,
 } from "../domain/workspace";
 import { breadcrumbPath, projectCurrentCanvas } from "../domain/projectToFlow";
 import {
@@ -43,20 +44,34 @@ import {
   createTransformProposal,
   createRelationProposal,
   createImageVariantProposal,
+  createRelationBatchProposal,
+  createGeneratedViewProposal,
   decideAndApplyProposal,
   applyDirectTransform,
+  type ProposalRecord,
 } from "../domain/proposal";
+import {
+  type ClusterViewDraft,
+  type GeneratedViewRecord,
+  type RelationBatchItem,
+  MAX_CLUSTER_NODES,
+  normalizeClusterViewDraft,
+  normalizeRelationBatchDraft,
+  pruneEmptyClusters,
+  removeCluster,
+  revalidateDirectSuggestion,
+} from "../domain/generatedView";
 import {
   buildTransformRequest,
   normalizeTransformDraft,
   revalidateDirectTransform,
   validateTransformSelection,
 } from "../domain/transform";
-import { DirectTransformReceipt } from "../types/chat";
+import type { DirectTransformReceipt } from "../types/chat";
 import {
-  ContextPacket,
-  WebSearchEntryRoute,
-  WebSearchRequest,
+  type ContextPacket,
+  type WebSearchEntryRoute,
+  type WebSearchRequest,
   hintExcerpt,
   incomingPacketRejection,
   resolveWebSearchQuery,
@@ -64,7 +79,7 @@ import {
 import {
   createProductionClock,
   createProductionIds,
-  RuntimeEnvironment,
+  type RuntimeEnvironment,
 } from "../runtime/runtimeEnvironment";
 import * as GeneratedBackend from "../../wailsjs/go/main/App";
 
@@ -150,6 +165,7 @@ interface StoreExtras {
   navigateParent: () => void;
   navigateBack: () => void;
   undo: () => void;
+  redo: () => void;
   getBreadcrumb: () => Array<{ canvasId: string; name: string }>;
   resolveSharedContext: (
     mode: "dialogue" | "direct",
@@ -194,6 +210,26 @@ interface StoreExtras {
   }) => boolean;
   dismissPacket: () => void;
   openExternalURL: (url: string) => Promise<boolean>;
+  activeGeneratedView: GeneratedViewRecord | null;
+  lastSuggestReceipt: {
+    operation: "relations" | "clusters";
+    status: "pending" | "error" | "done";
+    error?: string;
+  } | null;
+  pendingDirectProposal: ProposalRecord | null;
+  runDirectSuggestRelations: () => Promise<boolean>;
+  runDirectSuggestClusters: () => Promise<boolean>;
+  closeGeneratedView: () => void;
+  setActiveGeneratedView: (view: GeneratedViewRecord | null) => void;
+  convertClusterToSubCanvas: (clusterId: string, label?: string) => boolean;
+  decideDirectProposal: (
+    decision: "accept" | "modify" | "reject",
+    modified?: { relations?: RelationBatchItem[]; view?: ClusterViewDraft },
+  ) => {
+    status: "applied" | "rejected" | "conflict" | "error";
+    error?: string;
+  };
+  dismissDirectProposal: () => void;
 }
 
 export type FullAppState = AppState & StoreExtras;
@@ -226,6 +262,8 @@ export type ProposalModifyPatch =
         ChatToolProposal["transform"]
       >["suggestedRelations"];
       relation?: NonNullable<ChatToolProposal["relation"]>;
+      relations?: RelationBatchItem[];
+      view?: ClusterViewDraft;
     };
 
 function normalizeModifyPatch(modified?: ProposalModifyPatch): {
@@ -235,6 +273,8 @@ function normalizeModifyPatch(modified?: ProposalModifyPatch): {
     ChatToolProposal["transform"]
   >["suggestedRelations"];
   relation?: NonNullable<ChatToolProposal["relation"]>;
+  relations?: RelationBatchItem[];
+  view?: ClusterViewDraft;
 } {
   if (modified == null) return {};
   if (typeof modified === "string") return { content: modified };
@@ -431,6 +471,117 @@ function createToolProposalDecider(
         return { status: "error" as const, error: result.error || "cancelled" };
       return { status: "error" as const, error: result.error || result.status };
     }
+    if (proposal.operation === "relation-batch" && proposal.relationBatch) {
+      const record = createRelationBatchProposal({
+        proposalId: proposal.toolCallId,
+        providerToolCallId: proposal.toolCallId,
+        runId,
+        runEpoch,
+        workspaceId: proposal.workspaceId || ws.document.workspaceId,
+        canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
+        runtimeGeneration:
+          proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+        scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
+        relations: proposal.relationBatch.relations,
+        sourceRevisions: proposal.relationBatch.sourceRevisions,
+        imageInputModes: proposal.relationBatch.imageInputModes,
+        provenance: {
+          origin: "relation-batch",
+          operation: "propose_relation_batch",
+        },
+      });
+      const result = decideAndApplyProposal(
+        ws,
+        record,
+        {
+          proposalId: record.proposalId,
+          decisionId: `decision-${proposal.toolCallId}-${decision}`,
+          decision,
+          modifiedRelations:
+            decision === "modify" ? modifyPatch.relations : undefined,
+        },
+        services(),
+        get().history,
+        activeRun,
+      );
+      if (result.status === "applied" && result.history) {
+        projectInto(set, result.state, result.history, { lastError: null });
+        return { status: "applied" as const };
+      }
+      if (result.status === "rejected") return { status: "rejected" as const };
+      if (result.status === "conflict") return { status: "conflict" as const };
+      if (result.status === "stale")
+        return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled")
+        return { status: "error" as const, error: result.error || "cancelled" };
+      return { status: "error" as const, error: result.error || result.status };
+    }
+    if (proposal.operation === "generated-view" && proposal.generatedView) {
+      const gv = proposal.generatedView;
+      const normalized = normalizeClusterViewDraft(
+        {
+          label: gv.viewLabel,
+          clusters: gv.clusters.map((c) => ({
+            label: c.label,
+            reason: c.reason,
+            nodeIds: c.nodeIds,
+          })),
+          ungroupedNodeIds: gv.ungroupedNodeIds,
+          sourceRevisions: gv.sourceRevisions,
+          imageInputModes: gv.imageInputModes,
+          provenance: { origin: "cluster-view" },
+        },
+        ws,
+        services(),
+      );
+      if (!normalized.ok) {
+        return { status: "error" as const, error: normalized.error };
+      }
+      const view =
+        decision === "modify" && modifyPatch.view
+          ? modifyPatch.view
+          : normalized.value;
+      const record = createGeneratedViewProposal({
+        proposalId: proposal.toolCallId,
+        providerToolCallId: proposal.toolCallId,
+        runId,
+        runEpoch,
+        workspaceId: proposal.workspaceId || ws.document.workspaceId,
+        canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
+        runtimeGeneration:
+          proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+        scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
+        view,
+        provenance: { origin: "cluster-view" },
+        source: "dialogue",
+      });
+      const result = decideAndApplyProposal(
+        ws,
+        record,
+        {
+          proposalId: record.proposalId,
+          decisionId: `decision-${proposal.toolCallId}-${decision}`,
+          decision,
+          modifiedView: decision === "modify" ? view : undefined,
+        },
+        services(),
+        get().history,
+        activeRun,
+      );
+      if (result.status === "applied") {
+        if (result.generatedView) {
+          set({ activeGeneratedView: result.generatedView, lastError: null });
+        }
+        return { status: "applied" as const };
+      }
+      if (result.status === "rejected") return { status: "rejected" as const };
+      if (result.status === "conflict") return { status: "conflict" as const };
+      if (result.status === "stale")
+        return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled")
+        return { status: "error" as const, error: result.error || "cancelled" };
+      return { status: "error" as const, error: result.error || result.status };
+    }
     if (
       proposal.operation !== "create" &&
       proposal.operation !== "replace" &&
@@ -526,6 +677,131 @@ const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
   return migrated;
 };
 
+function directSuggestTargets(
+  state: WorkspaceState,
+  maxNodes: number,
+): { nodeIds: string[] } | { error: string } {
+  const current = state.runtime.currentCanvasId;
+  const selected = state.runtime.selection.selectedNodeIds.filter((id) => {
+    const node = state.document.nodes[id];
+    return !!node && node.parentCanvasId === current && !isFolder(node);
+  });
+  const ids =
+    selected.length >= 2
+      ? selected
+      : nodesOnCanvas(state.document, current)
+          .filter((node) => !isFolder(node))
+          .map((node) => node.id);
+  if (ids.length < 2) return { error: "suggest-requires-2-nodes" };
+  if (maxNodes > 0 && ids.length > maxNodes)
+    return { error: "suggest-node-cap-exceeded" };
+  return { nodeIds: [...new Set(ids)] };
+}
+
+function buildDirectSuggestSource(
+  state: WorkspaceState,
+  operation: "relate" | "group",
+):
+  | { error: string }
+  | {
+      nodeIds: string[];
+      sourceNodes: Array<{
+        id: string;
+        type: string;
+        revision: number;
+        filename?: string;
+        markdown?: string;
+        imageRef?: string;
+        prompt?: string;
+        imageIncluded?: boolean;
+      }>;
+      sourceRevisions: Record<string, number>;
+      imageInputModes: Record<string, "vision" | "metadata-only">;
+      contextDigest: string;
+    } {
+  const envelope = resolveContext({
+    document: state.document,
+    runtime: state.runtime,
+    mode: "direct",
+    operation,
+  });
+  const maxNodes = operation === "group" ? MAX_CLUSTER_NODES : 0;
+  const target = directSuggestTargets(state, maxNodes);
+  if ("error" in target) return { error: target.error };
+  const nodeIds = target.nodeIds;
+  const visionBinaryIds = new Set(
+    envelope.payloadItems
+      .filter(
+        (
+          p,
+        ): p is {
+          kind: "image-binary";
+          nodeId: string;
+          destination: "llm" | "image-provider";
+        } => p.kind === "image-binary" && p.destination === "llm",
+      )
+      .map((p) => p.nodeId),
+  );
+  const sourceNodes = nodeIds.map((id) => {
+    const node = state.document.nodes[id];
+    if (isTextBearing(node)) {
+      return {
+        id,
+        type: node.role === "artifact" ? "artifact" : "text",
+        revision: node.revision,
+        markdown: node.content,
+        filename: node.filename,
+      };
+    }
+    if (node.kind === "image") {
+      return {
+        id,
+        type: "image",
+        revision: node.revision,
+        imageRef: node.src,
+        prompt: node.prompt || node.alt || "",
+        imageIncluded: visionBinaryIds.has(id),
+      };
+    }
+    return { id, type: "text", revision: node.revision, markdown: "" };
+  });
+  const sourceRevisions: Record<string, number> = {};
+  for (const id of nodeIds)
+    sourceRevisions[id] = state.document.nodes[id].revision;
+  const imageInputModes: Record<string, "vision" | "metadata-only"> = {};
+  for (const node of sourceNodes) {
+    if (node.type === "image")
+      imageInputModes[node.id] = node.imageIncluded
+        ? "vision"
+        : "metadata-only";
+  }
+  return {
+    nodeIds,
+    sourceNodes,
+    sourceRevisions,
+    imageInputModes,
+    contextDigest: envelope.contextDigest,
+  };
+}
+
+function pruneViewForDeletedNodes(
+  view: GeneratedViewRecord | null,
+  deletedIds: string[],
+): GeneratedViewRecord | null {
+  if (!view) return null;
+  const deleted = new Set(deletedIds);
+  const next: GeneratedViewRecord = {
+    ...view,
+    clusters: view.clusters.map((c) => ({
+      ...c,
+      nodeIds: c.nodeIds.filter((id) => !deleted.has(id)),
+    })),
+    ungroupedNodeIds: view.ungroupedNodeIds.filter((id) => !deleted.has(id)),
+  };
+  const pruned = pruneEmptyClusters(next);
+  return pruned.clusters.length === 0 ? null : pruned;
+}
+
 function createInitialWorkspace() {
   return createEmptyWorkspace(services());
 }
@@ -560,6 +836,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
     lastOpenedURL: null,
     lastSearchReceipt: null,
     isWebSearchPending: false,
+    activeGeneratedView: null,
+    lastSuggestReceipt: null,
+    pendingDirectProposal: null,
     boundaryAggregates: initialProjection.boundaryAggregates,
     nodes: initialProjection.nodes,
     edges: initialProjection.edges,
@@ -579,6 +858,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         activePacket: null,
         lastSearchReceipt: null,
         lastSearchRequest: null,
+        activeGeneratedView: null,
+        pendingDirectProposal: null,
+        lastSuggestReceipt: null,
       });
     },
     discardWorkspace: () => {
@@ -588,6 +870,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         activePacket: null,
         lastSearchReceipt: null,
         lastSearchRequest: null,
+        activeGeneratedView: null,
+        pendingDirectProposal: null,
+        lastSuggestReceipt: null,
       });
     },
     switchTextRole: (nodeId, role) => {
@@ -598,18 +883,49 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
     navigateCanvas: (canvasId) => {
       dispatch({ type: "navigateCanvas", canvasId });
-      set({ isEditorOpen: false });
+      set({
+        isEditorOpen: false,
+        activeGeneratedView: null,
+        pendingDirectProposal: null,
+      });
     },
     navigateParent: () => {
       dispatch({ type: "navigateParent" });
-      set({ isEditorOpen: false });
+      set({
+        isEditorOpen: false,
+        activeGeneratedView: null,
+        pendingDirectProposal: null,
+      });
     },
     navigateBack: () => {
       dispatch({ type: "navigateBack" });
-      set({ isEditorOpen: false });
+      set({
+        isEditorOpen: false,
+        activeGeneratedView: null,
+        pendingDirectProposal: null,
+      });
     },
     undo: () => {
-      dispatch({ type: "undo" });
+      const { history } = get();
+      const entry = history.past[history.past.length - 1];
+      const ok = dispatch({ type: "undo" });
+      if (ok && entry?.viewSnapshot) {
+        set({
+          activeGeneratedView: (entry.viewSnapshot.before ??
+            null) as GeneratedViewRecord | null,
+        });
+      }
+    },
+    redo: () => {
+      const { history } = get();
+      const entry = history.future[0];
+      const ok = dispatch({ type: "redo" });
+      if (ok && entry?.viewSnapshot) {
+        set({
+          activeGeneratedView: (entry.viewSnapshot.after ??
+            null) as GeneratedViewRecord | null,
+        });
+      }
     },
     getBreadcrumb: () =>
       breadcrumbPath(get().workspace.document, get().workspace.runtime),
@@ -619,6 +935,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         runtime: get().workspace.runtime,
         mode,
         operation,
+        generatedView: get().activeGeneratedView,
       }),
     runDirectTransform: async (operation) => {
       const current = get().workspace;
@@ -968,6 +1285,302 @@ export const useAppStore = create<FullAppState>((set, get) => {
       });
     },
 
+    closeGeneratedView: () => set({ activeGeneratedView: null }),
+    setActiveGeneratedView: (view) => {
+      set({
+        activeGeneratedView: view && view.clusters.length > 0 ? view : null,
+      });
+    },
+    dismissDirectProposal: () =>
+      set({ pendingDirectProposal: null, lastSuggestReceipt: null }),
+    runDirectSuggestRelations: async () => {
+      const current = get().workspace;
+      const built = buildDirectSuggestSource(current, "relate");
+      if ("error" in built) {
+        set({ lastError: built.error });
+        return false;
+      }
+      const requestCorrelation = {
+        workspaceId: current.document.workspaceId,
+        canvasId: current.runtime.currentCanvasId,
+        runtimeGeneration: current.runtime.runtimeGeneration,
+        scopeEpoch: current.runtime.scopeEpoch,
+        sourceRevisions: built.sourceRevisions,
+      };
+      set({
+        lastSuggestReceipt: { operation: "relations", status: "pending" },
+        lastError: null,
+      });
+      try {
+        const directDraft = await (backend() as any).SuggestRelations({
+          ...requestCorrelation,
+          contextDigest: built.contextDigest,
+          sourceNodeIds: built.nodeIds,
+          sourceNodes: built.sourceNodes,
+        });
+        const latest = get().workspace;
+        const guard = revalidateDirectSuggestion(requestCorrelation, latest);
+        if (guard) {
+          set({
+            lastError: guard.error,
+            lastSuggestReceipt: {
+              operation: "relations",
+              status: "error",
+              error: guard.error,
+            },
+          });
+          return false;
+        }
+        const relations: RelationBatchItem[] = (
+          directDraft.relations ?? []
+        ).map((r: any) => ({
+          sourceNodeId: r.sourceNodeId,
+          targetNodeId: r.targetNodeId,
+          kind: r.kind,
+          reason: r.reason,
+          direction: r.direction,
+        }));
+        const normalized = normalizeRelationBatchDraft(
+          {
+            relations,
+            sourceRevisions: built.sourceRevisions,
+            imageInputModes: built.imageInputModes,
+            provenance: {
+              origin: "relation-batch",
+              operation: "propose_relation_batch",
+            },
+          },
+          latest,
+        );
+        if (!normalized.ok) {
+          set({
+            lastError: normalized.error,
+            lastSuggestReceipt: {
+              operation: "relations",
+              status: "error",
+              error: normalized.error,
+            },
+          });
+          return false;
+        }
+        const record = createRelationBatchProposal({
+          proposalId: `direct-relations-${Date.now()}`,
+          runId: "direct",
+          runEpoch: 0,
+          workspaceId: latest.document.workspaceId,
+          canvasId: latest.runtime.currentCanvasId,
+          runtimeGeneration: latest.runtime.runtimeGeneration,
+          scopeEpoch: latest.runtime.scopeEpoch,
+          relations: normalized.value,
+          sourceRevisions: built.sourceRevisions,
+          imageInputModes: built.imageInputModes,
+          provenance: {
+            origin: "relation-batch",
+            operation: "propose_relation_batch",
+          },
+        });
+        set({
+          pendingDirectProposal: record,
+          lastSuggestReceipt: { operation: "relations", status: "done" },
+        });
+        return true;
+      } catch (caught) {
+        const message =
+          caught instanceof Error
+            ? caught.message
+            : typeof caught === "string"
+              ? caught
+              : "suggest-relations-failed";
+        set({
+          lastError: message,
+          lastSuggestReceipt: {
+            operation: "relations",
+            status: "error",
+            error: message,
+          },
+        });
+        return false;
+      }
+    },
+    runDirectSuggestClusters: async () => {
+      const current = get().workspace;
+      const built = buildDirectSuggestSource(current, "group");
+      if ("error" in built) {
+        set({ lastError: built.error });
+        return false;
+      }
+      const requestCorrelation = {
+        workspaceId: current.document.workspaceId,
+        canvasId: current.runtime.currentCanvasId,
+        runtimeGeneration: current.runtime.runtimeGeneration,
+        scopeEpoch: current.runtime.scopeEpoch,
+        sourceRevisions: built.sourceRevisions,
+      };
+      set({
+        lastSuggestReceipt: { operation: "clusters", status: "pending" },
+        lastError: null,
+      });
+      try {
+        const directDraft = await (backend() as any).SuggestClusters({
+          ...requestCorrelation,
+          contextDigest: built.contextDigest,
+          sourceNodeIds: built.nodeIds,
+          sourceNodes: built.sourceNodes,
+        });
+        const latest = get().workspace;
+        const guard = revalidateDirectSuggestion(requestCorrelation, latest);
+        if (guard) {
+          set({
+            lastError: guard.error,
+            lastSuggestReceipt: {
+              operation: "clusters",
+              status: "error",
+              error: guard.error,
+            },
+          });
+          return false;
+        }
+        const normalized = normalizeClusterViewDraft(
+          {
+            label: directDraft.viewLabel,
+            clusters: (directDraft.clusters ?? []).map((c: any) => ({
+              label: c.label,
+              reason: c.reason,
+              nodeIds: c.nodeIds,
+            })),
+            ungroupedNodeIds: directDraft.ungroupedNodeIds ?? [],
+            sourceRevisions: built.sourceRevisions,
+            imageInputModes: built.imageInputModes,
+            provenance: { origin: "cluster-view" },
+          },
+          latest,
+          services(),
+        );
+        if (!normalized.ok) {
+          set({
+            lastError: normalized.error,
+            lastSuggestReceipt: {
+              operation: "clusters",
+              status: "error",
+              error: normalized.error,
+            },
+          });
+          return false;
+        }
+        const record = createGeneratedViewProposal({
+          proposalId: `direct-clusters-${Date.now()}`,
+          runId: "direct",
+          runEpoch: 0,
+          workspaceId: latest.document.workspaceId,
+          canvasId: latest.runtime.currentCanvasId,
+          runtimeGeneration: latest.runtime.runtimeGeneration,
+          scopeEpoch: latest.runtime.scopeEpoch,
+          view: normalized.value,
+          provenance: { origin: "cluster-view" },
+          source: "direct",
+        });
+        set({
+          pendingDirectProposal: record,
+          lastSuggestReceipt: { operation: "clusters", status: "done" },
+        });
+        return true;
+      } catch (caught) {
+        const message =
+          caught instanceof Error
+            ? caught.message
+            : typeof caught === "string"
+              ? caught
+              : "suggest-clusters-failed";
+        set({
+          lastError: message,
+          lastSuggestReceipt: {
+            operation: "clusters",
+            status: "error",
+            error: message,
+          },
+        });
+        return false;
+      }
+    },
+    decideDirectProposal: (decision, modified) => {
+      const record = get().pendingDirectProposal;
+      if (!record)
+        return { status: "error" as const, error: "no pending proposal" };
+      const result = decideAndApplyProposal(
+        get().workspace,
+        record,
+        {
+          proposalId: record.proposalId,
+          decisionId: `decision-${record.proposalId}-${decision}`,
+          decision,
+          modifiedRelations: modified?.relations,
+          modifiedView: modified?.view,
+        },
+        services(),
+        get().history,
+      );
+      if (result.status === "applied") {
+        if (result.generatedView) {
+          set({
+            activeGeneratedView: result.generatedView,
+            pendingDirectProposal: null,
+            lastError: null,
+            lastSuggestReceipt: null,
+          });
+        } else if (result.history) {
+          projectInto(set, result.state, result.history, {
+            lastError: null,
+            pendingDirectProposal: null,
+          });
+        }
+        return { status: "applied" as const };
+      }
+      if (result.status === "rejected") {
+        set({ pendingDirectProposal: null });
+        return { status: "rejected" as const };
+      }
+      if (result.status === "conflict") {
+        set({ lastError: result.error || "conflict" });
+        return { status: "conflict" as const };
+      }
+      set({ lastError: result.error || result.status });
+      return { status: "error" as const, error: result.error || result.status };
+    },
+    convertClusterToSubCanvas: (clusterId, label) => {
+      const view = get().activeGeneratedView;
+      if (!view) return false;
+      const cluster = view.clusters.find((c) => c.id === clusterId);
+      if (!cluster) {
+        set({ lastError: "cluster not found" });
+        return false;
+      }
+      if (cluster.nodeIds.length < 2) {
+        set({ lastError: "cluster has fewer than 2 members" });
+        return false;
+      }
+      const viewBefore = view;
+      const { workspace, history } = get();
+      const result = applyCommand(
+        workspace,
+        { type: "createSubCanvas", nodeIds: cluster.nodeIds, label },
+        services(),
+        history,
+      );
+      if (!result.ok) {
+        set({ lastError: result.error || "createSubCanvas failed" });
+        return false;
+      }
+      const viewAfter = removeCluster(view, clusterId);
+      const pruned = viewAfter.clusters.length === 0 ? null : viewAfter;
+      const newHistory = result.history ?? history;
+      const lastEntry = newHistory.past[newHistory.past.length - 1];
+      if (lastEntry)
+        lastEntry.viewSnapshot = { before: viewBefore, after: pruned };
+      projectInto(set, result.state, newHistory, { lastError: null });
+      set({ activeGeneratedView: pruned });
+      return true;
+    },
+
     addNode: (node: AppNode) => {
       if (node.type === "imageNode") {
         const data = node.data as ImageNodeData;
@@ -1035,6 +1648,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return;
       }
       dispatch({ type: "deleteNodes", nodeIds: [id] });
+      const view = get().activeGeneratedView;
+      if (view)
+        set({ activeGeneratedView: pruneViewForDeletedNodes(view, [id]) });
     },
 
     deleteEdge: (id: string) => {
@@ -1192,7 +1808,12 @@ export const useAppStore = create<FullAppState>((set, get) => {
           type: "replaceWorkspaceAfterValidatedLoad",
           load: loaded.load,
         });
-        set({ isEditorOpen: false });
+        set({
+          isEditorOpen: false,
+          activeGeneratedView: null,
+          pendingDirectProposal: null,
+          lastSuggestReceipt: null,
+        });
       } catch (error) {
         console.error("Failed to load canvas:", error);
         throw error;
@@ -1324,6 +1945,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
           set({
             lastError: "Folder delete is disabled; use Dissolve SubCanvas",
           });
+        }
+        const view = get().activeGeneratedView;
+        if (view && normals.length) {
+          set({ activeGeneratedView: pruneViewForDeletedNodes(view, normals) });
         }
       }
 

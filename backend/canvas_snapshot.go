@@ -28,22 +28,38 @@ type CanvasSnapshot struct {
 	Edges    []EdgeSnapshot `json:"edges"`
 }
 
+// ViewContextHintCluster is the serializable observation for one provisional
+// cluster. It is named so Wails can generate a valid TypeScript binding.
+type ViewContextHintCluster struct {
+	ClusterID     string   `json:"clusterId"`
+	Label         string   `json:"label"`
+	MemberNodeIDs []string `json:"memberNodeIds"`
+}
+
+type ViewContextHint struct {
+	ViewID   string                   `json:"viewId"`
+	Kind     string                   `json:"kind"`
+	Label    string                   `json:"label"`
+	Clusters []ViewContextHintCluster `json:"clusters"`
+}
+
 type ChatRequest struct {
-	RunID                string          `json:"runId"`
-	SessionID            string          `json:"sessionId"`
-	CanvasID             string          `json:"canvasId"`
-	Prompt               string          `json:"prompt"`
-	TargetNodeID         string          `json:"targetNodeId,omitempty"`
-	DirectContextNodeIDs []string        `json:"directContextNodeIds"`
-	BodyAllowlistNodeIDs []string        `json:"bodyAllowlistNodeIds,omitempty"`
-	WorkspaceID          string          `json:"workspaceId,omitempty"`
-	RuntimeGeneration    string          `json:"runtimeGeneration,omitempty"`
-	ScopeEpoch           int64           `json:"scopeEpoch,omitempty"`
-	RunEpoch             int64           `json:"runEpoch,omitempty"`
-	ContextDigest        string          `json:"contextDigest,omitempty"`
-	ImageProvider        string          `json:"imageProvider,omitempty"`
-	ContextWarning       *ContextWarning `json:"contextWarning,omitempty"`
-	Snapshot             CanvasSnapshot  `json:"snapshot"`
+	RunID                string            `json:"runId"`
+	SessionID            string            `json:"sessionId"`
+	CanvasID             string            `json:"canvasId"`
+	Prompt               string            `json:"prompt"`
+	TargetNodeID         string            `json:"targetNodeId,omitempty"`
+	DirectContextNodeIDs []string          `json:"directContextNodeIds"`
+	BodyAllowlistNodeIDs []string          `json:"bodyAllowlistNodeIds,omitempty"`
+	WorkspaceID          string            `json:"workspaceId,omitempty"`
+	RuntimeGeneration    string            `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch           int64             `json:"scopeEpoch,omitempty"`
+	RunEpoch             int64             `json:"runEpoch,omitempty"`
+	ContextDigest        string            `json:"contextDigest,omitempty"`
+	ImageProvider        string            `json:"imageProvider,omitempty"`
+	ContextWarning       *ContextWarning   `json:"contextWarning,omitempty"`
+	ViewHints            []ViewContextHint `json:"viewHints,omitempty"`
+	Snapshot             CanvasSnapshot    `json:"snapshot"`
 }
 
 type ContextWarning struct {

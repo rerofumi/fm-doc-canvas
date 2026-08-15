@@ -1,11 +1,24 @@
-import { applyCommand, createHistory, HistoryState } from "./workspaceCommands";
 import {
-  DomainServices,
-  NodeId,
-  TransformApplyInput,
-  WorkspaceState,
+  applyCommand,
+  createHistory,
+  type HistoryState,
+} from "./workspaceCommands";
+import {
+  type DomainServices,
+  type NodeId,
+  type Provenance,
+  type RelationRecord,
+  type TransformApplyInput,
+  type WorkspaceState,
   isTextBearing,
 } from "./workspace";
+import {
+  type ClusterViewDraft,
+  type GeneratedViewRecord,
+  type RelationBatchItem,
+  revalidateViewSourceRevisions,
+  validateRelationBatch,
+} from "./generatedView";
 
 export type ProposalDecision = "accept" | "modify" | "reject" | "cancel";
 export type ProposalStatus =
@@ -49,7 +62,12 @@ export interface ProposalRecord {
       }
     | {
         kind: "add-relation";
-        relation: { sourceNodeId: NodeId; targetNodeId: NodeId; kind: "source" | "derived" | "supports" | "opposes" | "similar"; reason?: string };
+        relation: {
+          sourceNodeId: NodeId;
+          targetNodeId: NodeId;
+          kind: "source" | "derived" | "supports" | "opposes" | "similar";
+          reason?: string;
+        };
       }
     | {
         kind: "create-image-variant";
@@ -62,6 +80,19 @@ export interface ProposalRecord {
           sourceNodeIds: NodeId[];
           sourceRevisions: Record<NodeId, number>;
         };
+      }
+    | {
+        kind: "add-relation-batch";
+        relations: RelationBatchItem[];
+        sourceRevisions: Record<NodeId, number>;
+        imageInputModes?: Record<NodeId, "vision" | "metadata-only">;
+        provenance?: Provenance;
+      }
+    | {
+        kind: "create-generated-view";
+        view: ClusterViewDraft;
+        provenance?: Provenance;
+        source?: "dialogue" | "direct";
       };
   reason?: string;
   status: ProposalStatus;
@@ -85,6 +116,8 @@ export interface ProposalDecisionInput {
     reason?: string;
   };
   modifiedSuggestedRelations?: TransformApplyInput["suggestedRelations"];
+  modifiedRelations?: RelationBatchItem[];
+  modifiedView?: ClusterViewDraft;
 }
 
 export interface ProposalApplyResult {
@@ -93,6 +126,7 @@ export interface ProposalApplyResult {
   state: WorkspaceState;
   history?: HistoryState;
   error?: string;
+  generatedView?: GeneratedViewRecord;
 }
 
 export function createProposalFromLegacyTool(input: {
@@ -132,7 +166,7 @@ export function createProposalFromLegacyTool(input: {
       status: "proposed",
     };
   }
-  let content = input.proposed;
+  const content = input.proposed;
   return {
     proposalId: input.toolCallId,
     providerToolCallId: input.toolCallId,
@@ -240,15 +274,95 @@ export function createImageVariantProposal(input: {
   };
 }
 
+export function createRelationBatchProposal(input: {
+  proposalId: string;
+  runId: string;
+  runEpoch: number;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  relations: RelationBatchItem[];
+  sourceRevisions: Record<NodeId, number>;
+  imageInputModes?: Record<NodeId, "vision" | "metadata-only">;
+  provenance?: Provenance;
+  providerToolCallId?: string;
+}): ProposalRecord {
+  return {
+    proposalId: input.proposalId,
+    providerToolCallId: input.providerToolCallId ?? input.proposalId,
+    runId: input.runId,
+    runEpoch: input.runEpoch,
+    workspaceId: input.workspaceId,
+    canvasId: input.canvasId,
+    runtimeGeneration: input.runtimeGeneration,
+    scopeEpoch: input.scopeEpoch,
+    operation: {
+      kind: "add-relation-batch",
+      relations: input.relations,
+      sourceRevisions: input.sourceRevisions,
+      imageInputModes: input.imageInputModes,
+      provenance: input.provenance,
+    },
+    status: "proposed",
+  };
+}
+
+export function createGeneratedViewProposal(input: {
+  proposalId: string;
+  runId: string;
+  runEpoch: number;
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  view: ClusterViewDraft;
+  provenance?: Provenance;
+  source?: "dialogue" | "direct";
+  providerToolCallId?: string;
+}): ProposalRecord {
+  return {
+    proposalId: input.proposalId,
+    providerToolCallId: input.providerToolCallId ?? input.proposalId,
+    runId: input.runId,
+    runEpoch: input.runEpoch,
+    workspaceId: input.workspaceId,
+    canvasId: input.canvasId,
+    runtimeGeneration: input.runtimeGeneration,
+    scopeEpoch: input.scopeEpoch,
+    operation: {
+      kind: "create-generated-view",
+      view: input.view,
+      provenance: input.provenance,
+      source: input.source,
+    },
+    status: "proposed",
+  };
+}
+
 export function applyDirectTransform(
   state: WorkspaceState,
   transform: TransformApplyInput,
   services: DomainServices,
   history?: HistoryState,
 ) {
-  const result = applyCommand(state, { type: "applyTransform", input: transform }, services, history ?? createHistory());
+  const result = applyCommand(
+    state,
+    { type: "applyTransform", input: transform },
+    services,
+    history ?? createHistory(),
+  );
   if (!result.ok) {
-    return { status: "error" as const, state, history, error: result.error, receipt: { kind: "direct-action" as const, summary: result.error || "failed" } };
+    return {
+      status: "error" as const,
+      state,
+      history,
+      error: result.error,
+      receipt: {
+        kind: "direct-action" as const,
+        summary: result.error || "failed",
+      },
+    };
   }
   return {
     status: "applied" as const,
@@ -326,12 +440,23 @@ export function decideAndApplyProposal(
           ...op.transform,
           content: decision.modifiedContent ?? op.transform.content,
           reason: decision.modifiedReason ?? op.transform.reason,
-          suggestedRelations: decision.modifiedSuggestedRelations ?? op.transform.suggestedRelations,
+          suggestedRelations:
+            decision.modifiedSuggestedRelations ??
+            op.transform.suggestedRelations,
         },
       };
       nextProposal.status = "modified";
     } else if (op.kind === "add-relation" && decision.modifiedRelation) {
-      op = { ...op, relation: { ...op.relation, ...decision.modifiedRelation } };
+      op = {
+        ...op,
+        relation: { ...op.relation, ...decision.modifiedRelation },
+      };
+      nextProposal.status = "modified";
+    } else if (op.kind === "add-relation-batch") {
+      op = { ...op, relations: decision.modifiedRelations ?? op.relations };
+      nextProposal.status = "modified";
+    } else if (op.kind === "create-generated-view" && decision.modifiedView) {
+      op = { ...op, view: decision.modifiedView };
       nextProposal.status = "modified";
     }
     nextProposal.operation = op;
@@ -342,23 +467,45 @@ export function decideAndApplyProposal(
   if (op.kind === "create-derived-text") {
     const transform = {
       ...op.transform,
-      content: decision.decision === "modify" ? (decision.modifiedContent ?? op.transform.content) : op.transform.content,
+      content:
+        decision.decision === "modify"
+          ? (decision.modifiedContent ?? op.transform.content)
+          : op.transform.content,
       reason: decision.modifiedReason ?? op.transform.reason,
       suggestedRelations:
         decision.decision === "modify"
-          ? (decision.modifiedSuggestedRelations ?? op.transform.suggestedRelations)
+          ? (decision.modifiedSuggestedRelations ??
+            op.transform.suggestedRelations)
           : op.transform.suggestedRelations,
     };
-    const result = applyCommand(state, { type: "applyTransform", input: transform }, services, history ?? createHistory());
+    const result = applyCommand(
+      state,
+      { type: "applyTransform", input: transform },
+      services,
+      history ?? createHistory(),
+    );
     if (!result.ok) {
-      nextProposal.status = result.error?.includes("revision") ? "conflict" : "error";
+      nextProposal.status = result.error?.includes("revision")
+        ? "conflict"
+        : "error";
       nextProposal.error = result.error;
-      return { status: nextProposal.status === "conflict" ? "conflict" : "error", proposal: nextProposal, state, history: result.history, error: result.error };
+      return {
+        status: nextProposal.status === "conflict" ? "conflict" : "error",
+        proposal: nextProposal,
+        state,
+        history: result.history,
+        error: result.error,
+      };
     }
     nextProposal.status = "applied";
     nextProposal.createdNodeId = result.createdNodeId;
     nextProposal.receiptId = `receipt-${proposal.proposalId}`;
-    return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
+    return {
+      status: "applied",
+      proposal: nextProposal,
+      state: result.state,
+      history: result.history,
+    };
   }
 
   if (op.kind === "add-relation") {
@@ -367,7 +514,13 @@ export function decideAndApplyProposal(
     if (!source || !target) {
       nextProposal.status = "error";
       nextProposal.error = "relation-endpoint-missing";
-      return { status: "error", proposal: nextProposal, state, history, error: "relation-endpoint-missing" };
+      return {
+        status: "error",
+        proposal: nextProposal,
+        state,
+        history,
+        error: "relation-endpoint-missing",
+      };
     }
     if (
       source.parentCanvasId !== state.runtime.currentCanvasId ||
@@ -375,7 +528,13 @@ export function decideAndApplyProposal(
     ) {
       nextProposal.status = "error";
       nextProposal.error = "relation-endpoint-out-of-scope";
-      return { status: "error", proposal: nextProposal, state, history, error: "relation-endpoint-out-of-scope" };
+      return {
+        status: "error",
+        proposal: nextProposal,
+        state,
+        history,
+        error: "relation-endpoint-out-of-scope",
+      };
     }
     const relation = {
       ...op.relation,
@@ -383,15 +542,31 @@ export function decideAndApplyProposal(
       status: "accepted" as const,
       provenance: { origin: "llm" as const, operation: "propose_relation" },
     };
-    const result = applyCommand(state, { type: "addRelation", relation }, services, history ?? createHistory());
+    const result = applyCommand(
+      state,
+      { type: "addRelation", relation },
+      services,
+      history ?? createHistory(),
+    );
     if (!result.ok) {
       nextProposal.status = "error";
       nextProposal.error = result.error;
-      return { status: "error", proposal: nextProposal, state, history: result.history, error: result.error };
+      return {
+        status: "error",
+        proposal: nextProposal,
+        state,
+        history: result.history,
+        error: result.error,
+      };
     }
     nextProposal.status = "applied";
     nextProposal.receiptId = `receipt-${proposal.proposalId}`;
-    return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
+    return {
+      status: "applied",
+      proposal: nextProposal,
+      state: result.state,
+      history: result.history,
+    };
   }
 
   if (op.kind === "create-image-variant") {
@@ -418,7 +593,8 @@ export function decideAndApplyProposal(
       history ?? createHistory(),
     );
     if (!result.ok) {
-      nextProposal.status = result.error === "image-variant-stale" ? "stale" : "error";
+      nextProposal.status =
+        result.error === "image-variant-stale" ? "stale" : "error";
       nextProposal.error = result.error;
       return {
         status: nextProposal.status === "stale" ? "stale" : "error",
@@ -431,7 +607,106 @@ export function decideAndApplyProposal(
     nextProposal.status = "applied";
     nextProposal.createdNodeId = result.createdNodeId;
     nextProposal.receiptId = `receipt-${proposal.proposalId}`;
-    return { status: "applied", proposal: nextProposal, state: result.state, history: result.history };
+    return {
+      status: "applied",
+      proposal: nextProposal,
+      state: result.state,
+      history: result.history,
+    };
+  }
+
+  if (op.kind === "add-relation-batch") {
+    const batchError = validateRelationBatch(op.relations, state);
+    if (batchError) {
+      nextProposal.status = "error";
+      nextProposal.error = batchError;
+      return {
+        status: "error",
+        proposal: nextProposal,
+        state,
+        history,
+        error: batchError,
+      };
+    }
+    const relations: RelationRecord[] = op.relations.map((item) => ({
+      id: services.ids.next("relation"),
+      sourceNodeId: item.sourceNodeId,
+      targetNodeId: item.targetNodeId,
+      kind: item.kind,
+      status: "accepted",
+      reason: item.reason,
+      provenance: {
+        ...(op.provenance ?? {}),
+        origin: "relation-batch" as const,
+        operation: "propose_relation_batch",
+      },
+    }));
+    const result = applyCommand(
+      state,
+      { type: "addRelations", relations },
+      services,
+      history ?? createHistory(),
+    );
+    if (!result.ok) {
+      nextProposal.status = "error";
+      nextProposal.error = result.error;
+      return {
+        status: "error",
+        proposal: nextProposal,
+        state,
+        history: result.history,
+        error: result.error,
+      };
+    }
+    nextProposal.status = "applied";
+    nextProposal.receiptId = `receipt-${proposal.proposalId}`;
+    return {
+      status: "applied",
+      proposal: nextProposal,
+      state: result.state,
+      history: result.history,
+    };
+  }
+
+  if (op.kind === "create-generated-view") {
+    const viewError = revalidateViewSourceRevisions(
+      op.view.sourceRevisions,
+      state,
+    );
+    if (viewError) {
+      nextProposal.status = viewError.includes("conflict")
+        ? "conflict"
+        : "stale";
+      nextProposal.error = viewError;
+      return {
+        status: nextProposal.status === "conflict" ? "conflict" : "stale",
+        proposal: nextProposal,
+        state,
+        history,
+        error: viewError,
+      };
+    }
+    const view: GeneratedViewRecord = {
+      ...op.view,
+      id: services.ids.next("view"),
+      kind: "cluster",
+      workspaceId: state.document.workspaceId,
+      canvasId: state.runtime.currentCanvasId,
+      runtimeGeneration: state.runtime.runtimeGeneration,
+      scopeEpoch: state.runtime.scopeEpoch,
+      source: op.source ?? "dialogue",
+      createdAt: services.clock.nowISO(),
+      provenance: { ...(op.provenance ?? {}), origin: "cluster-view" as const },
+    };
+    nextProposal.status = "applied";
+    nextProposal.receiptId = `receipt-${proposal.proposalId}`;
+    return {
+      status: "applied",
+      proposal: nextProposal,
+      state,
+      history,
+      generatedView: view,
+    };
   }
 
   if (op.kind === "create-text") {
@@ -501,8 +776,9 @@ export function decideAndApplyProposal(
     history ?? createHistory(),
   );
   if (!result.ok) {
-    nextProposal.status =
-      result.error?.includes("revision") ? "conflict" : "error";
+    nextProposal.status = result.error?.includes("revision")
+      ? "conflict"
+      : "error";
     nextProposal.error = result.error;
     return {
       status: nextProposal.status === "conflict" ? "conflict" : "error",

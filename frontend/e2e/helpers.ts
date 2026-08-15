@@ -74,6 +74,20 @@ export type E2EBridge = {
   injectProposal: (
     payload: any,
   ) => Promise<{ sessionId: string; runId: string }>;
+  suggestRelations: () => Promise<boolean>;
+  suggestClusters: () => Promise<boolean>;
+  decideDirectProposal: (
+    decision: "accept" | "reject",
+    modified?: { relations?: any[]; view?: any },
+  ) => Promise<any>;
+  closeGeneratedView: () => Promise<void>;
+  convertClusterToSubCanvas: (
+    clusterId: string,
+    label?: string,
+  ) => Promise<boolean>;
+  armDelayedSuggest: () => Promise<void>;
+  releaseDelayedSuggest: () => Promise<void>;
+  armSuggestFault: (code: string) => Promise<void>;
   armUndoFault: () => Promise<void>;
   armTransformFault: () => Promise<void>;
   armDelayedDirectTransform: () => Promise<void>;
@@ -289,12 +303,38 @@ export async function e2e(page: Page): Promise<E2EBridge> {
             (p) => (window as any).__E2E__.applyProposal(p),
             payload,
           ),
-        injectProposal: (payload: any) =>
-          page.evaluate(
-            (p) => (window as any).__E2E__.injectProposal(p),
-            payload,
-          ),
-        armUndoFault: () =>
+         injectProposal: (payload: any) =>
+           page.evaluate(
+             (p) => (window as any).__E2E__.injectProposal(p),
+             payload,
+           ),
+         suggestRelations: () =>
+           page.evaluate(() => (window as any).__E2E__.suggestRelations()),
+         suggestClusters: () =>
+           page.evaluate(() => (window as any).__E2E__.suggestClusters()),
+         decideDirectProposal: (decision, modified) =>
+           page.evaluate(
+             ({ d, m }) => (window as any).__E2E__.decideDirectProposal(d, m),
+             { d: decision, m: modified },
+           ),
+         closeGeneratedView: () =>
+           page.evaluate(() => (window as any).__E2E__.closeGeneratedView()),
+         convertClusterToSubCanvas: (clusterId, label) =>
+           page.evaluate(
+             ({ id, l }) =>
+               (window as any).__E2E__.convertClusterToSubCanvas(id, l),
+             { id: clusterId, l: label },
+           ),
+         armDelayedSuggest: () =>
+           page.evaluate(() => (window as any).__E2E__.armDelayedSuggest()),
+         releaseDelayedSuggest: () =>
+           page.evaluate(() => (window as any).__E2E__.releaseDelayedSuggest()),
+         armSuggestFault: (code) =>
+           page.evaluate(
+             (value) => (window as any).__E2E__.armSuggestFault(value),
+             code,
+           ),
+         armUndoFault: () =>
           page.evaluate(() => (window as any).__E2E__.armUndoFault()),
         armTransformFault: () =>
           page.evaluate(() => (window as any).__E2E__.armTransformFault()),

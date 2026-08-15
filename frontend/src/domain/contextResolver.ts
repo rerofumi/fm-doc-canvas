@@ -1,14 +1,15 @@
 import { canvasPath, validateDocument } from "./invariants";
+import type { GeneratedViewRecord, ViewContextHint } from "./generatedView";
 import {
-  CanvasId,
-  ContextSelectionState,
-  FocusState,
-  NodeId,
-  RelationId,
-  SelectionState,
-  WorkspaceDocument,
-  WorkspaceRuntime,
-  WorkspaceTargetRef,
+  type CanvasId,
+  type ContextSelectionState,
+  type FocusState,
+  type NodeId,
+  type RelationId,
+  type SelectionState,
+  type WorkspaceDocument,
+  type WorkspaceRuntime,
+  type WorkspaceTargetRef,
   isFolder,
   isTextBearing,
   nodesOnCanvas,
@@ -47,14 +48,27 @@ export interface ResolveContextInput {
   >;
   mode: ResolveMode;
   operation: ResolveOperation;
+  generatedView?: GeneratedViewRecord | null;
 }
 
 export type ContextPayloadDescriptor =
   | { kind: "text"; nodeId: NodeId; destination: "llm" | "image-provider" }
-  | { kind: "image-metadata"; nodeId: NodeId; destination: "llm" | "image-provider" }
-  | { kind: "image-binary"; nodeId: NodeId; destination: "llm" | "image-provider" }
+  | {
+      kind: "image-metadata";
+      nodeId: NodeId;
+      destination: "llm" | "image-provider";
+    }
+  | {
+      kind: "image-binary";
+      nodeId: NodeId;
+      destination: "llm" | "image-provider";
+    }
   | { kind: "canvas-metadata"; canvasId: CanvasId; destination: "llm" }
-  | { kind: "remote-relation-metadata"; relationId: RelationId; destination: "llm" };
+  | {
+      kind: "remote-relation-metadata";
+      relationId: RelationId;
+      destination: "llm";
+    };
 
 export interface SpatialContextHint {
   nodeId: NodeId;
@@ -100,6 +114,7 @@ export interface ContextEnvelope {
   payloadItems: ContextPayloadDescriptor[];
   relationHints: RelationContextHint[];
   spatialHints: SpatialContextHint[];
+  viewHints: ViewContextHint[];
   excludedNodeIds: string[];
   warnings: ContextWarning[];
   contextDigest: string;
@@ -136,7 +151,10 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   const selection = runtime.selection as SelectionState;
   const effectiveTargets: WorkspaceTargetRef[] = [];
   if (selection.selectedNodeIds.length > 0) {
-    effectiveTargets.push({ kind: "nodes", nodeIds: [...selection.selectedNodeIds] });
+    effectiveTargets.push({
+      kind: "nodes",
+      nodeIds: [...selection.selectedNodeIds],
+    });
   }
   for (const t of runtime.contextSelection.addedContextTargets) {
     effectiveTargets.push(t);
@@ -145,7 +163,11 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   const expandNode = (nodeId: NodeId) => {
     const node = document.nodes[nodeId];
     if (!node) {
-      warnings.push({ kind: "missing-node", message: `missing node ${nodeId}`, nodeId });
+      warnings.push({
+        kind: "missing-node",
+        message: `missing node ${nodeId}`,
+        nodeId,
+      });
       return;
     }
     if (node.parentCanvasId !== currentCanvasId) {
@@ -179,13 +201,22 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
           });
           continue;
         }
-        activeCanvasTargets.push({ canvasId: target.canvasId, expansion: "direct-members" });
-        for (const node of nodesOnCanvas(document as WorkspaceDocument, target.canvasId)) {
+        activeCanvasTargets.push({
+          canvasId: target.canvasId,
+          expansion: "direct-members",
+        });
+        for (const node of nodesOnCanvas(
+          document as WorkspaceDocument,
+          target.canvasId,
+        )) {
           if (isFolder(node) || excluded.has(node.id)) continue;
           pushUnique(activeContextNodeIds, node.id);
         }
       } else {
-        activeCanvasTargets.push({ canvasId: target.canvasId, expansion: "metadata-only" });
+        activeCanvasTargets.push({
+          canvasId: target.canvasId,
+          expansion: "metadata-only",
+        });
       }
     }
   }
@@ -194,11 +225,18 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   // web-search only uses explicit selection as query hints; do not pull hidden related bodies.
   const queue = operation === "web-search" ? [] : [...activeContextNodeIds];
   const visited = new Set(activeContextNodeIds);
-  const relations = Object.values(document.relations).sort((a, b) => a.id.localeCompare(b.id));
+  const relations = Object.values(document.relations).sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
   while (queue.length) {
     const id = queue.shift()!;
     const incoming = relations
-      .filter((r) => r.kind === "context" && r.targetNodeId === id && r.status === "accepted")
+      .filter(
+        (r) =>
+          r.kind === "context" &&
+          r.targetNodeId === id &&
+          r.status === "accepted",
+      )
       .sort((a, b) => a.id.localeCompare(b.id));
     for (const rel of incoming) {
       const src = document.nodes[rel.sourceNodeId];
@@ -222,14 +260,24 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   // Candidates
   for (const id of runtime.contextSelection.candidateSeedNodeIds) {
     const n = document.nodes[id];
-    if (n && n.parentCanvasId === currentCanvasId && !excluded.has(id) && !activeContextNodeIds.includes(id)) {
+    if (
+      n &&
+      n.parentCanvasId === currentCanvasId &&
+      !excluded.has(id) &&
+      !activeContextNodeIds.includes(id)
+    ) {
       pushUnique(candidateContextNodeIds, id);
     }
   }
   if (runtime.focus?.target?.kind === "nodes") {
     for (const id of runtime.focus.target.nodeIds) {
       const n = document.nodes[id];
-      if (n && n.parentCanvasId === currentCanvasId && !excluded.has(id) && !activeContextNodeIds.includes(id)) {
+      if (
+        n &&
+        n.parentCanvasId === currentCanvasId &&
+        !excluded.has(id) &&
+        !activeContextNodeIds.includes(id)
+      ) {
         pushUnique(candidateContextNodeIds, id);
       }
     }
@@ -238,7 +286,8 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     const id = selection.activeNodeId;
     if (!activeContextNodeIds.includes(id) && !excluded.has(id)) {
       const n = document.nodes[id];
-      if (n && n.parentCanvasId === currentCanvasId) pushUnique(candidateContextNodeIds, id);
+      if (n && n.parentCanvasId === currentCanvasId)
+        pushUnique(candidateContextNodeIds, id);
     }
   }
 
@@ -253,16 +302,20 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   if (mutationTarget?.kind === "nodes") {
     const kept = mutationTarget.nodeIds.filter((id) => !excluded.has(id));
     if (kept.length === 0) {
-      warnings.push({ kind: "mutation-excluded", message: "mutation target excluded" });
+      warnings.push({
+        kind: "mutation-excluded",
+        message: "mutation target excluded",
+      });
       mutationTarget = undefined;
     } else if (kept.length !== mutationTarget.nodeIds.length) {
       mutationTarget = { kind: "nodes", nodeIds: kept };
     }
   }
 
-  const relationTargetNodeIds = runtime.contextSelection.explicitRelationTargetNodeIds.filter(
-    (id) => document.nodes[id] && !excluded.has(id),
-  );
+  const relationTargetNodeIds =
+    runtime.contextSelection.explicitRelationTargetNodeIds.filter(
+      (id) => document.nodes[id] && !excluded.has(id),
+    );
 
   const bodyAllowlistNodeIds =
     operation === "web-search"
@@ -271,14 +324,22 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
           return !!node && isTextBearing(node);
         })
       : [...activeContextNodeIds];
-  if (mutationTarget?.kind === "nodes" && (operation === "mutate-text" || operation === "read")) {
-    for (const id of mutationTarget.nodeIds) pushUnique(bodyAllowlistNodeIds, id);
+  if (
+    mutationTarget?.kind === "nodes" &&
+    (operation === "mutate-text" || operation === "read")
+  ) {
+    for (const id of mutationTarget.nodeIds)
+      pushUnique(bodyAllowlistNodeIds, id);
   }
 
   const payloadItems: ContextPayloadDescriptor[] = [];
   const relationHints: RelationContextHint[] = relations
     .filter((rel) => rel.status === "accepted")
-    .filter((rel) => activeContextNodeIds.includes(rel.sourceNodeId) || activeContextNodeIds.includes(rel.targetNodeId))
+    .filter(
+      (rel) =>
+        activeContextNodeIds.includes(rel.sourceNodeId) ||
+        activeContextNodeIds.includes(rel.targetNodeId),
+    )
     .map((rel) => ({
       relationId: rel.id,
       sourceNodeId: rel.sourceNodeId,
@@ -289,7 +350,10 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     }));
   const spatialHints: SpatialContextHint[] = activeContextNodeIds
     .map((nodeId) => document.nodes[nodeId])
-    .filter((node): node is NonNullable<typeof node> => Boolean(node) && node.parentCanvasId === currentCanvasId)
+    .filter(
+      (node): node is NonNullable<typeof node> =>
+        Boolean(node) && node.parentCanvasId === currentCanvasId,
+    )
     .map((node) => ({
       nodeId: node.id,
       canvasId: currentCanvasId,
@@ -306,7 +370,9 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   // stay metadata-only, matching F1 REQ-09.
   const selectedImageIds = bodyAllowlistNodeIds.filter((id) => {
     const node = document.nodes[id];
-    return !!node && node.kind === "image" && selection.selectedNodeIds.includes(id);
+    return (
+      !!node && node.kind === "image" && selection.selectedNodeIds.includes(id)
+    );
   });
   let visionBinaryCount = 0;
   const visionBinaryIds = new Set<string>();
@@ -331,14 +397,39 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     } else if (node.kind === "image") {
       if (mode === "dialogue") {
         if (visionBinaryIds.has(id)) {
-          payloadItems.push({ kind: "image-binary", nodeId: id, destination: "llm" });
+          payloadItems.push({
+            kind: "image-binary",
+            nodeId: id,
+            destination: "llm",
+          });
         } else {
-          payloadItems.push({ kind: "image-metadata", nodeId: id, destination: "llm" });
+          payloadItems.push({
+            kind: "image-metadata",
+            nodeId: id,
+            destination: "llm",
+          });
         }
       } else if (operation === "generate-text") {
-        payloadItems.push({ kind: "image-binary", nodeId: id, destination: "llm" });
+        payloadItems.push({
+          kind: "image-binary",
+          nodeId: id,
+          destination: "llm",
+        });
       } else if (operation === "generate-image") {
-        payloadItems.push({ kind: "image-binary", nodeId: id, destination: "image-provider" });
+        payloadItems.push({
+          kind: "image-binary",
+          nodeId: id,
+          destination: "image-provider",
+        });
+      } else if (
+        (operation === "relate" || operation === "group") &&
+        visionBinaryIds.has(id)
+      ) {
+        payloadItems.push({
+          kind: "image-binary",
+          nodeId: id,
+          destination: "llm",
+        });
       } else {
         payloadItems.push({ kind: "image-metadata", nodeId: id, destination });
       }
@@ -346,7 +437,11 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   }
 
   for (const t of activeCanvasTargets) {
-    payloadItems.push({ kind: "canvas-metadata", canvasId: t.canvasId, destination: "llm" });
+    payloadItems.push({
+      kind: "canvas-metadata",
+      canvasId: t.canvasId,
+      destination: "llm",
+    });
   }
 
   for (const relationId of runtime.contextSelection.includedRemoteRelationIds) {
@@ -359,6 +454,29 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     });
   }
 
+  // viewHints: only the active Generated View on the current canvas, and only
+  // clusters whose members intersect the request's active context nodes.
+  const viewHints: ViewContextHint[] = [];
+  const view = input.generatedView ?? null;
+  if (view && view.canvasId === currentCanvasId) {
+    const activeSet = new Set(activeContextNodeIds);
+    const relevant = view.clusters
+      .filter((cluster) => cluster.nodeIds.some((id) => activeSet.has(id)))
+      .map((cluster) => ({
+        clusterId: cluster.id,
+        label: cluster.label,
+        memberNodeIds: cluster.nodeIds.filter((id) => activeSet.has(id)),
+      }));
+    if (relevant.length > 0) {
+      viewHints.push({
+        viewId: view.id,
+        kind: "cluster",
+        label: view.label,
+        clusters: relevant,
+      });
+    }
+  }
+
   const digestSource = JSON.stringify({
     activeContextNodeIds,
     activeCanvasTargets,
@@ -368,6 +486,7 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     payloadItems,
     relationHints,
     spatialHints,
+    viewHints,
     excluded: [...excluded].sort(),
   });
 
@@ -389,6 +508,7 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     payloadItems,
     relationHints,
     spatialHints,
+    viewHints,
     excludedNodeIds: [...excluded],
     warnings,
     contextDigest: stableHash(digestSource),

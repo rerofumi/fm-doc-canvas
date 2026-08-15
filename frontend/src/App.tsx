@@ -8,9 +8,19 @@ import ChatDrawer from "./components/drawer/ChatDrawer";
 import LayoutButton from "./components/layout/LayoutButton";
 import ChatToggleButton from "./components/layout/ChatToggleButton";
 import CanvasBreadcrumb from "./components/layout/CanvasBreadcrumb";
+import GeneratedViewBanner from "./components/canvas/GeneratedViewBanner";
+import DirectProposalPanel from "./components/proposal/DirectProposalPanel";
 import { useAppStore } from "./store/useAppStore";
 import { useChatStore } from "./store/useChatStore";
-import { Save, FolderOpen, Plus, Menu, Trash2, Undo2, Loader2 } from "lucide-react";
+import {
+  Save,
+  FolderOpen,
+  Plus,
+  Menu,
+  Trash2,
+  Undo2,
+  Loader2,
+} from "lucide-react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useE2EBridge } from "./runtime/e2eBridge";
 
@@ -180,12 +190,16 @@ function App() {
         >
           <div>{lastError}</div>
           <div className="mt-0.5 text-[10px] text-red-600">
-            次の操作: Undo、修正して再実行、New Workspace、または relation / transform を作り直す。
+            次の操作: Undo、修正して再実行、New Workspace、または relation /
+            transform を作り直す。
           </div>
         </div>
       )}
 
       <ProjectedContextPanel />
+
+      <GeneratedViewBanner />
+      <DirectProposalPanel />
 
       {lastDirectReceipt && (
         <div
@@ -194,19 +208,27 @@ function App() {
           aria-label="Direct Action result"
           data-testid="direct-action-receipt"
         >
-          <div className="font-semibold">{lastDirectReceipt.operation} applied</div>
+          <div className="font-semibold">
+            {lastDirectReceipt.operation} applied
+          </div>
           <div>{lastDirectReceipt.summary}</div>
           {lastDirectReceipt.createdNodeId && (
             <div>Created derived node: {lastDirectReceipt.createdNodeId}</div>
           )}
           {lastDirectReceipt.diff && (
-            <div className="mt-2 grid gap-2 md:grid-cols-2" data-testid="direct-action-diff">
+            <div
+              className="mt-2 grid gap-2 md:grid-cols-2"
+              data-testid="direct-action-diff"
+            >
               <div>
                 <div className="font-semibold">diff.sources</div>
                 {(lastDirectReceipt.diff.sources || []).map((source, index) => {
                   if (typeof source === "string") {
                     return (
-                      <div key={`src-${index}`} className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-1">
+                      <div
+                        key={`src-${index}`}
+                        className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-1"
+                      >
                         {source}
                       </div>
                     );

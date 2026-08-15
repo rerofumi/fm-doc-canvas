@@ -10,12 +10,20 @@ export function ArmDelayedSearchWeb() {
   return window['go']['main']['App']['ArmDelayedSearchWeb']();
 }
 
+export function ArmDelayedSuggest() {
+  return window['go']['main']['App']['ArmDelayedSuggest']();
+}
+
 export function ArmE2EImageFault(arg1) {
   return window['go']['main']['App']['ArmE2EImageFault'](arg1);
 }
 
 export function ArmE2ESearchFault(arg1) {
   return window['go']['main']['App']['ArmE2ESearchFault'](arg1);
+}
+
+export function ArmE2ESuggestFault(arg1) {
+  return window['go']['main']['App']['ArmE2ESuggestFault'](arg1);
 }
 
 export function CancelChat(arg1) {
@@ -114,6 +122,10 @@ export function ReleaseDelayedSearchWeb() {
   return window['go']['main']['App']['ReleaseDelayedSearchWeb']();
 }
 
+export function ReleaseDelayedSuggest() {
+  return window['go']['main']['App']['ReleaseDelayedSuggest']();
+}
+
 export function ResolveToolApplication(arg1) {
   return window['go']['main']['App']['ResolveToolApplication'](arg1);
 }
@@ -136,4 +148,12 @@ export function SearchWeb(arg1) {
 
 export function SendChat(arg1) {
   return window['go']['main']['App']['SendChat'](arg1);
+}
+
+export function SuggestClusters(arg1) {
+  return window['go']['main']['App']['SuggestClusters'](arg1);
+}
+
+export function SuggestRelations(arg1) {
+  return window['go']['main']['App']['SuggestRelations'](arg1);
 }

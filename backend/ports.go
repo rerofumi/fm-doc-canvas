@@ -437,10 +437,84 @@ func (NoopDialog) OpenFile(context.Context, string, []FileFilter) (string, error
 type FixtureLLM struct {
 	Text string
 
+	// RelationBatchJSON / ClusterViewJSON override the canned Direct suggestion
+	// responses when set (Core E2E assertions use the deterministic defaults).
+	RelationBatchJSON string
+	ClusterViewJSON   string
+
 	mu            sync.Mutex
 	CallCount     int
 	LastUserText  string
 	LastImageURLs []string
+
+	suggestFault string
+	suggestHold  chan struct{}
+}
+
+// SetSuggestFault arms a one-shot Direct suggestion fault for Core E2E error paths.
+func (f *FixtureLLM) SetSuggestFault(code string) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.suggestFault = strings.TrimSpace(code)
+}
+
+// ArmSuggestDelay holds the next Direct suggestion until ReleaseSuggestDelay.
+func (f *FixtureLLM) ArmSuggestDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.suggestHold == nil {
+		f.suggestHold = make(chan struct{})
+	}
+}
+
+// ReleaseSuggestDelay releases a held Direct suggestion.
+func (f *FixtureLLM) ReleaseSuggestDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	hold := f.suggestHold
+	f.suggestHold = nil
+	f.mu.Unlock()
+	if hold != nil {
+		close(hold)
+	}
+}
+
+func (f *FixtureLLM) suggestText(kind string, sourceNodeIDs []string) (string, error) {
+	f.mu.Lock()
+	hold := f.suggestHold
+	fault := f.suggestFault
+	f.suggestFault = ""
+	f.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
+	if fault != "" {
+		return "", fmt.Errorf("%s", fault)
+	}
+	if kind == "relation-batch" {
+		return f.RelationBatchResponse(sourceNodeIDs), nil
+	}
+	return f.ClusterViewResponse(sourceNodeIDs), nil
+}
+
+// SuggestRelationsText returns the Direct Relation batch response, honoring any
+// armed delay / fault.
+func (f *FixtureLLM) SuggestRelationsText(sourceNodeIDs []string) (string, error) {
+	return f.suggestText("relation-batch", sourceNodeIDs)
+}
+
+// SuggestClustersText returns the Direct Cluster View response, honoring any
+// armed delay / fault.
+func (f *FixtureLLM) SuggestClustersText(sourceNodeIDs []string) (string, error) {
+	return f.suggestText("cluster-view", sourceNodeIDs)
 }
 
 func (f *FixtureLLM) reply() string {
@@ -455,6 +529,42 @@ func (f *FixtureLLM) reply() string {
 func (f *FixtureLLM) GenerateText(string, string) (string, error) { return f.reply(), nil }
 func (f *FixtureLLM) GenerateTextWithImages(string, string, []string) (string, error) {
 	return f.reply(), nil
+}
+
+// RelationBatchResponse returns a deterministic valid Relation batch JSON for
+// Core E2E Direct suggestion. A configured override wins over the default.
+func (f *FixtureLLM) RelationBatchResponse(sourceNodeIDs []string) string {
+	if f != nil && f.RelationBatchJSON != "" {
+		return f.RelationBatchJSON
+	}
+	if len(sourceNodeIDs) < 2 {
+		return `{"relations":[]}`
+	}
+	a, b := sourceNodeIDs[0], sourceNodeIDs[1]
+	return fmt.Sprintf(`{"relations":[{"sourceNodeId":%q,"targetNodeId":%q,"kind":"supports","reason":"fixture relation","direction":"forward"}]}`, a, b)
+}
+
+// ClusterViewResponse returns a deterministic valid Cluster View JSON for Core
+// E2E Direct suggestion.
+func (f *FixtureLLM) ClusterViewResponse(sourceNodeIDs []string) string {
+	if f != nil && f.ClusterViewJSON != "" {
+		return f.ClusterViewJSON
+	}
+	if len(sourceNodeIDs) < 2 {
+		return `{"label":"Fixture View","clusters":[],"ungroupedNodeIds":[]}`
+	}
+	a, b := sourceNodeIDs[0], sourceNodeIDs[1]
+	clusterA := fmt.Sprintf(`{"label":"Cluster A","reason":"fixture cluster","nodeIds":[%q]}`, a)
+	clusterB := fmt.Sprintf(`{"label":"Cluster B","reason":"fixture cluster","nodeIds":[%q]}`, b)
+	if len(sourceNodeIDs) > 2 {
+		rest := sourceNodeIDs[2:]
+		ids := make([]string, 0, len(rest))
+		for _, id := range rest {
+			ids = append(ids, fmt.Sprintf("%q", id))
+		}
+		clusterB = fmt.Sprintf(`{"label":"Cluster B","reason":"fixture cluster","nodeIds":[%s]}`, strings.Join(ids, ","))
+	}
+	return fmt.Sprintf(`{"label":"Fixture View","clusters":[%s,%s],"ungroupedNodeIds":[]}`, clusterA, clusterB)
 }
 func (f *FixtureLLM) GenerateSummary(string) (string, error)           { return "fixture summary", nil }
 func (f *FixtureLLM) GenerateChatReply(string, string) (string, error) { return f.reply(), nil }
@@ -486,16 +596,38 @@ func fixtureUserContent(messages []ChatMessage) (string, []string) {
 }
 
 func fixtureSourceNodeID(text string) string {
+	ids := fixtureNodeIDs(text)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[0]
+}
+
+// fixtureNodeIDs extracts every "Node <id> (" marker from a Direct Canvas
+// context block so the dialogue fixture can propose relations / clusters over
+// the same allowlisted IDs the frontend actually sent.
+func fixtureNodeIDs(text string) []string {
+	ids := []string{}
+	seen := map[string]bool{}
+	rest := text
 	const marker = "Node "
-	index := strings.Index(text, marker)
-	if index < 0 {
-		return ""
+	for {
+		index := strings.Index(rest, marker)
+		if index < 0 {
+			break
+		}
+		rest = rest[index+len(marker):]
+		fields := strings.Fields(rest)
+		if len(fields) == 0 {
+			break
+		}
+		id := strings.Trim(fields[0], "()[]{}:,.")
+		if id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
 	}
-	fields := strings.Fields(text[index+len(marker):])
-	if len(fields) == 0 {
-		return ""
-	}
-	return strings.Trim(fields[0], "()[]{}:,.")
+	return ids
 }
 
 func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage, _ []ToolDefinition, onText func(string)) (AgentChatResult, error) {
@@ -512,6 +644,48 @@ func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage
 	f.LastImageURLs = append([]string(nil), imageURLs...)
 	f.mu.Unlock()
 
+	lower := strings.ToLower(userText)
+	if strings.Contains(lower, "fixture:relation-batch") || strings.Contains(lower, "fixture:cluster-view") {
+		ids := fixtureNodeIDs(userText)
+		if len(ids) < 2 {
+			ids = []string{"text-1", "artifact-1", "image-1"}
+		}
+		if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
+			if strings.Contains(lower, "fixture:relation-batch") {
+				relations := []map[string]interface{}{{
+					"source_node_id": ids[0],
+					"target_node_id": ids[1],
+					"kind":           "supports",
+					"reason":         "fixture relation batch",
+					"direction":      "forward",
+				}}
+				encoded, _ := json.Marshal(map[string]interface{}{"relations": relations, "reason": "fixture batch"})
+				call := ToolCall{ID: "fixture-relation-batch", Type: "function"}
+				call.Function.Name = "propose_relation_batch"
+				call.Function.Arguments = string(encoded)
+				return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
+			}
+			clusters := []map[string]interface{}{
+				{"label": "Cluster A", "reason": "fixture cluster", "node_ids": []string{ids[0]}},
+				{"label": "Cluster B", "reason": "fixture cluster", "node_ids": ids[1:]},
+			}
+			encoded, _ := json.Marshal(map[string]interface{}{"label": "Fixture View", "clusters": clusters, "ungrouped_node_ids": []string{}})
+			call := ToolCall{ID: "fixture-cluster-view", Type: "function"}
+			call.Function.Name = "propose_cluster_view"
+			call.Function.Arguments = string(encoded)
+			return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
+		}
+		readCalls := make([]ToolCall, 0, len(ids))
+		for _, id := range ids {
+			encoded, _ := json.Marshal(map[string]string{"node_id": id})
+			call := ToolCall{ID: "fixture-read-" + id, Type: "function"}
+			call.Function.Name = "read_canvas_node"
+			call.Function.Arguments = string(encoded)
+			readCalls = append(readCalls, call)
+		}
+		return AgentChatResult{ToolCalls: readCalls}, nil
+	}
+
 	if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
 		content := "fixture image proposal completed"
 		if onText != nil {
@@ -520,7 +694,6 @@ func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage
 		return AgentChatResult{Content: content}, nil
 	}
 
-	lower := strings.ToLower(userText)
 	if strings.Contains(lower, "fixture:generate_image") || strings.Contains(lower, "fixture:generate image") {
 		arguments := map[string]interface{}{"prompt": "a rocket"}
 		if sourceID := fixtureSourceNodeID(userText); sourceID != "" {
@@ -532,7 +705,6 @@ func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage
 		call.Function.Arguments = string(encoded)
 		return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
 	}
-
 	content := "fixture vision: the generated result differs from the stated intent"
 	if onText != nil {
 		onText(content)

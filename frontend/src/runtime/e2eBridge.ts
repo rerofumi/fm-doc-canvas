@@ -83,8 +83,11 @@ export function installE2EBridge(env: RuntimeEnvironment) {
         runtimeGeneration: app.workspace.runtime.runtimeGeneration,
         asyncRuns: app.workspace.runtime.asyncRuns,
         boundaryAggregates: app.boundaryAggregates,
-        lastDirectReceipt: app.lastDirectReceipt,
-        activePacket: app.activePacket,
+         lastDirectReceipt: app.lastDirectReceipt,
+         pendingDirectProposal: app.pendingDirectProposal,
+         activeGeneratedView: app.activeGeneratedView,
+         lastSuggestReceipt: app.lastSuggestReceipt,
+         activePacket: app.activePacket,
         lastSearchRequest: app.lastSearchRequest,
         lastOpenedURL: app.lastOpenedURL,
         lastSearchReceipt: app.lastSearchReceipt,
@@ -401,7 +404,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
     async applyProposal(payload: any) {
       return useAppStore.getState().applyToolProposal(payload);
     },
-    async injectProposal(payload: any) {
+     async injectProposal(payload: any) {
       const app = useAppStore.getState();
       const chat = useChatStore.getState();
       chat.setOpen(true);
@@ -436,9 +439,39 @@ export function installE2EBridge(env: RuntimeEnvironment) {
           runEpoch: run?.epoch,
         },
       });
-      return { sessionId: session.id, runId };
-    },
-    async armUndoFault() {
+       return { sessionId: session.id, runId };
+     },
+     async suggestRelations() {
+       return useAppStore.getState().runDirectSuggestRelations();
+     },
+     async suggestClusters() {
+       return useAppStore.getState().runDirectSuggestClusters();
+     },
+     async decideDirectProposal(
+       decision: "accept" | "reject",
+       modified?: { relations?: any[]; view?: any },
+     ) {
+       return useAppStore.getState().decideDirectProposal(decision, modified);
+     },
+     async closeGeneratedView() {
+       useAppStore.getState().closeGeneratedView();
+     },
+     async convertClusterToSubCanvas(clusterId: string, label?: string) {
+       return useAppStore.getState().convertClusterToSubCanvas(clusterId, label);
+     },
+     async armDelayedSuggest() {
+       const GeneratedBackend = await import("../../wailsjs/go/main/App");
+       return (GeneratedBackend as any).ArmDelayedSuggest();
+     },
+     async releaseDelayedSuggest() {
+       const GeneratedBackend = await import("../../wailsjs/go/main/App");
+       return (GeneratedBackend as any).ReleaseDelayedSuggest();
+     },
+     async armSuggestFault(code: string) {
+       const GeneratedBackend = await import("../../wailsjs/go/main/App");
+       return (GeneratedBackend as any).ArmE2ESuggestFault(code);
+     },
+     async armUndoFault() {
       env.faultPlan = { failOnceAt: "undo-before-commit" };
       env.faultState = { consumed: {} };
       const { configureAppRuntime } = await import("../store/useAppStore");

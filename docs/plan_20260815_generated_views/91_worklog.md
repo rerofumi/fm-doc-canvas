@@ -104,3 +104,21 @@ worklog: enabled
 - Decision: View-local共同編集は現コードベース中心の部分実装（rename / 既存cluster間member移動 / 除外 / 削除）を維持し、新規cluster / split / merge / ungrouped追加は後続候補とする。
 - Artifacts updated: `10_claim.md`、`20_app_requirement.md`、`30_requirement.md`、`40_specification.md`、`50_review_notes.md`、`60_review_packet.md`、`90_status.md`、`91_worklog.md`。
 - Handoff: 修正後traceabilityを再確認し、WP-0 spikeから実装を開始する。
+
+## WL-010 — Step 10: Implementation (WP-0〜4)
+
+- Date/time: 2026-08-15
+- Actor/session: Pi implementation session
+- Purpose: `40_specification.md` に従って F-5B core slice を実装する。
+- Sources and checks: `40_specification.md`、`30_requirement.md`、`50_review_notes.md`、既存 `workspace.ts` / `proposal.ts` / `workspaceCommands.ts` / `contextResolver.ts` / `useAppStore.ts` / `agent_loop.go` / `agent_types.go` / `app.go` / `context_packet.go` の F2〜F4 パターン。
+- Actions:
+  - Backend（WP-2）: `agent_types.go` に RelationBatch / ClusterView DTO と DirectSuggest request の Validate、`agent_loop.go` に `propose_relation_batch` / `propose_cluster_view` tool、`suggest_service.go`（新規）に structured JSON parse、`app.go` に `SuggestRelations` / `SuggestClusters` + E2E arm/delay、`system_prompt.go` に無断確定禁止ルール、`f5_suggest_test.go`（新規）。
+  - Frontend domain（WP-1）: `generatedView.ts`（新規、正規化 / 検証 / view-local edit / hull / revalidate）、`workspace.ts` に `addRelations` + HistoryEntry.viewSnapshot、`workspaceCommands.ts` に atomic `addRelations`、`proposal.ts` に `add-relation-batch` / `create-generated-view` の proposal 経路、`contextResolver.ts` に `viewHints`。
+  - Store / lifecycle（WP-3）: `useAppStore.ts` に `activeGeneratedView` / direct suggest actions / composite SubCanvas undo / navigation・load・delete での縮退。
+  - UI（WP-4）: `ClusterHullNode` / `GeneratedViewBanner` / `ConvertClusterDialog` / `RelationBatchProposalCard` / `ClusterViewProposalCard` / `DirectProposalPanel`、`CanvasArea` hull inject + context menu、`App.tsx` banner / proposal 描画。
+  - Tests（WP-5）: `f5RelationBatch.test.ts` / `f5GeneratedView.test.ts`（新規）を `f2Transform.test.ts` entry から import。
+- Decision: overlay は pseudo node 方式（`selectable/draggable/connectable=false`、低 z）で確定。Direct は F4 Vision allowlist + metadata fallback を再利用。
+- Verification: `go test -count=1 ./...` exit 0、`go vet ./...` exit 0、`npm --prefix frontend run test`（F5 test 名出力確認）exit 0、`npm --prefix frontend run build`（tsc + vite）exit 0。
+- Alternatives rejected or deferred: SVG overlay（spike 不要と判定）、batch の個別 Proposal 分割（R-04 に従い addRelations 単一 transaction）。
+- Artifacts updated: `app.go`、`backend/*`、`frontend/src/domain/*`、`frontend/src/store/*`、`frontend/src/components/*`、`frontend/src/types/chat.ts`、`frontend/src/tests/*`、`90_status.md`、`91_worklog.md`。
+- Handoff: Core E2E（`mise run e2e` / ce2e-f5）と REQ-17 E4 は別 session で実施。受理後 `05_roadmap.md` / current docs へ反映。

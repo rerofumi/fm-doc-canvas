@@ -60,6 +60,7 @@ export default function ToolCard({
   const [modifiedSuggested, setModifiedSuggested] = useState<SuggestedRelation[]>(
     proposal?.transform?.suggestedRelations ? [...proposal.transform.suggestedRelations] : [],
   );
+  const [excludedBatch, setExcludedBatch] = useState<Set<number>>(new Set());
   const [imagePreviewURL, setImagePreviewURL] = useState<string | null>(null);
   const [imagePreviewError, setImagePreviewError] = useState<string | null>(null);
 
@@ -111,18 +112,26 @@ export default function ToolCard({
 
   const decide = async (decision: "accept" | "modify" | "reject") => {
     if (!proposal) return;
-    const modified =
-      decision === "modify"
-        ? proposal.operation === "transform"
-          ? {
-              content: modifiedContent,
-              reason: modifiedReason,
-              suggestedRelations: modifiedSuggested,
-            }
-          : proposal.operation === "relation" && modifiedRelation
-            ? { relation: modifiedRelation, content: modifiedContent, reason: modifiedReason }
-            : modifiedContent
-        : undefined;
+    let modified: any;
+    if (decision === "modify") {
+      if (proposal.operation === "transform") {
+        modified = {
+          content: modifiedContent,
+          reason: modifiedReason,
+          suggestedRelations: modifiedSuggested,
+        };
+      } else if (proposal.operation === "relation-batch" && proposal.relationBatch) {
+        modified = {
+          relations: proposal.relationBatch.relations.filter(
+            (_, index) => !excludedBatch.has(index),
+          ),
+        };
+      } else if (proposal.operation === "relation" && modifiedRelation) {
+        modified = { relation: modifiedRelation, content: modifiedContent, reason: modifiedReason };
+      } else {
+        modified = modifiedContent;
+      }
+    }
     const result = useAppStore.getState().decideToolProposal(proposal, decision, runId, modified);
     if (decision === "reject" || result.status === "rejected") {
       useChatStore.getState().upsertToolEvent(sessionId || "", runId || "", {
@@ -431,6 +440,70 @@ export default function ToolCard({
         </div>
       )}
 
+      {proposal?.operation === "relation-batch" && proposal.relationBatch && (
+        <div className="mt-2 space-y-1" data-testid="relation-batch-proposal">
+          <div className="font-semibold">Relation batch preview</div>
+          {proposal.relationBatch.relations.map((relation, index) => (
+            <label
+              key={`${relation.sourceNodeId}-${relation.targetNodeId}-${index}`}
+              className="flex items-center gap-2 rounded border border-gray-100 p-1"
+            >
+              <input
+                type="checkbox"
+                aria-label={`Include dialogue relation ${index + 1}`}
+                checked={!excludedBatch.has(index)}
+                onChange={() =>
+                  setExcludedBatch((previous) => {
+                    const next = new Set(previous);
+                    if (next.has(index)) next.delete(index);
+                    else next.add(index);
+                    return next;
+                  })
+                }
+              />
+              <span>
+                {relation.sourceNodeId} → {relation.targetNodeId} · {relation.kind}
+                {relation.reason ? ` · ${relation.reason}` : ""}
+              </span>
+            </label>
+          ))}
+          <div className="text-[10px] text-gray-500">
+            {Object.entries(proposal.relationBatch.sourceRevisions)
+              .map(([id, revision]) => `${id}@${revision}`)
+              .join(", ")}
+          </div>
+          <button
+            type="button"
+            className="rounded bg-green-700 px-2 py-1 text-[11px] font-bold text-white disabled:opacity-40"
+            aria-label="Accept selected dialogue relations"
+            disabled={proposal.relationBatch.relations.every((_, index) => excludedBatch.has(index))}
+            onClick={() => void decide("modify")}
+          >
+            Accept selected relations
+          </button>
+        </div>
+      )}
+
+      {proposal?.operation === "generated-view" && proposal.generatedView && (
+        <div className="mt-2 space-y-1" data-testid="generated-view-proposal">
+          <div className="font-semibold">Cluster View preview · {proposal.generatedView.viewLabel}</div>
+          {proposal.generatedView.clusters.map((cluster) => (
+            <div key={cluster.label} className="rounded border border-gray-100 p-1">
+              <div className="font-semibold">
+                {cluster.label}
+                {cluster.reason ? ` · ${cluster.reason}` : ""}
+              </div>
+              <div className="font-mono text-[10px]">{cluster.nodeIds.join(", ")}</div>
+            </div>
+          ))}
+          {proposal.generatedView.ungroupedNodeIds.length > 0 && (
+            <div className="text-gray-500">
+              ungrouped: {proposal.generatedView.ungroupedNodeIds.join(", ")}
+            </div>
+          )}
+        </div>
+      )}
+
       {proposal?.operation === "image-variant" && proposal.imageVariant && (
         <div className="mt-2 space-y-1" data-testid="image-variant-proposal">
           <div className="font-semibold text-gray-700">Generated image preview</div>
@@ -494,7 +567,11 @@ export default function ToolCard({
 
       {event.status === "proposed" && proposal && (
         <div className="mt-2 flex flex-wrap gap-2">
-          {isModifying && proposal.operation !== "relation" && proposal.operation !== "transform" && (
+          {isModifying &&
+            proposal.operation !== "relation" &&
+            proposal.operation !== "transform" &&
+            proposal.operation !== "relation-batch" &&
+            proposal.operation !== "generated-view" && (
             <textarea
               value={modifiedContent}
               onChange={(event) => setModifiedContent(event.target.value)}
@@ -526,7 +603,9 @@ export default function ToolCard({
           >
             Reject
           </button>
-          {!isModifying && (
+          {!isModifying &&
+            proposal.operation !== "relation-batch" &&
+            proposal.operation !== "generated-view" && (
             <button
               type="button"
               className="rounded bg-blue-600 px-2 py-1 text-[11px] font-bold text-white"

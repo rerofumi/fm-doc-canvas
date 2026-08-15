@@ -72,10 +72,10 @@ func TestToolContractsReadAndApplyExactlyOneMatch(t *testing.T) {
 
 func TestEightToolDefinitionsAndReadTools(t *testing.T) {
 	definitions := toolDefinitions()
-	if len(definitions) != 11 {
-		t.Fatalf("tool count = %d, want 11", len(definitions))
+	if len(definitions) != 13 {
+		t.Fatalf("tool count = %d, want 13", len(definitions))
 	}
-	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "web_search", "generate_image"}
+	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "propose_relation_batch", "propose_cluster_view", "web_search", "generate_image"}
 	for index, want := range wantNames {
 		if definitions[index].Function.Name != want {
 			t.Fatalf("tool %d = %q, want %q", index, definitions[index].Function.Name, want)

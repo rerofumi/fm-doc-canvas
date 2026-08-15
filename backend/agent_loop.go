@@ -43,6 +43,8 @@ func toolDefinitions() []ToolDefinition {
 		{Type: "function", Function: ToolFunctionDef{Name: "list_canvas_nodes", Description: "List Canvas node IDs and short identifiers without full content.", Parameters: obj(`"types":{"type":"array","items":{"type":"string"}}`, ``)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "propose_transform", Description: "Propose a non-destructive summarize, compare, or counterpoint Text node derived from nodes already read with read_canvas_node.", Parameters: obj(`"operation":{"type":"string","enum":["summarize","compare","counterpoint"]},"source_node_ids":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"summary":{"type":"string"},"reason":{"type":"string"},"suggested_relations":{"type":"array","items":{"type":"object"}}`, `"operation","source_node_ids","content","summary"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "propose_relation", Description: "Propose a typed Relation between two nodes already read with read_canvas_node. Does not mutate until the human accepts.", Parameters: obj(`"source_node_id":{"type":"string"},"target_node_id":{"type":"string"},"kind":{"type":"string","enum":["source","derived","supports","opposes","similar"]},"reason":{"type":"string"},"direction":{"type":"string","enum":["forward","reverse"]}`, `"source_node_id","target_node_id","kind"`)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "propose_relation_batch", Description: "Propose up to 8 typed Relations across multiple nodes already read with read_canvas_node. Does not mutate until the human accepts.", Parameters: obj(`"relations":{"type":"array","items":{"type":"object","properties":{"source_node_id":{"type":"string"},"target_node_id":{"type":"string"},"kind":{"type":"string","enum":["source","derived","supports","opposes","similar"]},"reason":{"type":"string"},"direction":{"type":"string","enum":["forward","reverse"]}},"required":["source_node_id","target_node_id","kind"]}},"reason":{"type":"string"}`, `"relations"`)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "propose_cluster_view", Description: "Propose a temporary Cluster View grouping nodes already read with read_canvas_node. Does not mutate until the human accepts; only a human converts a cluster to a SubCanvas.", Parameters: obj(`"label":{"type":"string"},"clusters":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"reason":{"type":"string"},"node_ids":{"type":"array","items":{"type":"string"}}},"required":["label","node_ids"]}},"ungrouped_node_ids":{"type":"array","items":{"type":"string"}}`, `"label","clusters"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "web_search", Description: "Search the web for a query and return a Context Packet of observed sources. Does not create nodes. Optional known_urls must be https.", Parameters: obj(`"query":{"type":"string"},"known_urls":{"type":"array","items":{"type":"string"}}`, `"query"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "generate_image", Description: "Generate an image from a prompt using the configured Image Provider. Returns an asset path and a proposal; it does not place a node until the human accepts. Optional source_node_ids are the allowlisted reference images/text already read.", Parameters: obj(`"prompt":{"type":"string"},"source_node_ids":{"type":"array","items":{"type":"string"}}`, `"prompt"`)}},
 	}
@@ -56,6 +58,9 @@ func runAgent(ctx context.Context, llm LLMPort, req ChatRequest, emit func(ChatE
 	system := llm.AgentSystemPrompt()
 	direct := req.Snapshot.directContext(req.DirectContextNodeIDs)
 	user := fmt.Sprintf("Direct Canvas context:\n%s\n\nUser request:\n%s", direct, req.Prompt)
+	if len(req.ViewHints) > 0 {
+		user = formatViewHints(req.ViewHints) + "\n\n" + user
+	}
 
 	// Resolve vision images: allowlisted image nodes in snapshot with ImageIncluded=true
 	visionImages := make([]NodeSnapshot, 0)
@@ -325,6 +330,163 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 		}
 		return awaitApproval(ctx, state, proposal)
 
+	case "propose_relation_batch":
+		items := []interface{}{}
+		if values, ok := args["relations"].([]interface{}); ok {
+			items = values
+		}
+		if len(items) == 0 {
+			return toolResult{Status: "error", Content: "relations is required"}
+		}
+		if len(items) > MaxRelationBatch {
+			return toolResult{Status: "error", Content: "relation-batch-cap-exceeded"}
+		}
+		relations := make([]RelationBatchItem, 0, len(items))
+		revisions := map[string]int64{}
+		seen := map[string]bool{}
+		for _, raw := range items {
+			obj, ok := raw.(map[string]interface{})
+			if !ok {
+				return toolResult{Status: "error", Content: "each relation must be an object"}
+			}
+			str := func(name string) string { value, _ := obj[name].(string); return value }
+			item := RelationBatchItem{
+				SourceNodeID: str("source_node_id"),
+				TargetNodeID: str("target_node_id"),
+				Kind:         str("kind"),
+				Reason:       str("reason"),
+				Direction:    normalizeDirection(str("direction")),
+			}
+			from, to := item.SourceNodeID, item.TargetNodeID
+			if item.Direction == "reverse" {
+				from, to = to, from
+			}
+			item.SourceNodeID, item.TargetNodeID = from, to
+			if from == "" || to == "" {
+				return toolResult{Status: "error", Content: "source_node_id and target_node_id are required"}
+			}
+			if from == to {
+				return toolResult{Status: "error", Content: "self-relation"}
+			}
+			if !validRelationKind(item.Kind) {
+				return toolResult{Status: "error", Content: "invalid relation kind"}
+			}
+			if _, ok := state.readNodes[from]; !ok {
+				return toolResult{Status: "error", Content: "read_canvas_node must succeed for every relation endpoint"}
+			}
+			if _, ok := state.readNodes[to]; !ok {
+				return toolResult{Status: "error", Content: "read_canvas_node must succeed for every relation endpoint"}
+			}
+			key := from + "|" + to + "|" + item.Kind
+			if seen[key] {
+				return toolResult{Status: "error", Content: "duplicate relation in batch"}
+			}
+			seen[key] = true
+			revisions[from] = state.readRevs[from]
+			revisions[to] = state.readRevs[to]
+			relations = append(relations, item)
+		}
+		summary := fmt.Sprintf("%d relations proposed", len(relations))
+		proposal := &ToolApplyProposal{
+			ToolCallID:      call.ID,
+			Operation:       "relation-batch",
+			Proposed:        summary,
+			LastEditSummary: stringArg("reason"),
+			RelationBatch: &RelationBatchProposal{
+				Relations:       relations,
+				SourceRevisions: revisions,
+			},
+		}
+		return awaitApproval(ctx, state, proposal)
+
+	case "propose_cluster_view":
+		label := stringArg("label")
+		if strings.TrimSpace(label) == "" {
+			return toolResult{Status: "error", Content: "label is required"}
+		}
+		rawClusters := []interface{}{}
+		if values, ok := args["clusters"].([]interface{}); ok {
+			rawClusters = values
+		}
+		if len(rawClusters) < MinClusterViewClusters {
+			return toolResult{Status: "error", Content: "cluster-view-requires-2-clusters"}
+		}
+		if len(rawClusters) > MaxClusterViewClusters {
+			return toolResult{Status: "error", Content: "cluster-view-cap-exceeded"}
+		}
+		clusters := make([]ClusterViewCluster, 0, len(rawClusters))
+		seen := map[string]bool{}
+		revisions := map[string]int64{}
+		total := 0
+		for _, raw := range rawClusters {
+			obj, ok := raw.(map[string]interface{})
+			if !ok {
+				return toolResult{Status: "error", Content: "each cluster must be an object"}
+			}
+			clusterLabel, _ := obj["label"].(string)
+			if strings.TrimSpace(clusterLabel) == "" {
+				return toolResult{Status: "error", Content: "cluster-label-required"}
+			}
+			reason, _ := obj["reason"].(string)
+			ids := []string{}
+			if values, ok := obj["node_ids"].([]interface{}); ok {
+				for _, value := range values {
+					if id, ok := value.(string); ok {
+						ids = append(ids, id)
+					}
+				}
+			}
+			if len(ids) == 0 {
+				return toolResult{Status: "error", Content: "cluster-member-empty"}
+			}
+			for _, id := range ids {
+				if _, ok := state.request.Snapshot.node(id); !ok {
+					return toolResult{Status: "error", Content: "cluster-member-out-of-scope"}
+				}
+				if _, ok := state.readNodes[id]; !ok {
+					return toolResult{Status: "error", Content: "read_canvas_node must succeed for every cluster member"}
+				}
+				if seen[id] {
+					return toolResult{Status: "error", Content: "cluster-member-duplicate"}
+				}
+				seen[id] = true
+				revisions[id] = state.readRevs[id]
+				total++
+			}
+			clusters = append(clusters, ClusterViewCluster{Label: clusterLabel, Reason: reason, NodeIDs: ids})
+		}
+		if total > MaxClusterViewNodes {
+			return toolResult{Status: "error", Content: "cluster-view-node-cap-exceeded"}
+		}
+		ungrouped := []string{}
+		if values, ok := args["ungrouped_node_ids"].([]interface{}); ok {
+			for _, value := range values {
+				if id, ok := value.(string); ok {
+					if _, ok := state.request.Snapshot.node(id); !ok {
+						return toolResult{Status: "error", Content: "cluster-ungrouped-out-of-scope"}
+					}
+					if seen[id] {
+						return toolResult{Status: "error", Content: "cluster-ungrouped-duplicate"}
+					}
+					ungrouped = append(ungrouped, id)
+				}
+			}
+		}
+		summary := fmt.Sprintf("%s (%d clusters)", label, len(clusters))
+		proposal := &ToolApplyProposal{
+			ToolCallID:      call.ID,
+			Operation:       "generated-view",
+			Proposed:        summary,
+			LastEditSummary: label,
+			GeneratedView: &ClusterViewProposal{
+				ViewLabel:        label,
+				Clusters:         clusters,
+				UngroupedNodeIDs: ungrouped,
+				SourceRevisions:  revisions,
+			},
+		}
+		return awaitApproval(ctx, state, proposal)
+
 	case "list_artifacts":
 		result := make([]map[string]interface{}, 0)
 		for _, node := range state.request.Snapshot.Nodes {
@@ -555,7 +717,8 @@ func normalizeMergedToolCall(call ToolCall) ToolCall {
 	known := []string{
 		"read_artifact", "apply_edit", "write_artifact", "list_artifacts",
 		"search_artifact", "read_canvas_node", "list_canvas_nodes",
-		"propose_transform", "propose_relation", "web_search", "generate_image",
+		"propose_transform", "propose_relation", "propose_relation_batch",
+		"propose_cluster_view", "web_search", "generate_image",
 	}
 	name := call.Function.Name
 	for _, candidate := range known {
@@ -649,6 +812,20 @@ func fallbackClock(clock Clock) Clock {
 		return clock
 	}
 	return SystemClock{}
+}
+
+// formatViewHints renders the active provisional Cluster View as an observation
+// for the agent. It is explicitly not a confirmed relation or semantic group.
+func formatViewHints(hints []ViewContextHint) string {
+	sections := make([]string, 0, len(hints))
+	for _, hint := range hints {
+		lines := []string{fmt.Sprintf("Active provisional cluster view %q (observation only, not confirmed relations):", hint.Label)}
+		for _, cluster := range hint.Clusters {
+			lines = append(lines, fmt.Sprintf("- cluster %q: %s", cluster.Label, strings.Join(cluster.MemberNodeIDs, ", ")))
+		}
+		sections = append(sections, strings.Join(lines, "\n"))
+	}
+	return strings.Join(sections, "\n")
 }
 
 func firstLine(text string) string {

@@ -50,9 +50,152 @@ type ToolApplyProposal struct {
 	RuntimeGeneration string             `json:"runtimeGeneration,omitempty"`
 	ScopeEpoch        int64              `json:"scopeEpoch,omitempty"`
 	RunEpoch          int64              `json:"runEpoch,omitempty"`
-	Transform         *TransformProposal `json:"transform,omitempty"`
-	Relation          *RelationProposal  `json:"relation,omitempty"`
-	ImageVariant      *ImageVariantProposal `json:"imageVariant,omitempty"`
+	Transform         *TransformProposal     `json:"transform,omitempty"`
+	Relation          *RelationProposal      `json:"relation,omitempty"`
+	ImageVariant      *ImageVariantProposal  `json:"imageVariant,omitempty"`
+	RelationBatch     *RelationBatchProposal `json:"relationBatch,omitempty"`
+	GeneratedView     *ClusterViewProposal   `json:"generatedView,omitempty"`
+}
+
+// RelationBatchItem is one proposed Relation inside a Relation batch suggestion.
+// Direction resolves to the effective source/target in the backend, so the
+// frontend treats sourceNodeId/targetNodeId as already-resolved endpoints.
+type RelationBatchItem struct {
+	SourceNodeID string `json:"sourceNodeId"`
+	TargetNodeID string `json:"targetNodeId"`
+	Kind         string `json:"kind"`
+	Reason       string `json:"reason,omitempty"`
+	Direction    string `json:"direction,omitempty"`
+}
+
+// RelationBatchProposal is the Proposal contract shared by the Dialogue
+// propose_relation_batch tool and the Direct SuggestRelations action.
+type RelationBatchProposal struct {
+	Relations         []RelationBatchItem    `json:"relations"`
+	SourceRevisions   map[string]int64       `json:"sourceRevisions,omitempty"`
+	ImageInputModes   map[string]string      `json:"imageInputModes,omitempty"`
+	Sources           []TransformSourcePreview `json:"sources,omitempty"`
+	WorkspaceID       string                 `json:"workspaceId,omitempty"`
+	CanvasID          string                 `json:"canvasId,omitempty"`
+	RuntimeGeneration string                 `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch        int64                  `json:"scopeEpoch,omitempty"`
+	RunEpoch          int64                  `json:"runEpoch,omitempty"`
+}
+
+// ClusterViewCluster is one named group inside a Cluster View proposal.
+type ClusterViewCluster struct {
+	Label   string   `json:"label"`
+	Reason  string   `json:"reason,omitempty"`
+	NodeIDs []string `json:"nodeIds"`
+}
+
+// ClusterViewProposal is the Proposal contract shared by the Dialogue
+// propose_cluster_view tool and the Direct SuggestClusters action.
+type ClusterViewProposal struct {
+	ViewLabel         string              `json:"viewLabel"`
+	Clusters          []ClusterViewCluster `json:"clusters"`
+	UngroupedNodeIDs  []string            `json:"ungroupedNodeIds"`
+	SourceRevisions   map[string]int64    `json:"sourceRevisions,omitempty"`
+	ImageInputModes   map[string]string   `json:"imageInputModes,omitempty"`
+	WorkspaceID       string              `json:"workspaceId,omitempty"`
+	CanvasID          string              `json:"canvasId,omitempty"`
+	RuntimeGeneration string              `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch        int64               `json:"scopeEpoch,omitempty"`
+	RunEpoch          int64               `json:"runEpoch,omitempty"`
+}
+
+// DirectSuggestRelationsRequest is the allowlisted one-shot Relation batch
+// suggestion request. It mirrors DirectTransformRequest's correlation contract
+// but allows Image nodes (metadata or vision) in the source set.
+type DirectSuggestRelationsRequest struct {
+	WorkspaceID       string           `json:"workspaceId"`
+	CanvasID          string           `json:"canvasId"`
+	RuntimeGeneration string           `json:"runtimeGeneration"`
+	ScopeEpoch        int64            `json:"scopeEpoch"`
+	ContextDigest     string           `json:"contextDigest"`
+	SourceNodeIDs     []string         `json:"sourceNodeIds"`
+	SourceRevisions   map[string]int64 `json:"sourceRevisions"`
+	SourceNodes       []NodeSnapshot   `json:"sourceNodes"`
+}
+
+// DirectSuggestClustersRequest is the allowlisted one-shot Cluster View
+// suggestion request (≤ 40 nodes).
+type DirectSuggestClustersRequest struct {
+	WorkspaceID       string           `json:"workspaceId"`
+	CanvasID          string           `json:"canvasId"`
+	RuntimeGeneration string           `json:"runtimeGeneration"`
+	ScopeEpoch        int64            `json:"scopeEpoch"`
+	ContextDigest     string           `json:"contextDigest"`
+	SourceNodeIDs     []string         `json:"sourceNodeIds"`
+	SourceRevisions   map[string]int64 `json:"sourceRevisions"`
+	SourceNodes       []NodeSnapshot   `json:"sourceNodes"`
+}
+
+// Validate checks the shared allowlisted source envelope for Direct suggestions.
+func (r DirectSuggestRelationsRequest) Validate() error {
+	return validateDirectSuggest(r.WorkspaceID, r.CanvasID, r.RuntimeGeneration, r.ContextDigest, r.ScopeEpoch, r.SourceNodeIDs, r.SourceRevisions, r.SourceNodes, 2, 0)
+}
+
+// Validate checks the shared allowlisted source envelope for Direct Cluster View.
+func (r DirectSuggestClustersRequest) Validate() error {
+	return validateDirectSuggest(r.WorkspaceID, r.CanvasID, r.RuntimeGeneration, r.ContextDigest, r.ScopeEpoch, r.SourceNodeIDs, r.SourceRevisions, r.SourceNodes, 2, MaxClusterViewNodes)
+}
+
+func validateDirectSuggest(workspaceID, canvasID, runtimeGeneration, contextDigest string, scopeEpoch int64, sourceNodeIDs []string, sourceRevisions map[string]int64, sourceNodes []NodeSnapshot, minNodes, maxNodes int) error {
+	if workspaceID == "" || canvasID == "" || runtimeGeneration == "" || contextDigest == "" {
+		return fmt.Errorf("direct suggest scope correlation is incomplete")
+	}
+	if len(sourceNodeIDs) < minNodes {
+		return fmt.Errorf("invalid source arity")
+	}
+	if maxNodes > 0 && len(sourceNodeIDs) > maxNodes {
+		return fmt.Errorf("suggest-node-cap-exceeded")
+	}
+	seenIDs := map[string]bool{}
+	for _, id := range sourceNodeIDs {
+		if seenIDs[id] {
+			return fmt.Errorf("duplicate source node %q", id)
+		}
+		seenIDs[id] = true
+	}
+	bodyByID := map[string]NodeSnapshot{}
+	for _, node := range sourceNodes {
+		if node.ID == "" {
+			return fmt.Errorf("source node body missing id")
+		}
+		if _, exists := bodyByID[node.ID]; exists {
+			return fmt.Errorf("duplicate source node body %q", node.ID)
+		}
+		if !seenIDs[node.ID] {
+			return fmt.Errorf("extra source node body %q", node.ID)
+		}
+		if node.Type != "text" && node.Type != "artifact" && node.Type != "image" {
+			return fmt.Errorf("source %q has unsupported type %q", node.ID, node.Type)
+		}
+		bodyByID[node.ID] = node
+	}
+	if len(bodyByID) != len(sourceNodeIDs) {
+		return fmt.Errorf("sourceNodes set does not match sourceNodeIds")
+	}
+	if len(sourceRevisions) != len(sourceNodeIDs) {
+		return fmt.Errorf("sourceRevisions set does not match sourceNodeIds")
+	}
+	for id := range sourceRevisions {
+		if !seenIDs[id] {
+			return fmt.Errorf("extra source revision %q", id)
+		}
+	}
+	for _, id := range sourceNodeIDs {
+		body := bodyByID[id]
+		revision, ok := sourceRevisions[id]
+		if !ok {
+			return fmt.Errorf("source revision missing for %q", id)
+		}
+		if revision != body.Revision {
+			return fmt.Errorf("source revision conflict for %q", id)
+		}
+	}
+	return nil
 }
 
 // ImageVariantProposal is the generate-then-place contract for a Dialogue image

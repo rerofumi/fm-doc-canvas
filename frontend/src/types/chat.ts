@@ -1,7 +1,10 @@
 export type ChatRole = "user" | "assistant";
 export type ImageProvider = "openrouter" | "openai" | "google" | "xai";
 export type ChatMessageStatus =
-  "streaming" | "complete" | "cancelled" | "error";
+  | "streaming"
+  | "complete"
+  | "cancelled"
+  | "error";
 
 export type ToolCardStatus =
   | "running"
@@ -30,7 +33,14 @@ export interface ChatToolProposal {
   targetNodeId?: string;
   baseRevision?: number;
   operation:
-    "create" | "replace" | "edit" | "transform" | "relation" | "image-variant";
+    | "create"
+    | "replace"
+    | "edit"
+    | "transform"
+    | "relation"
+    | "image-variant"
+    | "relation-batch"
+    | "generated-view";
   filename?: string;
   proposed: string;
   searchText?: string;
@@ -87,6 +97,24 @@ export interface ChatToolProposal {
     reason?: string;
     direction?: "forward" | "reverse";
   };
+  relationBatch?: {
+    relations: Array<{
+      sourceNodeId: string;
+      targetNodeId: string;
+      kind: "source" | "derived" | "supports" | "opposes" | "similar";
+      reason?: string;
+      direction?: "forward" | "reverse";
+    }>;
+    sourceRevisions: Record<string, number>;
+    imageInputModes?: Record<string, "vision" | "metadata-only">;
+  };
+  generatedView?: {
+    viewLabel: string;
+    clusters: Array<{ label: string; reason?: string; nodeIds: string[] }>;
+    ungroupedNodeIds: string[];
+    sourceRevisions: Record<string, number>;
+    imageInputModes?: Record<string, "vision" | "metadata-only">;
+  };
 }
 
 export interface ChatMessage {
@@ -133,6 +161,16 @@ export interface ChatRequest {
   imageProvider?: ImageProvider;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   contextWarning?: { kind: "branch" | "loop"; message: string };
+  viewHints?: Array<{
+    viewId: string;
+    kind: "cluster";
+    label: string;
+    clusters: Array<{
+      clusterId: string;
+      label: string;
+      memberNodeIds: string[];
+    }>;
+  }>;
   snapshot: {
     canvasId: string;
     nodes: ChatNodeSnapshot[];
@@ -153,7 +191,11 @@ export interface ChatEvent {
 
 export interface DirectTransformReceipt {
   operation:
-    "summarize" | "compare" | "counterpoint" | "generate-image" | string;
+    | "summarize"
+    | "compare"
+    | "counterpoint"
+    | "generate-image"
+    | string;
   sourceNodeIds: string[];
   createdNodeId?: string;
   createdRelationIds?: string[];

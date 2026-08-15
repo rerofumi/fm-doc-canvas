@@ -1,4 +1,5 @@
-import React, { useEffect, useCallback, useRef } from "react";
+import type React from "react";
+import { useEffect, useCallback, useRef } from "react";
 
 interface ContextMenuProps {
   x: number;
@@ -13,6 +14,8 @@ interface ContextMenuProps {
   onAddRelation?: () => void;
   onEditRelation?: () => void;
   onReverseRelation?: () => void;
+  onSuggestRelations?: () => void;
+  onSuggestClusters?: () => void;
   label?: string;
 }
 
@@ -29,6 +32,8 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onAddRelation,
   onEditRelation,
   onReverseRelation,
+  onSuggestRelations,
+  onSuggestClusters,
   label = "Item",
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -53,11 +58,18 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         onClose();
         return;
       }
-      if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") {
+      if (
+        event.key !== "ArrowDown" &&
+        event.key !== "ArrowUp" &&
+        event.key !== "Home" &&
+        event.key !== "End"
+      ) {
         return;
       }
       const items = Array.from(
-        menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])') ?? [],
+        menuRef.current?.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitem"]:not([disabled])',
+        ) ?? [],
       );
       if (!items.length) return;
       event.preventDefault();
@@ -130,23 +142,31 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
             Direct Transform
           </div>
-          {(["summarize", "compare", "counterpoint"] as const).map((operation, index) => (
-            <button
-              key={operation}
-              ref={!onCreateSubCanvas && index === 0 ? firstItemRef : undefined}
-              type="button"
-              role="menuitem"
-              onClick={(event) => {
-                event.stopPropagation();
-                onTransform(operation);
-                onClose();
-              }}
-              className="w-full px-3 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus:bg-indigo-50 focus:outline-none"
-              aria-label={`${operation} selected nodes`}
-            >
-              {operation === "summarize" ? "Summarize" : operation === "compare" ? "Compare" : "Counterpoint"}
-            </button>
-          ))}
+          {(["summarize", "compare", "counterpoint"] as const).map(
+            (operation, index) => (
+              <button
+                key={operation}
+                ref={
+                  !onCreateSubCanvas && index === 0 ? firstItemRef : undefined
+                }
+                type="button"
+                role="menuitem"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTransform(operation);
+                  onClose();
+                }}
+                className="w-full px-3 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus:bg-indigo-50 focus:outline-none"
+                aria-label={`${operation} selected nodes`}
+              >
+                {operation === "summarize"
+                  ? "Summarize"
+                  : operation === "compare"
+                    ? "Compare"
+                    : "Counterpoint"}
+              </button>
+            ),
+          )}
         </>
       )}
       {onSearchWeb && (
@@ -177,6 +197,36 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
           aria-label="Add Relation between selected nodes"
         >
           Add Relation
+        </button>
+      )}
+      {onSuggestRelations && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSuggestRelations();
+            onClose();
+          }}
+          className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none"
+          aria-label="Suggest Relations"
+        >
+          Suggest Relations
+        </button>
+      )}
+      {onSuggestClusters && (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSuggestClusters();
+            onClose();
+          }}
+          className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none"
+          aria-label="Suggest Clusters"
+        >
+          Suggest Clusters
         </button>
       )}
       {onEditRelation && (

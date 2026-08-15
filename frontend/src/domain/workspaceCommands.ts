@@ -1,18 +1,27 @@
-import { validateDocument, isDescendantCanvas, collectSubtreeFolderNodeIds } from "./invariants";
-import { MAX_PROMOTE_ITEMS, countPromoteItems, normalizeHttpsUrl } from "./contextPacket";
 import {
-  CommandResult,
-  DomainServices,
-  FolderNode,
-  HistoryEntry,
-  NodeId,
-  RelationRecord,
-  TextBearingNode,
-  WorkspaceCommand,
-  WorkspaceDocument,
-  WorkspaceNode,
-  WorkspaceRuntime,
-  WorkspaceState,
+  validateDocument,
+  isDescendantCanvas,
+  collectSubtreeFolderNodeIds,
+} from "./invariants";
+import {
+  MAX_PROMOTE_ITEMS,
+  countPromoteItems,
+  normalizeHttpsUrl,
+} from "./contextPacket";
+import { MAX_BATCH_RELATIONS } from "./generatedView";
+import {
+  type CommandResult,
+  type DomainServices,
+  type FolderNode,
+  type HistoryEntry,
+  type NodeId,
+  type RelationRecord,
+  type TextBearingNode,
+  type WorkspaceCommand,
+  type WorkspaceDocument,
+  type WorkspaceNode,
+  type WorkspaceRuntime,
+  type WorkspaceState,
   cloneWorkspaceState,
   createEmptyWorkspace,
   emptyContextSelection,
@@ -101,7 +110,10 @@ function applyRestore(
   }
 
   const next = cloneWorkspaceState(state);
-  next.document = cloneWorkspaceState({ document: cmd.document, runtime: state.runtime }).document;
+  next.document = cloneWorkspaceState({
+    document: cmd.document,
+    runtime: state.runtime,
+  }).document;
   if (cmd.runtimePatch) {
     next.runtime = { ...next.runtime, ...cmd.runtimePatch };
   }
@@ -165,7 +177,10 @@ function makeTextNode(
   return node;
 }
 
-function transformPosition(state: WorkspaceState, sourceNodeIds: string[]): { x: number; y: number } {
+function transformPosition(
+  state: WorkspaceState,
+  sourceNodeIds: string[],
+): { x: number; y: number } {
   const sources = sourceNodeIds
     .map((id) => state.document.nodes[id])
     .filter((node): node is WorkspaceNode => Boolean(node));
@@ -183,7 +198,8 @@ export function applyCommand(
   history?: HistoryState,
 ): CommandResult & { history?: HistoryState } {
   if (command.type === "undo") {
-    if (!history || history.past.length === 0) return { ...fail(state, "nothing to undo"), history };
+    if (!history || history.past.length === 0)
+      return { ...fail(state, "nothing to undo"), history };
     const entry = history.past[history.past.length - 1];
     const result = applyCommand(state, entry.undo, services);
     if (!result.ok) return { ...result, history };
@@ -196,7 +212,8 @@ export function applyCommand(
     };
   }
   if (command.type === "redo") {
-    if (!history || history.future.length === 0) return { ...fail(state, "nothing to redo"), history };
+    if (!history || history.future.length === 0)
+      return { ...fail(state, "nothing to redo"), history };
     const entry = history.future[0];
     const result = applyCommand(state, entry.redo, services);
     if (!result.ok) return { ...result, history };
@@ -261,10 +278,15 @@ export function applyCommand(
     }
     case "createText": {
       isMutation = true;
-      const node = makeTextNode(services, next.runtime.currentCanvasId, command.role, {
-        ...command.input,
-        order: nextOrder(next.document, next.runtime.currentCanvasId),
-      });
+      const node = makeTextNode(
+        services,
+        next.runtime.currentCanvasId,
+        command.role,
+        {
+          ...command.input,
+          order: nextOrder(next.document, next.runtime.currentCanvasId),
+        },
+      );
       next.document.nodes[node.id] = node;
       next.runtime.selection = {
         selectedNodeIds: [node.id],
@@ -281,13 +303,21 @@ export function applyCommand(
     }
     case "importTextFile": {
       isMutation = true;
-      const node = makeTextNode(services, next.runtime.currentCanvasId, "artifact", {
-        content: command.result.content,
-        filename: command.result.filename,
-        position: command.result.position,
-        order: nextOrder(next.document, next.runtime.currentCanvasId),
-        provenance: { origin: "file-import", createdAt: services.clock.nowISO() },
-      });
+      const node = makeTextNode(
+        services,
+        next.runtime.currentCanvasId,
+        "artifact",
+        {
+          content: command.result.content,
+          filename: command.result.filename,
+          position: command.result.position,
+          order: nextOrder(next.document, next.runtime.currentCanvasId),
+          provenance: {
+            origin: "file-import",
+            createdAt: services.clock.nowISO(),
+          },
+        },
+      );
       next.document.nodes[node.id] = node;
       createdNodeId = node.id;
       historyEntry = {
@@ -331,13 +361,17 @@ export function applyCommand(
       if (!input.content.trim()) return fail(state, "empty-transform-output");
       const sourceIds = [...new Set(input.sourceNodeIds)];
       const minimum = input.operation === "compare" ? 2 : 1;
-      if (sourceIds.length < minimum) return fail(state, "invalid-source-arity");
+      if (sourceIds.length < minimum)
+        return fail(state, "invalid-source-arity");
       const sourceNodes: TextBearingNode[] = [];
       for (const id of sourceIds) {
         const node = next.document.nodes[id];
-        if (!node || !isTextBearing(node)) return fail(state, "source must be text-bearing");
-        if (node.parentCanvasId !== next.runtime.currentCanvasId) return fail(state, "source-out-of-scope");
-        if (node.revision !== input.sourceRevisions[id]) return fail(state, "source-revision-conflict");
+        if (!node || !isTextBearing(node))
+          return fail(state, "source must be text-bearing");
+        if (node.parentCanvasId !== next.runtime.currentCanvasId)
+          return fail(state, "source-out-of-scope");
+        if (node.revision !== input.sourceRevisions[id])
+          return fail(state, "source-revision-conflict");
         sourceNodes.push(node);
       }
       if (
@@ -348,52 +382,86 @@ export function applyCommand(
         services.faultState.consumed["apply-transform-before-commit"] = true;
         return fail(state, "E2E fault: apply-transform-before-commit");
       }
-      const output = makeTextNode(services, next.runtime.currentCanvasId, "text", {
-        content: input.content,
-        summary: input.summary,
-        position: input.position ?? transformPosition(next, sourceIds),
-        order: nextOrder(next.document, next.runtime.currentCanvasId),
-        provenance: {
-          origin: input.provenance?.origin ?? "llm",
-          sourceNodeIds: sourceIds,
-          sourceRevisions: input.sourceRevisions,
-          operation: input.operation,
-          provider: input.provenance?.provider,
-          model: input.provenance?.model,
-          createdAt: input.provenance?.createdAt ?? services.clock.nowISO(),
+      const output = makeTextNode(
+        services,
+        next.runtime.currentCanvasId,
+        "text",
+        {
+          content: input.content,
+          summary: input.summary,
+          position: input.position ?? transformPosition(next, sourceIds),
+          order: nextOrder(next.document, next.runtime.currentCanvasId),
+          provenance: {
+            origin: input.provenance?.origin ?? "llm",
+            sourceNodeIds: sourceIds,
+            sourceRevisions: input.sourceRevisions,
+            operation: input.operation,
+            provider: input.provenance?.provider,
+            model: input.provenance?.model,
+            createdAt: input.provenance?.createdAt ?? services.clock.nowISO(),
+          },
         },
-      });
+      );
       next.document.nodes[output.id] = output;
       const relationIds: string[] = [];
-      const addAtomicRelation = (sourceNodeId: string, targetNodeId: string, kind: RelationRecord["kind"], reason?: string) => {
+      const addAtomicRelation = (
+        sourceNodeId: string,
+        targetNodeId: string,
+        kind: RelationRecord["kind"],
+        reason?: string,
+      ) => {
         if (sourceNodeId === targetNodeId) throw new Error("self-relation");
-        if (!next.document.nodes[sourceNodeId] || !next.document.nodes[targetNodeId]) throw new Error("relation-endpoint-missing");
-        const relation = createRelation(services, sourceNodeId, targetNodeId, kind);
+        if (
+          !next.document.nodes[sourceNodeId] ||
+          !next.document.nodes[targetNodeId]
+        )
+          throw new Error("relation-endpoint-missing");
+        const relation = createRelation(
+          services,
+          sourceNodeId,
+          targetNodeId,
+          kind,
+        );
         relation.reason = reason;
         relation.provenance = output.provenance;
         next.document.relations[relation.id] = relation;
         relationIds.push(relation.id);
       };
       try {
-        for (const source of sourceNodes) addAtomicRelation(source.id, output.id, "derived", input.reason);
+        for (const source of sourceNodes)
+          addAtomicRelation(source.id, output.id, "derived", input.reason);
         for (const suggestion of input.suggestedRelations ?? []) {
           const target = suggestion.targetNodeId ?? output.id;
           if (suggestion.kind === "derived") continue;
           // Reject suggested Relation targets outside Current Canvas scope (except the new output).
           if (target !== output.id) {
             const targetNode = next.document.nodes[target];
-            if (!targetNode || targetNode.parentCanvasId !== next.runtime.currentCanvasId) {
+            if (
+              !targetNode ||
+              targetNode.parentCanvasId !== next.runtime.currentCanvasId
+            ) {
               throw new Error("relation-endpoint-out-of-scope");
             }
           }
           const sourceNode = next.document.nodes[suggestion.sourceNodeId];
-          if (!sourceNode || sourceNode.parentCanvasId !== next.runtime.currentCanvasId) {
+          if (
+            !sourceNode ||
+            sourceNode.parentCanvasId !== next.runtime.currentCanvasId
+          ) {
             throw new Error("relation-endpoint-out-of-scope");
           }
-          addAtomicRelation(suggestion.sourceNodeId, target, suggestion.kind, suggestion.reason);
+          addAtomicRelation(
+            suggestion.sourceNodeId,
+            target,
+            suggestion.kind,
+            suggestion.reason,
+          );
         }
       } catch (error) {
-        return fail(state, error instanceof Error ? error.message : "relation apply failed");
+        return fail(
+          state,
+          error instanceof Error ? error.message : "relation apply failed",
+        );
       }
       next.runtime.selection = {
         selectedNodeIds: [output.id],
@@ -413,7 +481,9 @@ export function applyCommand(
         createdNodeId,
         createdRelationIds: relationIds,
         cancelledRunIds,
-        history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
+        history: history
+          ? { past: [...history.past, historyEntry], future: [] }
+          : undefined,
       };
     }
     case "applyImageVariant": {
@@ -439,16 +509,20 @@ export function applyCommand(
       for (const id of sourceIds) {
         const node = next.document.nodes[id];
         if (!node) return fail(state, "image-source-out-of-scope");
-        if (node.parentCanvasId !== next.runtime.currentCanvasId) return fail(state, "image-source-out-of-scope");
-        if (node.revision !== input.sourceRevisions[id]) return fail(state, "image-variant-stale");
+        if (node.parentCanvasId !== next.runtime.currentCanvasId)
+          return fail(state, "image-source-out-of-scope");
+        if (node.revision !== input.sourceRevisions[id])
+          return fail(state, "image-variant-stale");
         sourceNodes.push(node);
       }
       if (
-        services.faultPlan?.failOnceAt === "apply-image-variant-before-commit" &&
+        services.faultPlan?.failOnceAt ===
+          "apply-image-variant-before-commit" &&
         services.faultState &&
         !services.faultState.consumed["apply-image-variant-before-commit"]
       ) {
-        services.faultState.consumed["apply-image-variant-before-commit"] = true;
+        services.faultState.consumed["apply-image-variant-before-commit"] =
+          true;
         return fail(state, "E2E fault: apply-image-variant-before-commit");
       }
       const id = services.ids.next("node");
@@ -488,7 +562,12 @@ export function applyCommand(
           relationIds.push(relation.id);
         }
       } catch (error) {
-        return fail(state, error instanceof Error ? error.message : "image-variant-relation-failed");
+        return fail(
+          state,
+          error instanceof Error
+            ? error.message
+            : "image-variant-relation-failed",
+        );
       }
       next.runtime.selection = {
         selectedNodeIds: [id],
@@ -508,13 +587,16 @@ export function applyCommand(
         createdNodeId,
         createdRelationIds: relationIds,
         cancelledRunIds,
-        history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
+        history: history
+          ? { past: [...history.past, historyEntry], future: [] }
+          : undefined,
       };
     }
     case "promoteContextItems": {
       isMutation = true;
       const input = command.input;
-      if (!input.packetId || input.packetId !== input.packet.packetId) return fail(state, "promote-stale");
+      if (!input.packetId || input.packetId !== input.packet.packetId)
+        return fail(state, "promote-stale");
       if (
         input.workspaceId !== next.document.workspaceId ||
         input.canvasId !== next.runtime.currentCanvasId ||
@@ -528,11 +610,18 @@ export function applyCommand(
       if (countPromoteItems(selectedClaimIds, selectedSourceIds) === 0) {
         return fail(state, "promote-empty-selection");
       }
-      if (countPromoteItems(selectedClaimIds, selectedSourceIds) > MAX_PROMOTE_ITEMS) {
+      if (
+        countPromoteItems(selectedClaimIds, selectedSourceIds) >
+        MAX_PROMOTE_ITEMS
+      ) {
         return fail(state, "promote-cap-exceeded");
       }
-      const claimById = new Map(input.packet.claims.map((claim) => [claim.claimId, claim]));
-      const sourceById = new Map(input.packet.sources.map((source) => [source.sourceId, source]));
+      const claimById = new Map(
+        input.packet.claims.map((claim) => [claim.claimId, claim]),
+      );
+      const sourceById = new Map(
+        input.packet.sources.map((source) => [source.sourceId, source]),
+      );
       for (const id of selectedClaimIds) {
         if (!claimById.has(id)) return fail(state, "promote-stale");
       }
@@ -575,15 +664,26 @@ export function applyCommand(
           const claim = claimById.get(claimId)!;
           const cited = claim.sourceIds
             .map((id) => sourceById.get(id))
-            .filter((source): source is NonNullable<typeof source> => Boolean(source));
+            .filter((source): source is NonNullable<typeof source> =>
+              Boolean(source),
+            );
           const primary = cited[0];
-          const node = makeTextNode(services, next.runtime.currentCanvasId, "text", {
-            content: claim.text,
-            summary: claim.text.split(/\r?\n/, 1)[0] || claim.kind,
-            position: place(index),
-            order: order++,
-            provenance: webProvenance(primary?.url, primary?.domain, primary?.retrievedAt),
-          });
+          const node = makeTextNode(
+            services,
+            next.runtime.currentCanvasId,
+            "text",
+            {
+              content: claim.text,
+              summary: claim.text.split(/\r?\n/, 1)[0] || claim.kind,
+              position: place(index),
+              order: order++,
+              provenance: webProvenance(
+                primary?.url,
+                primary?.domain,
+                primary?.retrievedAt,
+              ),
+            },
+          );
           next.document.nodes[node.id] = node;
           createdIds.push(node.id);
           claimNodeIds.set(claimId, node.id);
@@ -592,14 +692,25 @@ export function applyCommand(
           const source = sourceById.get(sourceId)!;
           const parsed = normalizeHttpsUrl(source.url);
           if ("error" in parsed) throw new Error("promote-invalid-url");
-          const content = [`# ${source.title}`, parsed.url, source.snippet].filter(Boolean).join("\n\n");
-          const node = makeTextNode(services, next.runtime.currentCanvasId, "text", {
-            content,
-            summary: source.title,
-            position: place(selectedClaimIds.length + index),
-            order: order++,
-            provenance: webProvenance(parsed.url, parsed.domain, source.retrievedAt),
-          });
+          const content = [`# ${source.title}`, parsed.url, source.snippet]
+            .filter(Boolean)
+            .join("\n\n");
+          const node = makeTextNode(
+            services,
+            next.runtime.currentCanvasId,
+            "text",
+            {
+              content,
+              summary: source.title,
+              position: place(selectedClaimIds.length + index),
+              order: order++,
+              provenance: webProvenance(
+                parsed.url,
+                parsed.domain,
+                source.retrievedAt,
+              ),
+            },
+          );
           next.document.nodes[node.id] = node;
           createdIds.push(node.id);
           sourceNodeIds.set(sourceId, node.id);
@@ -617,11 +728,17 @@ export function applyCommand(
           if (target.parentCanvasId !== next.runtime.currentCanvasId) {
             throw new Error("promote-out-of-scope");
           }
-          if (fromId === suggestion.targetNodeId) throw new Error("self-relation");
+          if (fromId === suggestion.targetNodeId)
+            throw new Error("self-relation");
           if (!["supports", "opposes", "similar"].includes(suggestion.kind)) {
             throw new Error("invalid relation kind");
           }
-          const relation = createRelation(services, fromId, suggestion.targetNodeId, suggestion.kind);
+          const relation = createRelation(
+            services,
+            fromId,
+            suggestion.targetNodeId,
+            suggestion.kind,
+          );
           relation.reason = suggestion.reason;
           relation.provenance = next.document.nodes[fromId]?.provenance;
           next.document.relations[relation.id] = relation;
@@ -646,16 +763,22 @@ export function applyCommand(
           createdNodeId: createdIds[0],
           createdRelationIds: relationIds,
           cancelledRunIds,
-          history: history ? { past: [...history.past, historyEntry], future: [] } : undefined,
+          history: history
+            ? { past: [...history.past, historyEntry], future: [] }
+            : undefined,
         };
       } catch (error) {
-        return fail(state, error instanceof Error ? error.message : "promote failed");
+        return fail(
+          state,
+          error instanceof Error ? error.message : "promote failed",
+        );
       }
     }
     case "editTextContent": {
       isMutation = true;
       const node = next.document.nodes[command.nodeId];
-      if (!node || !isTextBearing(node)) return fail(state, "text node not found");
+      if (!node || !isTextBearing(node))
+        return fail(state, "text node not found");
       if (node.revision !== command.baseRevision) {
         return fail(state, "content revision conflict");
       }
@@ -675,12 +798,15 @@ export function applyCommand(
     case "editTextMetadata": {
       isMutation = true;
       const node = next.document.nodes[command.nodeId];
-      if (!node || !isTextBearing(node)) return fail(state, "text node not found");
-      if (command.patch.summary !== undefined) node.summary = command.patch.summary;
+      if (!node || !isTextBearing(node))
+        return fail(state, "text node not found");
+      if (command.patch.summary !== undefined)
+        node.summary = command.patch.summary;
       if (command.patch.filename !== undefined) {
         node.filename = sanitizeFilename(command.patch.filename);
       }
-      if (command.patch.language !== undefined) node.language = command.patch.language;
+      if (command.patch.language !== undefined)
+        node.language = command.patch.language;
       if (command.patch.lastEditSummary !== undefined) {
         node.lastEditSummary = command.patch.lastEditSummary;
       }
@@ -697,7 +823,8 @@ export function applyCommand(
     case "switchTextRole": {
       isMutation = true;
       const node = next.document.nodes[command.nodeId];
-      if (!node || !isTextBearing(node)) return fail(state, "text node not found");
+      if (!node || !isTextBearing(node))
+        return fail(state, "text node not found");
       if (node.role === command.role) break;
       if (command.role === "artifact") {
         node.role = "artifact";
@@ -718,7 +845,8 @@ export function applyCommand(
     case "createSubCanvas": {
       isMutation = true;
       const ids = [...new Set(command.nodeIds)];
-      if (ids.length < 2) return fail(state, "createSubCanvas requires 2+ nodes");
+      if (ids.length < 2)
+        return fail(state, "createSubCanvas requires 2+ nodes");
       for (const id of ids) {
         const n = next.document.nodes[id];
         if (!n || n.parentCanvasId !== next.runtime.currentCanvasId) {
@@ -737,7 +865,11 @@ export function applyCommand(
       const first = next.document.nodes[ids[0]];
       const label =
         command.label ||
-        (isTextBearing(first) ? first.summary : isFolder(first) ? first.label : "Group") ||
+        (isTextBearing(first)
+          ? first.summary
+          : isFolder(first)
+            ? first.label
+            : "Group") ||
         "Group";
       const folder: FolderNode = {
         id: folderId,
@@ -786,7 +918,10 @@ export function applyCommand(
       // reject if folder is relation endpoint
       for (const rel of Object.values(next.document.relations)) {
         if (rel.sourceNodeId === folder.id || rel.targetNodeId === folder.id) {
-          return fail(state, "cannot dissolve folder with relations; remove relations first");
+          return fail(
+            state,
+            "cannot dissolve folder with relations; remove relations first",
+          );
         }
       }
       const parentId = canvas.parentCanvasId;
@@ -794,7 +929,8 @@ export function applyCommand(
       for (const member of members) {
         member.parentCanvasId = parentId;
         if (isFolder(member)) {
-          next.document.canvases[member.childCanvasId].parentCanvasId = parentId;
+          next.document.canvases[member.childCanvasId].parentCanvasId =
+            parentId;
         }
       }
       delete next.document.nodes[folder.id];
@@ -817,9 +953,16 @@ export function applyCommand(
       const folder = next.document.nodes[command.folderNodeId];
       if (!folder || !isFolder(folder)) return fail(state, "folder not found");
       const dest = command.destinationCanvasId;
-      if (!next.document.canvases[dest]) return fail(state, "destination missing");
-      if (dest === folder.childCanvasId || isDescendantCanvas(next.document, folder.childCanvasId, dest)) {
-        return fail(state, "cannot move folder subtree into itself or descendant");
+      if (!next.document.canvases[dest])
+        return fail(state, "destination missing");
+      if (
+        dest === folder.childCanvasId ||
+        isDescendantCanvas(next.document, folder.childCanvasId, dest)
+      ) {
+        return fail(
+          state,
+          "cannot move folder subtree into itself or descendant",
+        );
       }
       folder.parentCanvasId = dest;
       folder.position = command.position;
@@ -850,13 +993,20 @@ export function applyCommand(
     case "moveNodes": {
       isMutation = true;
       const dest = command.destinationCanvasId;
-      if (!next.document.canvases[dest]) return fail(state, "destination missing");
+      if (!next.document.canvases[dest])
+        return fail(state, "destination missing");
       for (const id of command.nodeIds) {
         const node = next.document.nodes[id];
         if (!node) return fail(state, `node ${id} missing`);
         if (isFolder(node)) {
-          if (dest === node.childCanvasId || isDescendantCanvas(next.document, node.childCanvasId, dest)) {
-            return fail(state, "cannot move folder subtree into itself or descendant");
+          if (
+            dest === node.childCanvasId ||
+            isDescendantCanvas(next.document, node.childCanvasId, dest)
+          ) {
+            return fail(
+              state,
+              "cannot move folder subtree into itself or descendant",
+            );
           }
         }
       }
@@ -915,13 +1065,20 @@ export function applyCommand(
         delete next.document.nodes[id];
       }
       for (const [rid, rel] of Object.entries(next.document.relations)) {
-        if (command.nodeIds.includes(rel.sourceNodeId) || command.nodeIds.includes(rel.targetNodeId)) {
+        if (
+          command.nodeIds.includes(rel.sourceNodeId) ||
+          command.nodeIds.includes(rel.targetNodeId)
+        ) {
           delete next.document.relations[rid];
         }
       }
       next.runtime.selection = {
-        selectedNodeIds: next.runtime.selection.selectedNodeIds.filter((id) => !command.nodeIds.includes(id)),
-        activeNodeId: command.nodeIds.includes(next.runtime.selection.activeNodeId ?? "")
+        selectedNodeIds: next.runtime.selection.selectedNodeIds.filter(
+          (id) => !command.nodeIds.includes(id),
+        ),
+        activeNodeId: command.nodeIds.includes(
+          next.runtime.selection.activeNodeId ?? "",
+        )
           ? undefined
           : next.runtime.selection.activeNodeId,
         revision: next.runtime.selection.revision + 1,
@@ -936,12 +1093,18 @@ export function applyCommand(
     case "addRelation": {
       isMutation = true;
       const rel = command.relation;
-      if (!next.document.nodes[rel.sourceNodeId] || !next.document.nodes[rel.targetNodeId]) {
+      if (
+        !next.document.nodes[rel.sourceNodeId] ||
+        !next.document.nodes[rel.targetNodeId]
+      ) {
         return fail(state, "relation endpoints missing");
       }
-      if (rel.sourceNodeId === rel.targetNodeId) return fail(state, "self-relation");
-      if (rel.kind === "context" && rel.sourceNodeId === rel.targetNodeId) return fail(state, "self-relation");
-      if (next.document.relations[rel.id]) return fail(state, "duplicate relation id");
+      if (rel.sourceNodeId === rel.targetNodeId)
+        return fail(state, "self-relation");
+      if (rel.kind === "context" && rel.sourceNodeId === rel.targetNodeId)
+        return fail(state, "self-relation");
+      if (next.document.relations[rel.id])
+        return fail(state, "duplicate relation id");
       next.document.relations[rel.id] = { ...rel, status: "accepted" };
       historyEntry = {
         label: "addRelation",
@@ -950,12 +1113,88 @@ export function applyCommand(
       };
       break;
     }
+    case "addRelations": {
+      isMutation = true;
+      const relations = command.relations;
+      if (relations.length === 0) return fail(state, "relation-batch-empty");
+      if (relations.length > MAX_BATCH_RELATIONS)
+        return fail(state, "relation-batch-cap-exceeded");
+      const validKinds = new Set([
+        "source",
+        "derived",
+        "supports",
+        "opposes",
+        "similar",
+      ]);
+      const batchKeys = new Set<string>();
+      const seenIds = new Set<string>();
+      const relationIds: string[] = [];
+      // Validate the whole batch before mutating so a single failure is no-op.
+      for (const rel of relations) {
+        const src = next.document.nodes[rel.sourceNodeId];
+        const tgt = next.document.nodes[rel.targetNodeId];
+        if (!src || !tgt) return fail(state, "relation-endpoint-missing");
+        if (rel.sourceNodeId === rel.targetNodeId)
+          return fail(state, "self-relation");
+        if (!validKinds.has(rel.kind))
+          return fail(state, "invalid relation kind");
+        if (
+          src.parentCanvasId !== next.runtime.currentCanvasId ||
+          tgt.parentCanvasId !== next.runtime.currentCanvasId
+        ) {
+          return fail(state, "relation-endpoint-out-of-scope");
+        }
+        if (next.document.relations[rel.id])
+          return fail(state, "duplicate relation id");
+        if (seenIds.has(rel.id)) return fail(state, "duplicate relation id");
+        seenIds.add(rel.id);
+        const key = `${rel.sourceNodeId}|${rel.targetNodeId}|${rel.kind}`;
+        if (batchKeys.has(key))
+          return fail(state, "duplicate relation in batch");
+        batchKeys.add(key);
+        for (const existing of Object.values(next.document.relations)) {
+          if (
+            existing.sourceNodeId === rel.sourceNodeId &&
+            existing.targetNodeId === rel.targetNodeId &&
+            existing.kind === rel.kind
+          ) {
+            return fail(state, "duplicate-accepted-relation");
+          }
+        }
+        relationIds.push(rel.id);
+      }
+      for (const rel of relations) {
+        next.document.relations[rel.id] = { ...rel, status: "accepted" };
+      }
+      const err = validateDocument(next.document);
+      if (err) return fail(state, err);
+      historyEntry = {
+        label: "addRelations",
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
+      return {
+        ok: true,
+        state: next,
+        historyEntry,
+        createdRelationIds: relationIds,
+        cancelledRunIds,
+        history: history
+          ? { past: [...history.past, historyEntry], future: [] }
+          : undefined,
+      };
+    }
     case "updateRelation": {
       isMutation = true;
       const relation = next.document.relations[command.id];
       if (!relation) return fail(state, "relation missing");
-      const nextRelation = { ...relation, ...command.patch, status: "accepted" as const };
-      if (nextRelation.sourceNodeId === nextRelation.targetNodeId) return fail(state, "self-relation");
+      const nextRelation = {
+        ...relation,
+        ...command.patch,
+        status: "accepted" as const,
+      };
+      if (nextRelation.sourceNodeId === nextRelation.targetNodeId)
+        return fail(state, "self-relation");
       next.document.relations[command.id] = nextRelation;
       historyEntry = {
         label: "updateRelation",
@@ -978,12 +1217,17 @@ export function applyCommand(
         // otherwise valid relation.
         presentation: relation.presentation,
       };
-      historyEntry = { label: "reverseRelation", undo: snapshotRestoreCommand(before), redo: command };
+      historyEntry = {
+        label: "reverseRelation",
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
       break;
     }
     case "removeRelation": {
       isMutation = true;
-      if (!next.document.relations[command.id]) return fail(state, "relation missing");
+      if (!next.document.relations[command.id])
+        return fail(state, "relation missing");
       delete next.document.relations[command.id];
       historyEntry = {
         label: "removeRelation",
@@ -999,7 +1243,8 @@ export function applyCommand(
         return n && n.parentCanvasId === currentId;
       });
       const active =
-        command.state.activeNodeId && selected.includes(command.state.activeNodeId)
+        command.state.activeNodeId &&
+        selected.includes(command.state.activeNodeId)
           ? command.state.activeNodeId
           : selected[0];
       next.runtime.selection = {
@@ -1049,13 +1294,17 @@ export function applyCommand(
       break;
     }
     case "setRelationTargets": {
-      next.runtime.contextSelection.explicitRelationTargetNodeIds = [...command.nodeIds];
+      next.runtime.contextSelection.explicitRelationTargetNodeIds = [
+        ...command.nodeIds,
+      ];
       next.runtime.contextSelection.revision += 1;
       cancelledRunIds = bumpScope(next.runtime);
       break;
     }
     case "setRemoteRelationIncluded": {
-      const set = new Set(next.runtime.contextSelection.includedRemoteRelationIds);
+      const set = new Set(
+        next.runtime.contextSelection.includedRemoteRelationIds,
+      );
       if (command.included) set.add(command.relationId);
       else set.delete(command.relationId);
       next.runtime.contextSelection.includedRemoteRelationIds = [...set];
@@ -1070,14 +1319,19 @@ export function applyCommand(
       break;
     }
     case "setExternalContextRefs": {
-      next.runtime.contextSelection.delegatedSessions = [...command.delegatedSessions];
-      next.runtime.contextSelection.projectedContexts = [...command.projectedContexts];
+      next.runtime.contextSelection.delegatedSessions = [
+        ...command.delegatedSessions,
+      ];
+      next.runtime.contextSelection.projectedContexts = [
+        ...command.projectedContexts,
+      ];
       next.runtime.contextSelection.revision += 1;
       cancelledRunIds = bumpScope(next.runtime);
       break;
     }
     case "navigateCanvas": {
-      if (!next.document.canvases[command.canvasId]) return fail(state, "canvas missing");
+      if (!next.document.canvases[command.canvasId])
+        return fail(state, "canvas missing");
       next.runtime.navigationBackStack = [
         ...next.runtime.navigationBackStack,
         {
@@ -1136,7 +1390,10 @@ export function applyCommand(
       break;
     }
     default:
-      return fail(state, `unknown command ${(command as WorkspaceCommand).type}`);
+      return fail(
+        state,
+        `unknown command ${(command as WorkspaceCommand).type}`,
+      );
   }
 
   const err = validateDocument(next.document);

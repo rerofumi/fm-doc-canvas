@@ -1,19 +1,20 @@
 import { resolveContext } from "../domain/contextResolver";
 import { boundedDialogueHistory } from "../domain/runScope";
-import { WorkspaceState } from "../domain/workspace";
-import {
+import type { WorkspaceState } from "../domain/workspace";
+import type {
   AppNode,
   ArtifactNodeData,
   ImageNodeData,
   TextNodeData,
 } from "../types";
-import {
+import type {
   ChatMessage,
   ChatRequest,
   ChatTarget,
   ImageProvider,
 } from "../types/chat";
 import { traverseContextBackwards } from "./graphUtils";
+import { useAppStore } from "../store/useAppStore";
 
 const firstLine = (text: string) => text.split(/\r?\n/, 1)[0].trim();
 
@@ -100,6 +101,7 @@ export function buildChatRequest(
         runtime: workspace.runtime,
         mode: "dialogue",
         operation: "read",
+        generatedView: useAppStore.getState().activeGeneratedView,
       })
     : null;
 
@@ -190,6 +192,7 @@ export function buildChatRequest(
     imageProvider,
     history: boundedDialogueHistory(messages, 12),
     contextWarning: traversal.warning,
+    viewHints: envelope?.viewHints,
     snapshot: {
       canvasId: workspace?.runtime.currentCanvasId ?? canvasId,
       nodes: snapshotNodes,

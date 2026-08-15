@@ -6,9 +6,13 @@ export function ArmDelayedImageGeneration():Promise<void>;
 
 export function ArmDelayedSearchWeb():Promise<void>;
 
+export function ArmDelayedSuggest():Promise<void>;
+
 export function ArmE2EImageFault(arg1:string):Promise<void>;
 
 export function ArmE2ESearchFault(arg1:string):Promise<void>;
+
+export function ArmE2ESuggestFault(arg1:string):Promise<void>;
 
 export function CancelChat(arg1:string):Promise<void>;
 
@@ -58,6 +62,8 @@ export function ReleaseDelayedImageGeneration():Promise<void>;
 
 export function ReleaseDelayedSearchWeb():Promise<void>;
 
+export function ReleaseDelayedSuggest():Promise<void>;
+
 export function ResolveToolApplication(arg1:backend.ToolApplicationResult):Promise<void>;
 
 export function SaveCanvasToFile(arg1:string):Promise<string>;
@@ -69,3 +75,7 @@ export function SaveConfig(arg1:backend.Config):Promise<void>;
 export function SearchWeb(arg1:backend.WebSearchRequest):Promise<backend.ContextPacket>;
 
 export function SendChat(arg1:backend.ChatRequest):Promise<void>;
+
+export function SuggestClusters(arg1:backend.DirectSuggestClustersRequest):Promise<backend.ClusterViewProposal>;
+
+export function SuggestRelations(arg1:backend.DirectSuggestRelationsRequest):Promise<backend.RelationBatchProposal>;

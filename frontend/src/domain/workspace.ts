@@ -6,7 +6,15 @@ export type NodeId = string;
 export type RelationId = string;
 
 export interface Provenance {
-  origin: "user" | "file-import" | "llm" | "migration" | "web" | "image";
+  origin:
+    | "user"
+    | "file-import"
+    | "llm"
+    | "migration"
+    | "web"
+    | "image"
+    | "relation-batch"
+    | "cluster-view";
   sourceNodeIds?: NodeId[];
   operation?: string;
   provider?: string;
@@ -216,14 +224,25 @@ export interface HistoryEntry {
   label: string;
   undo: WorkspaceCommand;
   redo: WorkspaceCommand;
+  /** Ephemeral active Generated View snapshots for composite transactions. */
+  viewSnapshot?: { before?: unknown; after?: unknown };
 }
 
 export type WorkspaceCommand =
   | { type: "createText"; role: "text" | "artifact"; input: CreateTextInput }
   | { type: "createImageRef"; input: CreateImageInput }
   | { type: "importTextFile"; result: ImportTextResult }
-  | { type: "editTextContent"; nodeId: NodeId; content: string; baseRevision: number }
-  | { type: "editTextMetadata"; nodeId: NodeId; patch: Partial<TextMetadataPatch> }
+  | {
+      type: "editTextContent";
+      nodeId: NodeId;
+      content: string;
+      baseRevision: number;
+    }
+  | {
+      type: "editTextMetadata";
+      nodeId: NodeId;
+      patch: Partial<TextMetadataPatch>;
+    }
   | { type: "switchTextRole"; nodeId: NodeId; role: "text" | "artifact" }
   | { type: "createSubCanvas"; nodeIds: NodeId[]; label?: string }
   | { type: "dissolveSubCanvas"; canvasId: CanvasId }
@@ -247,7 +266,14 @@ export type WorkspaceCommand =
   | { type: "resizeNode"; nodeId: NodeId; width: number; height: number }
   | { type: "deleteNodes"; nodeIds: NodeId[] }
   | { type: "addRelation"; relation: RelationRecord }
-  | { type: "updateRelation"; id: RelationId; patch: Partial<Pick<RelationRecord, "kind" | "reason" | "presentation" | "provenance">> }
+  | { type: "addRelations"; relations: RelationRecord[] }
+  | {
+      type: "updateRelation";
+      id: RelationId;
+      patch: Partial<
+        Pick<RelationRecord, "kind" | "reason" | "presentation" | "provenance">
+      >;
+    }
   | { type: "reverseRelation"; id: RelationId }
   | { type: "removeRelation"; id: RelationId }
   | { type: "applyTransform"; input: TransformApplyInput }
@@ -260,14 +286,22 @@ export type WorkspaceCommand =
   | { type: "setContextExcluded"; nodeId: NodeId; excluded: boolean }
   | { type: "setMutationTarget"; target?: WorkspaceTargetRef }
   | { type: "setRelationTargets"; nodeIds: NodeId[] }
-  | { type: "setRemoteRelationIncluded"; relationId: RelationId; included: boolean }
+  | {
+      type: "setRemoteRelationIncluded";
+      relationId: RelationId;
+      included: boolean;
+    }
   | { type: "setCandidateSeeds"; nodeIds: NodeId[] }
   | {
       type: "setExternalContextRefs";
       delegatedSessions: DelegatedSessionRef[];
       projectedContexts: ProjectedContextRef[];
     }
-  | { type: "navigateCanvas"; canvasId: CanvasId; viewport?: NavigationEntry["viewport"] }
+  | {
+      type: "navigateCanvas";
+      canvasId: CanvasId;
+      viewport?: NavigationEntry["viewport"];
+    }
   | { type: "navigateParent" }
   | { type: "navigateBack" }
   | { type: "startAsyncRun"; kind: "dialogue" | "direct"; runId: string }
@@ -499,7 +533,10 @@ export function sanitizeFilename(input: string | undefined): string {
   return name.slice(0, 180);
 }
 
-export function suggestFilenameFromText(content: string, summary: string): string {
+export function suggestFilenameFromText(
+  content: string,
+  summary: string,
+): string {
   const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
   const base = heading || summary || "untitled";
   const slug = base
