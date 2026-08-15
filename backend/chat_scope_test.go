@@ -7,10 +7,10 @@ import (
 
 func TestChatRequestRejectsBodyOutsideAllowlist(t *testing.T) {
 	req := ChatRequest{
-		RunID:     "r1",
-		SessionID: "s1",
-		CanvasID:  "c1",
-		Prompt:    "hi",
+		RunID:                "r1",
+		SessionID:            "s1",
+		CanvasID:             "c1",
+		Prompt:               "hi",
 		DirectContextNodeIDs: []string{"n1", "n2"},
 		BodyAllowlistNodeIDs: []string{"n1"},
 		Snapshot: CanvasSnapshot{
@@ -28,17 +28,17 @@ func TestChatRequestRejectsBodyOutsideAllowlist(t *testing.T) {
 
 func TestChatRequestAcceptsAllowlistSubset(t *testing.T) {
 	req := ChatRequest{
-		RunID:     "r1",
-		SessionID: "s1",
-		CanvasID:  "c1",
-		Prompt:    "hi",
+		RunID:                "r1",
+		SessionID:            "s1",
+		CanvasID:             "c1",
+		Prompt:               "hi",
 		DirectContextNodeIDs: []string{"n1"},
 		BodyAllowlistNodeIDs: []string{"n1"},
-		WorkspaceID:       "w1",
-		RuntimeGeneration: "g1",
-		ScopeEpoch:        2,
-		RunEpoch:          1,
-		ContextDigest:     "abc",
+		WorkspaceID:          "w1",
+		RuntimeGeneration:    "g1",
+		ScopeEpoch:           2,
+		RunEpoch:             1,
+		ContextDigest:        "abc",
 		Snapshot: CanvasSnapshot{
 			CanvasID: "c1",
 			Nodes: []NodeSnapshot{
@@ -64,6 +64,21 @@ func TestChatRequestRejectsPartialScopeEnvelope(t *testing.T) {
 	}
 	if err := req.validate(); err == nil {
 		t.Fatal("expected incomplete scope envelope to be rejected")
+	}
+}
+
+func TestChatRequestValidatesImageProvider(t *testing.T) {
+	req := ChatRequest{
+		RunID: "r1", SessionID: "s1", CanvasID: "c1", Prompt: "hi",
+		ImageProvider: "openai",
+		Snapshot:      CanvasSnapshot{CanvasID: "c1"},
+	}
+	if err := req.validate(); err != nil {
+		t.Fatalf("supported provider rejected: %v", err)
+	}
+	req.ImageProvider = "model-selected-provider"
+	if err := req.validate(); err == nil {
+		t.Fatal("expected unsupported provider to be rejected")
 	}
 }
 

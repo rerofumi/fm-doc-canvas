@@ -21,9 +21,10 @@ type pendingToolApplication struct {
 
 // ChatService owns run cancellation and the Frontend acknowledgment handshake.
 type ChatService struct {
-	llm                *LLMService
+	llm                LLMPort
 	search             WebSearchPort
 	image              ImagePort
+	assets             ImageAssetPort
 	ids                IDGenerator
 	clock              Clock
 	mu                 sync.Mutex
@@ -34,7 +35,7 @@ type ChatService struct {
 	applicationTimeout time.Duration
 }
 
-func NewChatService(llm *LLMService) *ChatService {
+func NewChatService(llm LLMPort) *ChatService {
 	// applicationTimeout=0 means wait indefinitely for human decision (F-1).
 	// Technical cancel still happens via Cancel/context.
 	return &ChatService{llm: llm, runs: map[string]*chatRun{}, sessions: map[string]string{}, pending: map[string]*pendingToolApplication{}, emit: func(ChatEvent) {}, applicationTimeout: 0}
@@ -52,6 +53,12 @@ func (s *ChatService) SetImage(image ImagePort) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.image = image
+}
+
+func (s *ChatService) SetImageAsset(assets ImageAssetPort) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.assets = assets
 }
 
 func (s *ChatService) SetEmitter(emit func(ChatEvent)) {
@@ -88,7 +95,7 @@ func (s *ChatService) Send(req ChatRequest) error {
 func (s *ChatService) execute(req ChatRequest, ctx context.Context) {
 	err := runAgent(ctx, s.llm, req, s.emitEvent, func(waitCtx context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
 		return s.waitForApplication(waitCtx, req, proposal)
-	}, s.search, s.image, s.ids, s.clock)
+	}, s.search, s.image, s.assets, s.ids, s.clock)
 	s.mu.Lock()
 	delete(s.runs, req.RunID)
 	if s.sessions[req.SessionID] == req.RunID {
@@ -126,7 +133,7 @@ func (s *ChatService) waitForApplication(ctx context.Context, req ChatRequest, p
 	}
 	s.pending[proposal.ToolCallID] = pending
 	s.mu.Unlock()
-s.emitEvent(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_apply", Apply: proposal})
+	s.emitEvent(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_apply", Apply: proposal})
 	defer func() { s.mu.Lock(); delete(s.pending, proposal.ToolCallID); s.mu.Unlock() }()
 	if s.applicationTimeout <= 0 {
 		select {

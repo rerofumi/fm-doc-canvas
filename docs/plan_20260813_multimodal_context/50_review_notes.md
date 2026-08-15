@@ -56,7 +56,7 @@ Chat Completions は user `image_url` + `tools` を公式に許す。現行 agen
 | Dialogue mutation | Proposal after generate | 未確認画像で机を汚さない |
 | Direct Action | request-as-approval | D-05 |
 | Vision | 明示 allowlist 最大 3 | F1 制限の局所解除 |
-| Provider UI | Dialogue は既定のみ | DC-09 |
+| Provider UI | Dialogue は既定値で開始し run-level 選択可 | REQ-16 実利用フィードバックで改訂 |
 | Persistence | V1.3 optional provenance | migration を壊さない |
 | Value Gate | REQ-16 E4 | 機能成立と CW-3B の価値を分離する |
 
@@ -64,7 +64,6 @@ Chat Completions は user `image_url` + `tools` を公式に許す。現行 agen
 
 - 確認付き自動再生成。
 - AL-3、`fm-image-assistant`。
-- Dialogue の request-level Image Provider 切替。
 - 物理ファイル GC。
 - 実 VLM 画質。Core E2E は fake。
 - Image を Web Context / Generated View の入力にすること。
@@ -76,7 +75,7 @@ Chat Completions は user `image_url` + `tools` を公式に許す。現行 agen
 - 生成成功と同時に Node 化する: 掃除負担。
 - Responses API へ移行する: 既存 agent loop と F3 契約を壊す。
 - 新しい Image Provider / SDK: 不要。
-- Dialogue 操作ごとの provider 選択、失敗時 failover: DC-09。
+- provider の暗黙 failover: 非対象。
 - Light plan: Vision 契約と Agent / E2E 変更があるため不足。
 
 ## Current Non-Goals

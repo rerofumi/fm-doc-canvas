@@ -1,7 +1,10 @@
 import { useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useChatStore } from "../store/useChatStore";
-import { loadWorkspaceJSON, workspaceToPrettyJSON } from "../domain/workspacePersistence";
+import {
+  loadWorkspaceJSON,
+  workspaceToPrettyJSON,
+} from "../domain/workspacePersistence";
 import {
   createFixedClock,
   createSeededIds,
@@ -74,7 +77,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
         },
         context: app.resolveSharedContext("dialogue", "read"),
         directContext: app.resolveSharedContext("direct", "generate-text"),
-historyLength: app.history.past.length,
+        historyLength: app.history.past.length,
         commandSequence: app.workspace.runtime.commandSequence,
         scopeEpoch: app.workspace.runtime.scopeEpoch,
         runtimeGeneration: app.workspace.runtime.runtimeGeneration,
@@ -95,6 +98,42 @@ historyLength: app.history.past.length,
         input: { content, summary: content.split("\n")[0] || "text" },
       });
       return useAppStore.getState().nodes.at(-1)?.id ?? null;
+    },
+    async addImage(
+      src = "generated/fixture.png",
+      prompt = "a castle",
+      alt = "a castle",
+    ) {
+      useAppStore.getState().dispatch({
+        type: "createImageRef",
+        input: {
+          src,
+          prompt,
+          alt,
+          provider: "fixture",
+          model: "fixture-model",
+        },
+      });
+      return useAppStore.getState().nodes.at(-1)?.id ?? null;
+    },
+    async directImage(prompt: string, provider?: string) {
+      const store = useAppStore.getState();
+      const selected = store.nodes.filter((n) =>
+        store.workspace.runtime.selection.selectedNodeIds.includes(n.id),
+      );
+      const sourceNodeIds = selected.map((n) => n.id);
+      const sourceRevisions: Record<string, number> = {};
+      for (const n of selected) {
+        sourceRevisions[n.id] = (n.data as any)?.revision ?? 0;
+      }
+      const imageSrc = await store.generateImage(prompt, "", [], provider);
+      return store.applyDirectImageVariant({
+        src: imageSrc,
+        prompt,
+        provider: provider || "fixture",
+        sourceNodeIds,
+        sourceRevisions,
+      });
     },
     async addArtifact(content = "# artifact body", filename = "note.md") {
       useAppStore.getState().dispatch({
@@ -123,7 +162,8 @@ historyLength: app.history.past.length,
         state: {
           selectedNodeIds: nodeIds,
           activeNodeId: nodeIds[0],
-          revision: useAppStore.getState().workspace.runtime.selection.revision + 1,
+          revision:
+            useAppStore.getState().workspace.runtime.selection.revision + 1,
         },
       });
     },
@@ -136,15 +176,27 @@ historyLength: app.history.past.length,
         changes: [{ nodeId, position: { x, y } }],
       });
     },
-    async openContextMenu(target: { type: "node" | "edge"; id: string; x?: number; y?: number }) {
+    async openContextMenu(target: {
+      type: "node" | "edge";
+      id: string;
+      x?: number;
+      y?: number;
+    }) {
       const opener = (window as any).__E2E_OPEN_CONTEXT_MENU__;
-      if (typeof opener !== "function") throw new Error("context menu opener not registered");
+      if (typeof opener !== "function")
+        throw new Error("context menu opener not registered");
       opener(target);
     },
     async directTransform(operation: "summarize" | "compare" | "counterpoint") {
       return useAppStore.getState().runDirectTransform(operation);
     },
-    async searchWeb(query: string, options?: { entryRoute?: "dialogue-agent" | "direct-action"; knownUrls?: string[] }) {
+    async searchWeb(
+      query: string,
+      options?: {
+        entryRoute?: "dialogue-agent" | "direct-action";
+        knownUrls?: string[];
+      },
+    ) {
       return useAppStore.getState().runWebSearch(query, options);
     },
     async promotePacket(selection: {
@@ -172,6 +224,22 @@ historyLength: app.history.past.length,
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       return (GeneratedBackend as any).GetImageFixtureObservations();
     },
+    async getLLMFixtureObservations() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).GetLLMFixtureObservations();
+    },
+    async armImageFault(code: string) {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ArmE2EImageFault(code);
+    },
+    async armDelayedImageGeneration() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ArmDelayedImageGeneration();
+    },
+    async releaseDelayedImageGeneration() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ReleaseDelayedImageGeneration();
+    },
     async armDelayedSearchWeb() {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       return (GeneratedBackend as any).ArmDelayedSearchWeb();
@@ -190,26 +258,35 @@ historyLength: app.history.past.length,
       }
       if (chat.activeSessionId) chat.cancelRun(chat.activeSessionId);
     },
-    async injectPacket(packet: any, entryRoute: "dialogue-agent" | "direct-action" = "dialogue-agent") {
+    async injectPacket(
+      packet: any,
+      entryRoute: "dialogue-agent" | "direct-action" = "dialogue-agent",
+    ) {
       return useAppStore.getState().applyIncomingPacket(packet, entryRoute);
     },
     async selectPacketItems(claimIds: string[], sourceIds: string[]) {
-      const panel = document.querySelector('[data-testid="projected-context-panel"]');
+      const panel = document.querySelector(
+        '[data-testid="projected-context-panel"]',
+      );
       if (!panel) throw new Error("packet panel missing");
       for (const id of claimIds) {
-        const input = panel.querySelector<HTMLInputElement>(`[data-testid="packet-claim-${id}"] input[type="checkbox"]`);
+        const input = panel.querySelector<HTMLInputElement>(
+          `[data-testid="packet-claim-${id}"] input[type="checkbox"]`,
+        );
         if (input && !input.checked) input.click();
       }
       for (const id of sourceIds) {
-        const input = panel.querySelector<HTMLInputElement>(`[data-testid="packet-source-${id}"] input[type="checkbox"]`);
+        const input = panel.querySelector<HTMLInputElement>(
+          `[data-testid="packet-source-${id}"] input[type="checkbox"]`,
+        );
         if (input && !input.checked) input.click();
       }
     },
     async createSubCanvas(nodeIds: string[], label?: string) {
       useAppStore.getState().createSubCanvas(nodeIds, label);
-      const folder = Object.values(useAppStore.getState().workspace.document.nodes).find(
-        (n) => n.kind === "folder",
-      );
+      const folder = Object.values(
+        useAppStore.getState().workspace.document.nodes,
+      ).find((n) => n.kind === "folder");
       return folder
         ? { folderId: folder.id, childCanvasId: (folder as any).childCanvasId }
         : null;
@@ -223,7 +300,9 @@ historyLength: app.history.past.length,
       if (app.workspace.runtime.currentCanvasId === child.id) {
         app.navigateCanvas(app.workspace.document.rootCanvasId);
       }
-      useAppStore.getState().dispatch({ type: "dissolveSubCanvas", canvasId: child.id });
+      useAppStore
+        .getState()
+        .dispatch({ type: "dissolveSubCanvas", canvasId: child.id });
     },
     async navigate(canvasId: string) {
       useAppStore.getState().navigateCanvas(canvasId);
@@ -373,6 +452,49 @@ historyLength: app.history.past.length,
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       configureAppRuntime({ ...env, backend: GeneratedBackend as any });
     },
+    async armDelayedDirectImage() {
+      const { configureAppRuntime } = await import("../store/useAppStore");
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      (window as any).__E2E__.__releaseImageHold = () => release();
+      const original = (GeneratedBackend as any).GenerateImage.bind(
+        GeneratedBackend,
+      );
+      const originalWithProvider = (
+        GeneratedBackend as any
+      ).GenerateImageWithProvider.bind(GeneratedBackend);
+      configureAppRuntime({
+        ...env,
+        backend: {
+          ...(GeneratedBackend as any),
+          GenerateImage: async (
+            prompt: string,
+            context: string,
+            refImages: string[],
+          ) => {
+            await gate;
+            return original(prompt, context, refImages);
+          },
+          GenerateImageWithProvider: async (
+            prompt: string,
+            context: string,
+            refImages: string[],
+            provider: string,
+          ) => {
+            await gate;
+            return originalWithProvider(prompt, context, refImages, provider);
+          },
+        } as any,
+      });
+      return true;
+    },
+    async releaseDelayedDirectImage() {
+      const release = (window as any).__E2E__?.__releaseImageHold;
+      if (typeof release === "function") release();
+    },
     async armDelayedDirectTransform() {
       const { configureAppRuntime } = await import("../store/useAppStore");
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
@@ -381,7 +503,9 @@ historyLength: app.history.past.length,
         release = resolve;
       });
       (window as any).__E2E__.__releaseDirectHold = () => release();
-      const original = (GeneratedBackend as any).DirectTransform.bind(GeneratedBackend);
+      const original = (GeneratedBackend as any).DirectTransform.bind(
+        GeneratedBackend,
+      );
       configureAppRuntime({
         ...env,
         backend: {
@@ -409,7 +533,18 @@ historyLength: app.history.past.length,
         load: loaded.load,
       });
     },
-    async addRelation(sourceId: string, targetId: string, kind: "context" | "source" | "derived" | "supports" | "opposes" | "similar" = "context", reason?: string) {
+    async addRelation(
+      sourceId: string,
+      targetId: string,
+      kind:
+        | "context"
+        | "source"
+        | "derived"
+        | "supports"
+        | "opposes"
+        | "similar" = "context",
+      reason?: string,
+    ) {
       const app = useAppStore.getState();
       const id = services().ids.next("relation");
       app.dispatch({
@@ -433,7 +568,8 @@ export function useE2EBridge() {
     let cancelled = false;
     (async () => {
       try {
-        const { GetRuntimeEnvironment } = await import("../../wailsjs/go/main/App");
+        const { GetRuntimeEnvironment } =
+          await import("../../wailsjs/go/main/App");
         const raw: any = await GetRuntimeEnvironment();
         if (cancelled) return;
         if (raw?.mode === "e2e") {
@@ -449,7 +585,7 @@ export function useE2EBridge() {
             faultPlan: raw.faultPlan,
             faultState: { consumed: {} },
           };
-const { configureAppRuntime } = await import("../store/useAppStore");
+          const { configureAppRuntime } = await import("../store/useAppStore");
           // Keep generated Wails backend bindings; only override ids/clock/fault.
           const GeneratedBackend = await import("../../wailsjs/go/main/App");
           const envWithBackend = {
@@ -476,5 +612,3 @@ const { configureAppRuntime } = await import("../store/useAppStore");
     };
   }, []);
 }
-
-

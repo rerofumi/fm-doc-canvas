@@ -1,5 +1,7 @@
 export type ChatRole = "user" | "assistant";
-export type ChatMessageStatus = "streaming" | "complete" | "cancelled" | "error";
+export type ImageProvider = "openrouter" | "openai" | "google" | "xai";
+export type ChatMessageStatus =
+  "streaming" | "complete" | "cancelled" | "error";
 
 export type ToolCardStatus =
   | "running"
@@ -27,7 +29,8 @@ export interface ChatToolProposal {
   nodeId?: string;
   targetNodeId?: string;
   baseRevision?: number;
-  operation: "create" | "replace" | "edit" | "transform" | "relation" | "image-variant";
+  operation:
+    "create" | "replace" | "edit" | "transform" | "relation" | "image-variant";
   filename?: string;
   proposed: string;
   searchText?: string;
@@ -70,7 +73,12 @@ export interface ChatToolProposal {
       direction?: "forward" | "reverse";
     }>;
     sources?: Array<{ nodeId: string; content: string; revision: number }>;
-    provenance?: { origin?: string; provider?: string; model?: string; createdAt?: string };
+    provenance?: {
+      origin?: string;
+      provider?: string;
+      model?: string;
+      createdAt?: string;
+    };
   };
   relation?: {
     sourceNodeId: string;
@@ -101,9 +109,13 @@ export interface ChatNodeSnapshot {
   markdown?: string;
   imageRef?: string;
   prompt?: string;
+  imageIncluded?: boolean;
 }
 
-export interface ChatEdgeSnapshot { source: string; target: string; }
+export interface ChatEdgeSnapshot {
+  source: string;
+  target: string;
+}
 
 export interface ChatRequest {
   runId: string;
@@ -118,9 +130,14 @@ export interface ChatRequest {
   scopeEpoch?: number;
   runEpoch?: number;
   contextDigest?: string;
+  imageProvider?: ImageProvider;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   contextWarning?: { kind: "branch" | "loop"; message: string };
-  snapshot: { canvasId: string; nodes: ChatNodeSnapshot[]; edges: ChatEdgeSnapshot[] };
+  snapshot: {
+    canvasId: string;
+    nodes: ChatNodeSnapshot[];
+    edges: ChatEdgeSnapshot[];
+  };
 }
 
 export interface ChatEvent {
@@ -135,13 +152,16 @@ export interface ChatEvent {
 }
 
 export interface DirectTransformReceipt {
-  operation: "summarize" | "compare" | "counterpoint";
+  operation:
+    "summarize" | "compare" | "counterpoint" | "generate-image" | string;
   sourceNodeIds: string[];
   createdNodeId?: string;
   createdRelationIds?: string[];
   summary: string;
   diff?: {
-    sources: Array<{ nodeId: string; content: string; revision: number } | string>;
+    sources: Array<
+      { nodeId: string; content: string; revision: number } | string
+    >;
     output: string;
   };
 }

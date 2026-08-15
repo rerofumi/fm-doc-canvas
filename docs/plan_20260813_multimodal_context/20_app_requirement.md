@@ -9,14 +9,14 @@
 - F1〜F3 と同じ単体 Wails desktop app。
 - 画像生成は既存 `ImagePort` / `ImageGenService`。新しい Image Provider は追加しない。
 - Vision は既存 LLM Chat Completions の `image_url` content parts。Responses API へ移行しない。
-- Dialogue の画像生成は Settings の既定 Image Provider を使う。PromptBar の request-level 切替は Direct Action に残す。
+- Dialogue の画像生成は Settings の既定 Image Provider で開始し、Chat header で run-level provider を選べる。PromptBar の request-level 切替も維持する。
 - Core E2E は `FixtureImage` / `FixtureLLM` / temp asset root を使い、credentials / 外部ネットワークを要求しない。
 - MCP、Specialist subagent、`fm-image-assistant`、自動再生成ループは入力経路にしない。
 
 ## User Experience
 
 1. ユーザーは Text / Image を選び、Dialogue で「この説明から画像を作って」と頼むか、PromptBar Image モードで prompt を直接実行する。
-2. Dialogue では生成結果を Proposal として見せ、採用するまで Canvas の確定 Node は増えない。reject / Stop は配置しない。
+2. Dialogue では実画像を含む Proposal preview を見せ、採用するまで Canvas の確定 Node は増えない。reject / Stop は配置しない。
 3. PromptBar は入力した prompt をそのまま実行し、成功時は Image Variant を即時配置して receipt と Undo を出す。Dialogue 履歴や追加質問は作らない。
 4. 採用または Direct 配置された画像は、参照した Text / Image への `derived` Relation と provenance を持つ。元 Node は書き換えない。
 5. 選択した実画像は Dialogue の Vision Context として AI へ渡る。Context Preview は `image-binary` と送信先 `llm` を表示し、除外できる。
@@ -28,7 +28,7 @@
 
 | Feature | MVP behavior |
 | --- | --- |
-| Dialogue `generate_image` | 明示 prompt で既存 ImagePort を一度呼ぶ。配置は Proposal |
+| Dialogue `generate_image` | 明示 prompt と選択 provider で既存 ImagePort を一度呼ぶ。配置は実画像付き Proposal |
 | PromptBar Direct Action | 同じ ImagePort と Variant 契約。Dialogue 非追加 |
 | Image Variant | Current Canvas の Image Node + source への `derived` + provenance |
 | Shared Context | 選択 Text は文脈、選択 Image は参照画像。allowlist 外は送らない |
@@ -43,7 +43,6 @@
 - ユーザー確認付きの再生成ループ。
 - AL-3 の限定反復、`fm-image-assistant` 委譲。
 - mask / inpaint、複数枚並列、動画。
-- Dialogue 側の request-level Image Provider 切替。
 - Image を Web Context や Generated View の材料にすること。
 
 ## Initial Non-Goals

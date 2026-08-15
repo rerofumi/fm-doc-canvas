@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func e2eOptions(t *testing.T) backend.AppOptions {
 		},
 		Files:     fs,
 		Assets:    backend.TempAssetStore{Root: root, FS: fs},
-		LLM:       backend.FixtureLLM{Text: "fixture"},
+		LLM:       &backend.FixtureLLM{Text: "fixture"},
 		Image:     &backend.FixtureImage{Path: "generated/fixture.png"},
 		WebSearch: backend.NewFixtureWebSearch(),
 		Events:    &backend.CapturingEventPort{},
@@ -79,10 +80,14 @@ func TestE2EWiringImageAssetDataURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// TempAssetStore.GetImageDataURL returns a controlled error in fixture mode;
-	// the point is it must be reachable (non-nil) and fail-closed, not panic.
-	if _, err := app.GetImageDataURL("generated/fixture.png"); err == nil {
-		t.Fatal("expected fixture asset error, got success")
+	// TempAssetStore returns deterministic valid image bytes so the real
+	// multimodal request path is exercised without reading user files.
+	dataURL, err := app.GetImageDataURL("generated/fixture.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(dataURL, "data:image/png;base64,") {
+		t.Fatalf("unexpected fixture data URL %q", dataURL)
 	}
 }
 

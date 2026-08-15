@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -68,7 +69,8 @@ type LLMPort interface {
 	GenerateTextWithImages(prompt, contextData string, imageDataURLs []string) (string, error)
 	GenerateSummary(text string) (string, error)
 	GenerateChatReply(prompt, contextData string) (string, error)
-	// AgentLoop entry is kept on *LLMService for now; fixture adapters implement a subset.
+	AgentSystemPrompt() string
+	StreamAgentChat(ctx context.Context, messages []ChatMessage, tools []ToolDefinition, onText func(string)) (AgentChatResult, error)
 }
 
 // ImagePort generates images without embedding credentials in request DTOs.
@@ -434,20 +436,118 @@ func (NoopDialog) OpenFile(context.Context, string, []FileFilter) (string, error
 // FixtureLLM returns deterministic text without network access.
 type FixtureLLM struct {
 	Text string
+
+	mu            sync.Mutex
+	CallCount     int
+	LastUserText  string
+	LastImageURLs []string
 }
 
-func (f FixtureLLM) reply() string {
+func (f *FixtureLLM) reply() string {
+	if f == nil {
+		return "fixture-llm-response"
+	}
 	if f.Text != "" {
 		return f.Text
 	}
 	return "fixture-llm-response"
 }
-func (f FixtureLLM) GenerateText(string, string) (string, error) { return f.reply(), nil }
-func (f FixtureLLM) GenerateTextWithImages(string, string, []string) (string, error) {
+func (f *FixtureLLM) GenerateText(string, string) (string, error) { return f.reply(), nil }
+func (f *FixtureLLM) GenerateTextWithImages(string, string, []string) (string, error) {
 	return f.reply(), nil
 }
-func (f FixtureLLM) GenerateSummary(string) (string, error)           { return "fixture summary", nil }
-func (f FixtureLLM) GenerateChatReply(string, string) (string, error) { return f.reply(), nil }
+func (f *FixtureLLM) GenerateSummary(string) (string, error)           { return "fixture summary", nil }
+func (f *FixtureLLM) GenerateChatReply(string, string) (string, error) { return f.reply(), nil }
+func (f *FixtureLLM) AgentSystemPrompt() string                        { return effectiveAgentSystemPrompt("") }
+
+func fixtureUserContent(messages []ChatMessage) (string, []string) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		switch content := messages[i].Content.(type) {
+		case string:
+			return content, nil
+		case []ContentPart:
+			var text strings.Builder
+			images := make([]string, 0)
+			for _, part := range content {
+				if part.Type == "text" {
+					text.WriteString(part.Text)
+				}
+				if part.Type == "image_url" && part.ImageURL != nil {
+					images = append(images, part.ImageURL.URL)
+				}
+			}
+			return text.String(), images
+		}
+	}
+	return "", nil
+}
+
+func fixtureSourceNodeID(text string) string {
+	const marker = "Node "
+	index := strings.Index(text, marker)
+	if index < 0 {
+		return ""
+	}
+	fields := strings.Fields(text[index+len(marker):])
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[0], "()[]{}:,.")
+}
+
+func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage, _ []ToolDefinition, onText func(string)) (AgentChatResult, error) {
+	if f == nil {
+		return AgentChatResult{}, fmt.Errorf("fixture LLM is unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return AgentChatResult{}, err
+	}
+	userText, imageURLs := fixtureUserContent(messages)
+	f.mu.Lock()
+	f.CallCount++
+	f.LastUserText = userText
+	f.LastImageURLs = append([]string(nil), imageURLs...)
+	f.mu.Unlock()
+
+	if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
+		content := "fixture image proposal completed"
+		if onText != nil {
+			onText(content)
+		}
+		return AgentChatResult{Content: content}, nil
+	}
+
+	lower := strings.ToLower(userText)
+	if strings.Contains(lower, "fixture:generate_image") || strings.Contains(lower, "fixture:generate image") {
+		arguments := map[string]interface{}{"prompt": "a rocket"}
+		if sourceID := fixtureSourceNodeID(userText); sourceID != "" {
+			arguments["source_node_ids"] = []string{sourceID}
+		}
+		encoded, _ := json.Marshal(arguments)
+		call := ToolCall{ID: "fixture-generate-image", Type: "function"}
+		call.Function.Name = "generate_image"
+		call.Function.Arguments = string(encoded)
+		return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
+	}
+
+	content := "fixture vision: the generated result differs from the stated intent"
+	if onText != nil {
+		onText(content)
+	}
+	return AgentChatResult{Content: content}, nil
+}
+
+func (f *FixtureLLM) Observations() (calls int, userText string, imageURLs []string) {
+	if f == nil {
+		return 0, "", nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.CallCount, f.LastUserText, append([]string(nil), f.LastImageURLs...)
+}
 
 // FixtureImage returns a deterministic relative asset path without network.
 // It records the last request so Core E2E can assert the prompt / context /
@@ -462,6 +562,8 @@ type FixtureImage struct {
 	LastProvider string
 	LastRefs     []string
 	RefCount     int
+	FaultCode    string
+	hold         chan struct{}
 }
 
 func (f *FixtureImage) record(prompt, contextData string, refImages []string, provider string) {
@@ -476,6 +578,63 @@ func (f *FixtureImage) record(prompt, contextData string, refImages []string, pr
 	f.LastRefs = append([]string(nil), refImages...)
 	f.LastProvider = provider
 	f.RefCount = len(refImages)
+}
+
+func (f *FixtureImage) SetFault(code string) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.FaultCode = strings.TrimSpace(code)
+}
+
+func (f *FixtureImage) ArmDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.hold == nil {
+		f.hold = make(chan struct{})
+	}
+}
+
+func (f *FixtureImage) ReleaseDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	hold := f.hold
+	f.hold = nil
+	f.mu.Unlock()
+	if hold != nil {
+		close(hold)
+	}
+}
+
+func (f *FixtureImage) generate(prompt, contextData string, refImages []string, provider string) (string, error) {
+	if f == nil {
+		return "", fmt.Errorf("image generation is unavailable")
+	}
+	f.mu.Lock()
+	f.CallCount++
+	f.LastPrompt = prompt
+	f.LastContext = contextData
+	f.LastRefs = append([]string(nil), refImages...)
+	f.LastProvider = provider
+	f.RefCount = len(refImages)
+	fault := f.FaultCode
+	f.FaultCode = ""
+	hold := f.hold
+	f.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
+	if fault != "" {
+		return "", fmt.Errorf("%s", fault)
+	}
+	return f.path(), nil
 }
 
 // Observations returns a snapshot of the last recorded request. Safe for
@@ -497,12 +656,19 @@ func (f *FixtureImage) path() string {
 }
 
 func (f *FixtureImage) GenerateImage(prompt, contextData string, refImages []string) (string, error) {
-	f.record(prompt, contextData, refImages, "")
-	return f.path(), nil
+	return f.generate(prompt, contextData, refImages, "")
+}
+
+func (f *FixtureImage) Calls() int {
+	if f == nil {
+		return 0
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.CallCount
 }
 func (f *FixtureImage) GenerateImageWithProvider(prompt, contextData string, refImages []string, provider string) (string, error) {
-	f.record(prompt, contextData, refImages, provider)
-	return f.path(), nil
+	return f.generate(prompt, contextData, refImages, provider)
 }
 
 // FixtureWebSearch returns deterministic search hits without network access.

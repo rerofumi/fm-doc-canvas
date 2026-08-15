@@ -7,13 +7,14 @@ import (
 
 // NodeSnapshot is the request-local, non-persistent representation of a Canvas node.
 type NodeSnapshot struct {
-	ID       string `json:"id"`
-	Type     string `json:"type"`
-	Revision int64  `json:"revision"`
-	Filename string `json:"filename,omitempty"`
-	Markdown string `json:"markdown,omitempty"`
-	ImageRef string `json:"imageRef,omitempty"`
-	Prompt   string `json:"prompt,omitempty"`
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Revision      int64  `json:"revision"`
+	Filename      string `json:"filename,omitempty"`
+	Markdown      string `json:"markdown,omitempty"`
+	ImageRef      string `json:"imageRef,omitempty"`
+	Prompt        string `json:"prompt,omitempty"`
+	ImageIncluded bool   `json:"imageIncluded,omitempty"`
 }
 
 type EdgeSnapshot struct {
@@ -40,6 +41,7 @@ type ChatRequest struct {
 	ScopeEpoch           int64           `json:"scopeEpoch,omitempty"`
 	RunEpoch             int64           `json:"runEpoch,omitempty"`
 	ContextDigest        string          `json:"contextDigest,omitempty"`
+	ImageProvider        string          `json:"imageProvider,omitempty"`
 	ContextWarning       *ContextWarning `json:"contextWarning,omitempty"`
 	Snapshot             CanvasSnapshot  `json:"snapshot"`
 }
@@ -61,6 +63,9 @@ func (r ChatRequest) validate() error {
 	}
 	if strings.TrimSpace(r.Prompt) == "" {
 		return fmt.Errorf("prompt is required")
+	}
+	if r.ImageProvider != "" && r.ImageProvider != "openrouter" && r.ImageProvider != "openai" && r.ImageProvider != "google" && r.ImageProvider != "xai" {
+		return fmt.Errorf("unsupported image provider %q", r.ImageProvider)
 	}
 	// F-1 scope fields are optional for legacy callers, but once a caller sends
 	// any scope marker the complete correlation envelope must be present.
@@ -118,7 +123,7 @@ func (r ChatRequest) validate() error {
 			return fmt.Errorf("target node must be the last direct context node")
 		}
 	}
-if r.ContextWarning != nil && r.ContextWarning.Kind != "branch" && r.ContextWarning.Kind != "loop" {
+	if r.ContextWarning != nil && r.ContextWarning.Kind != "branch" && r.ContextWarning.Kind != "loop" {
 		return fmt.Errorf("unsupported context warning kind %q", r.ContextWarning.Kind)
 	}
 	// Optional F-1 scope fields: when body allowlist is provided it must be a subset of snapshot.

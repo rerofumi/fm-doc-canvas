@@ -97,7 +97,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   })),
   appendStream: (sessionId, runId, text) => set((state) => ({
     sessions: state.sessions.map((session) => session.id === sessionId
-      ? { ...session, messages: session.messages.map((message) => message.runId === runId && message.role === "assistant" ? { ...message, content: message.content + text, status: "streaming" } : message), updatedAt: Date.now() }
+      ? { ...session, messages: session.messages.map((message) => {
+          if (message.runId !== runId || message.role !== "assistant") return message;
+          const terminal = message.status === "complete" || message.status === "cancelled" || message.status === "error";
+          return { ...message, content: message.content + text, status: terminal ? message.status : "streaming" };
+        }), updatedAt: Date.now() }
       : session),
   })),
   upsertToolEvent: (sessionId, runId, event) => set((state) => ({
@@ -106,7 +110,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (message.runId !== runId || message.role !== "assistant") return message;
           const toolEvents = message.toolEvents ?? [];
           const existing = toolEvents.findIndex((item) => item.toolCallId === event.toolCallId);
-          const nextEvents = existing >= 0 ? toolEvents.map((item, index) => index === existing ? { ...item, ...event } : item) : [...toolEvents, event];
+          const nextEvents = existing >= 0 ? toolEvents.map((item, index) => {
+            if (index !== existing) return item;
+            const merged = { ...item, ...event };
+            // Wails events can be delivered out of order. A late tool_start
+            // must never regress a proposal or terminal result to running.
+            if (event.status === "running" && item.status !== "running") {
+              merged.status = item.status;
+            }
+            return merged;
+          }) : [...toolEvents, event];
           return { ...message, toolEvents: nextEvents };
         }), updatedAt: Date.now() }
       : session),

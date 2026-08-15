@@ -22,6 +22,7 @@ export namespace backend {
 	    markdown?: string;
 	    imageRef?: string;
 	    prompt?: string;
+	    imageIncluded?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new NodeSnapshot(source);
@@ -36,6 +37,7 @@ export namespace backend {
 	        this.markdown = source["markdown"];
 	        this.imageRef = source["imageRef"];
 	        this.prompt = source["prompt"];
+	        this.imageIncluded = source["imageIncluded"];
 	    }
 	}
 	export class CanvasSnapshot {
@@ -99,6 +101,7 @@ export namespace backend {
 	    scopeEpoch?: number;
 	    runEpoch?: number;
 	    contextDigest?: string;
+	    imageProvider?: string;
 	    contextWarning?: ContextWarning;
 	    snapshot: CanvasSnapshot;
 	
@@ -120,6 +123,7 @@ export namespace backend {
 	        this.scopeEpoch = source["scopeEpoch"];
 	        this.runEpoch = source["runEpoch"];
 	        this.contextDigest = source["contextDigest"];
+	        this.imageProvider = source["imageProvider"];
 	        this.contextWarning = this.convertValues(source["contextWarning"], ContextWarning);
 	        this.snapshot = this.convertValues(source["snapshot"], CanvasSnapshot);
 	    }

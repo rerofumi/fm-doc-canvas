@@ -9,11 +9,11 @@ import (
 
 func TestAppOptionsValidateE2ERequiresRoot(t *testing.T) {
 	opts := AppOptions{
-		Config: NewMemoryConfigStore(t.TempDir(), nil),
-		Dialog: FixedDialog{},
-		Files:  OSFileSystem{},
-		Assets: noopAssets{},
-		LLM:       FixtureLLM{},
+		Config:    NewMemoryConfigStore(t.TempDir(), nil),
+		Dialog:    FixedDialog{},
+		Files:     OSFileSystem{},
+		Assets:    noopAssets{},
+		LLM:       &FixtureLLM{},
 		Image:     &FixtureImage{},
 		WebSearch: NewFixtureWebSearch(),
 		Events:    &CapturingEventPort{},
@@ -60,7 +60,7 @@ func TestProductionFaultPlanRejected(t *testing.T) {
 		Dialog:    FixedDialog{},
 		Files:     fs,
 		Assets:    noopAssets{},
-		LLM:       FixtureLLM{},
+		LLM:       &FixtureLLM{},
 		Image:     &FixtureImage{},
 		WebSearch: NewFixtureWebSearch(),
 		Events:    &CapturingEventPort{},

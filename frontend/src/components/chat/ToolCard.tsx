@@ -1,5 +1,8 @@
-import { ResolveToolApplication } from "../../../wailsjs/go/main/App";
-import { useMemo, useState } from "react";
+import {
+  GetImageDataURL,
+  ResolveToolApplication,
+} from "../../../wailsjs/go/main/App";
+import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../store/useAppStore";
 import { useChatStore } from "../../store/useChatStore";
 import { ChatToolEvent, ChatToolProposal } from "../../types/chat";
@@ -57,6 +60,34 @@ export default function ToolCard({
   const [modifiedSuggested, setModifiedSuggested] = useState<SuggestedRelation[]>(
     proposal?.transform?.suggestedRelations ? [...proposal.transform.suggestedRelations] : [],
   );
+  const [imagePreviewURL, setImagePreviewURL] = useState<string | null>(null);
+  const [imagePreviewError, setImagePreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const src = proposal?.imageVariant?.src;
+    if (!src) {
+      setImagePreviewURL(null);
+      setImagePreviewError(null);
+      return;
+    }
+    let active = true;
+    setImagePreviewURL(null);
+    setImagePreviewError(null);
+    void GetImageDataURL(src)
+      .then((dataURL) => {
+        if (active) setImagePreviewURL(dataURL);
+      })
+      .catch((error) => {
+        if (active) {
+          setImagePreviewError(
+            error instanceof Error ? error.message : "画像を読み込めませんでした",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [proposal?.imageVariant?.src]);
 
   const sourcePreviews = useMemo(() => {
     if (!proposal?.transform) return [];
@@ -403,6 +434,23 @@ export default function ToolCard({
       {proposal?.operation === "image-variant" && proposal.imageVariant && (
         <div className="mt-2 space-y-1" data-testid="image-variant-proposal">
           <div className="font-semibold text-gray-700">Generated image preview</div>
+          <div className="flex min-h-40 items-center justify-center overflow-hidden rounded border border-gray-200 bg-gray-100">
+            {!imagePreviewURL && !imagePreviewError && (
+              <span className="text-xs text-gray-500">画像を読み込み中…</span>
+            )}
+            {imagePreviewError && (
+              <span className="p-3 text-xs text-red-600" role="alert">
+                Preview unavailable: {imagePreviewError}
+              </span>
+            )}
+            {imagePreviewURL && (
+              <img
+                src={imagePreviewURL}
+                alt={`Generated proposal: ${proposal.imageVariant.prompt}`}
+                className="max-h-80 w-full object-contain"
+              />
+            )}
+          </div>
           <div className="rounded border border-gray-200 bg-gray-50 p-1">
             <div className="text-[10px] text-gray-500">asset: {proposal.imageVariant.src}</div>
             <div className="text-[10px] text-gray-500">prompt: {proposal.imageVariant.prompt}</div>

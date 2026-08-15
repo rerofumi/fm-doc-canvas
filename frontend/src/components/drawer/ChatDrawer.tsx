@@ -4,7 +4,7 @@ import { EventsOn } from "../../../wailsjs/runtime/runtime";
 import ChatHeader from "../chat/ChatHeader";
 import ChatInput from "../chat/ChatInput";
 import MessageList from "../chat/MessageList";
-import { ChatEvent, ChatMessage, ChatRequest, ChatSession } from "../../types/chat";
+import { ChatEvent, ChatMessage, ChatRequest, ChatSession, ImageProvider } from "../../types/chat";
 import { useChatStore } from "../../store/useChatStore";
 import { useAppStore } from "../../store/useAppStore";
 import { buildChatRequest } from "../../utils/chatContext";
@@ -15,8 +15,18 @@ const ChatDrawer = () => {
   const store = useChatStore();
   const setDrawerWidth = useChatStore((state) => state.setDrawerWidth);
   const [resizing, setResizing] = useState(false);
+  const configuredImageProvider = useAppStore((state) => state.config.imageGen.provider);
+  const [imageProvider, setImageProvider] = useState<ImageProvider>("openrouter");
+  const [isImageProviderDirty, setIsImageProviderDirty] = useState(false);
   const activeSession = useMemo(() => store.sessions.find((session) => session.id === store.activeSessionId) ?? null, [store.sessions, store.activeSessionId]);
   const activeRun = activeSession ? store.activeRuns[activeSession.id] : undefined;
+
+  useEffect(() => {
+    if (isImageProviderDirty) return;
+    if (["openrouter", "openai", "google", "xai"].includes(configuredImageProvider)) {
+      setImageProvider(configuredImageProvider as ImageProvider);
+    }
+  }, [configuredImageProvider, isImageProviderDirty]);
 
   const resize = useCallback((event: MouseEvent) => {
     const width = Math.max(320, Math.min(window.innerWidth * 0.8, window.innerWidth - event.clientX));
@@ -160,6 +170,7 @@ const send = async (content: string) => {
       app.workspace,
       sessionMessages.filter((m) => m.id !== assistantId),
       runEpoch,
+      imageProvider,
     );
     store.setContextWarning(request.contextWarning?.message ?? null);
     try {
@@ -182,7 +193,7 @@ const send = async (content: string) => {
 
   return <aside className={`fixed right-0 top-0 z-50 flex h-full flex-col border-l border-gray-200 bg-white shadow-2xl transition-transform duration-300 ${store.isOpen ? "translate-x-0" : "translate-x-full"}`} style={{ width: store.drawerWidth, transitionProperty: resizing ? "none" : "transform" }}>
     <div onMouseDown={(event) => { event.preventDefault(); setResizing(true); }} className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400/30" />
-    <ChatHeader target={store.target} sessions={store.sessions} activeSessionId={store.activeSessionId} disabled={!store.isLoaded} onChangeSession={store.setActiveSession} onNew={store.createSession} onClose={() => store.setOpen(false)} />
+    <ChatHeader target={store.target} sessions={store.sessions} activeSessionId={store.activeSessionId} imageProvider={imageProvider} disabled={!store.isLoaded || Boolean(activeRun)} onChangeSession={store.setActiveSession} onChangeImageProvider={(provider) => { setImageProvider(provider); setIsImageProviderDirty(true); }} onNew={store.createSession} onClose={() => store.setOpen(false)} />
     {store.loadError && <div className="border-b border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">会話履歴を読み込めませんでした: {store.loadError}</div>}
     {store.contextWarning && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">{store.contextWarning}</div>}
     <MessageList messages={activeSession?.messages ?? []} sessionId={activeSession?.id} />

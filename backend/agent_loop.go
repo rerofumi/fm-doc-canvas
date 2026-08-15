@@ -22,10 +22,11 @@ type agentRunState struct {
 	approve   func(context.Context, *ToolApplyProposal) ToolApplicationResult
 	search    WebSearchPort
 	image     ImagePort
+	assets    ImageAssetPort
 	ids       IDGenerator
 	clock     Clock
 	emit      func(ChatEvent)
-	llm       *LLMService
+	llm       LLMPort
 }
 
 func toolDefinitions() []ToolDefinition {
@@ -47,20 +48,61 @@ func toolDefinitions() []ToolDefinition {
 	}
 }
 
-func runAgent(ctx context.Context, llm *LLMService, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult, search WebSearchPort, image ImagePort, ids IDGenerator, clock Clock) error {
-	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve, search: search, image: image, ids: ids, clock: clock, emit: emit, llm: llm}
-	cfg := llm.configService.GetConfig()
-	system := effectiveAgentSystemPrompt(cfg.LLM.SystemPrompt)
+func runAgent(ctx context.Context, llm LLMPort, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult, search WebSearchPort, image ImagePort, assets ImageAssetPort, ids IDGenerator, clock Clock) error {
+	if llm == nil {
+		return fmt.Errorf("agent LLM is unavailable")
+	}
+	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve, search: search, image: image, assets: assets, ids: ids, clock: clock, emit: emit, llm: llm}
+	system := llm.AgentSystemPrompt()
 	direct := req.Snapshot.directContext(req.DirectContextNodeIDs)
 	user := fmt.Sprintf("Direct Canvas context:\n%s\n\nUser request:\n%s", direct, req.Prompt)
-	messages := []ChatMessage{{Role: "system", Content: system}, {Role: "user", Content: user}}
+
+	// Resolve vision images: allowlisted image nodes in snapshot with ImageIncluded=true
+	visionImages := make([]NodeSnapshot, 0)
+	allowSet := make(map[string]bool)
+	if len(req.BodyAllowlistNodeIDs) > 0 {
+		for _, id := range req.BodyAllowlistNodeIDs {
+			allowSet[id] = true
+		}
+	} else {
+		for _, id := range req.DirectContextNodeIDs {
+			allowSet[id] = true
+		}
+	}
+	for _, node := range req.Snapshot.Nodes {
+		if node.Type == "image" && node.ImageIncluded && (len(allowSet) == 0 || allowSet[node.ID]) {
+			visionImages = append(visionImages, node)
+		}
+	}
+
+	var userContent interface{} = user
+	if len(visionImages) > 0 {
+		parts := make([]ContentPart, 0, 1+len(visionImages))
+		parts = append(parts, ContentPart{Type: "text", Text: user})
+		for _, img := range visionImages {
+			if assets == nil {
+				return fmt.Errorf("image-invalid-asset: image asset service is unavailable")
+			}
+			dataURL, err := assets.GetImageDataURL(img.ImageRef)
+			if err != nil || !strings.HasPrefix(dataURL, "data:image/") || !strings.Contains(dataURL, ";base64,") {
+				return fmt.Errorf("image-invalid-asset: %s", img.ImageRef)
+			}
+			parts = append(parts, ContentPart{
+				Type:     "image_url",
+				ImageURL: &ImageURL{URL: dataURL},
+			})
+		}
+		userContent = parts
+	}
+
+	messages := []ChatMessage{{Role: "system", Content: system}, {Role: "user", Content: userContent}}
 	tools := toolDefinitions()
 
 	for round := 0; round < 10; round++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		response, err := llm.streamChat(ctx, messages, tools, func(chunk string) {
+		response, err := llm.StreamAgentChat(ctx, messages, tools, func(chunk string) {
 			emit(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:stream", Text: chunk})
 		})
 		if err != nil {
@@ -145,7 +187,7 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 		}
 		remember(node)
 		if node.Type == "image" {
-			return jsonResult(map[string]interface{}{"nodeId": node.ID, "type": node.Type, "imageRef": node.ImageRef, "prompt": node.Prompt, "imageIncluded": false})
+			return jsonResult(map[string]interface{}{"nodeId": node.ID, "type": node.Type, "imageRef": node.ImageRef, "prompt": node.Prompt, "imageIncluded": node.ImageIncluded})
 		}
 		return jsonResult(map[string]interface{}{"nodeId": node.ID, "type": node.Type, "markdown": node.Markdown, "revision": node.Revision})
 
@@ -404,15 +446,37 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 			}
 			revisions[id] = node.Revision
 			if node.Type == "image" {
-				refImages = append(refImages, node.ImageRef)
+				if state.assets == nil {
+					return toolResult{Status: "error", Content: "image-invalid-asset"}
+				}
+				dataURL, err := state.assets.GetImageDataURL(node.ImageRef)
+				if err != nil || !strings.HasPrefix(dataURL, "data:image/") || !strings.Contains(dataURL, ";base64,") {
+					return toolResult{Status: "error", Content: "image-invalid-asset"}
+				}
+				refImages = append(refImages, dataURL)
 			} else if node.Type == "text" || node.Type == "artifact" {
 				contextSections = append(contextSections, fmt.Sprintf("Source %s (revision %d):\n%s", node.ID, node.Revision, node.Markdown))
 			}
 		}
 		contextData := strings.Join(contextSections, "\n\n")
-		src, err := state.image.GenerateImage(prompt, contextData, refImages)
+		var src string
+		var err error
+		if state.request.ImageProvider != "" {
+			src, err = state.image.GenerateImageWithProvider(prompt, contextData, refImages, state.request.ImageProvider)
+		} else {
+			src, err = state.image.GenerateImage(prompt, contextData, refImages)
+		}
 		if err != nil {
-			return toolResult{Status: "error", Content: "image-provider-error: " + err.Error()}
+			message := err.Error()
+			for _, code := range []string{"image-unauthorized", "image-timeout", "image-invalid-asset"} {
+				if strings.Contains(message, code) {
+					return toolResult{Status: "error", Content: code}
+				}
+			}
+			return toolResult{Status: "error", Content: "image-provider-error: " + message}
+		}
+		if err := ctx.Err(); err != nil {
+			return toolResult{Status: "cancelled", Content: "image generation cancelled"}
 		}
 		proposal := &ToolApplyProposal{
 			ToolCallID: call.ID,
@@ -423,6 +487,7 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 				ToolCallID:        call.ID,
 				Src:               src,
 				Prompt:            prompt,
+				Provider:          state.request.ImageProvider,
 				SourceNodeIDs:     sourceIDs,
 				SourceRevisions:   revisions,
 				WorkspaceID:       state.request.WorkspaceID,

@@ -9,9 +9,9 @@ F1 / F2 の Workspace 契約を利用し、既存画像生成と Dialogue Vision
 | ID | Requirement | Verification method | Evidence class |
 | --- | --- | --- | --- |
 | REQ-01 | Dialogue または明示 Direct Action から、空でない画像生成 prompt を解決する。任意の選択 Text-bearing Node は context 本文、選択 Image は参照画像に限る。別 Canvas、excluded Node、hidden body は暗黙に送らない。 | Resolver / request fixture test、Core E2E F4-01/02 | E1 |
-| REQ-02 | Dialogue / Agent の `generate_image` は Settings の既定 Image Provider を一度だけ呼び、相対 asset path を返す。tool 実行だけでは Workspace document を変更しない。 | Backend tool test、F4-01 | E1 |
-| REQ-03 | PromptBar Image Direct Action は同じ ImagePort と Variant 契約を使い、Agent loop / 追加 Proposal / Dialogue 履歴を作らない。request-level provider 切替は Direct Action に残し、保存済み既定 provider を暗黙変更しない。 | Route integration + F4-02 | E1 |
-| REQ-04 | Dialogue の生成結果は Image Variant Proposal として preview する。accept 前に Image Node / Relation を増やさない。reject / Stop は配置しない。 | Proposal test + F4-01 | E1 |
+| REQ-02 | Dialogue / Agent の `generate_image` は Settings の既定または Chat で明示選択した Image Provider を一度だけ呼び、相対 asset path を返す。選択は Settings を変更せず、tool 実行だけでは Workspace document を変更しない。 | Backend tool test、F4-01 | E1 |
+| REQ-03 | PromptBar Image Direct Action は同じ ImagePort と Variant 契約を使い、Agent loop / 追加 Proposal / Dialogue 履歴を作らない。request-level provider 切替は Dialogue / Direct Action の双方で保存済み既定 provider を暗黙変更しない。 | Route integration + F4-02 | E1 |
+| REQ-04 | Dialogue の生成結果は実画像を含む Image Variant Proposal として preview する。accept 前に Image Node / Relation を増やさない。reject / Stop は配置しない。 | Proposal test + F4-01 | E1 |
 | REQ-05 | 採用または Direct 配置は atomic である。Current Canvas に Image Node を 1 つ作り、明示 source への `derived` Relation と provenance を付け、一つの undo で戻せる。元 Node は変更しない。 | Atomic reducer + F4-01/02 | E1 |
 | REQ-06 | Image Variant の provenance は `origin=image`、operation、sourceNodeIds、sourceRevisions、provider、model、prompt、createdAt を持つ。Save / Load 後も残る。 | Persistence / command test、F4-01 | E1 |
 | REQ-07 | 明示選択され除外されていない Image は Dialogue の Vision Context として最大 3 枚まで `image-binary` / destination `llm` になる。Context Preview にその旨を表示する。4 枚目以降は送らず warning にする。 | Resolver + F4-03 | E1 |
@@ -39,7 +39,7 @@ F1 / F2 の Workspace 契約を利用し、既存画像生成と Dialogue Vision
 
 - 開発・検証コマンドは `mise` 経由で実行する。
 - F1 / F2 / F3 の V1.3 意味を変更しない。provenance の optional field 追加に留め、V1.4 が必要なら implementation 前に amend する。
-- Dialogue は既定 Image Provider のみ。失敗時 failover なし。
+- Dialogue は既定 Image Provider で開始し、run-level の明示選択を許可する。失敗時 failover なし。
 - Direct Action は追加の Agent 判断、問い返し、Dialogue への自動昇格を行わない。
 - Vision は 1 Dialogue run あたり最大 3 枚。image generation の参照画像は既存上限 5 枚。
 - 自動再生成、AL-3、`fm-image-assistant` を同じ slice に混ぜない。
@@ -67,7 +67,7 @@ F1 / F2 の Workspace 契約を利用し、既存画像生成と Dialogue Vision
 - AL-3 限定反復、`fm-image-assistant`、Specialist subagent。
 - 新しい Image Provider、inpainting / mask UI、動画。
 - Image を Web Context の入力にすること。
-- Dialogue 操作ごとの Image Provider 選択、失敗時 failover。
+- Image Provider の暗黙 failover。
 - 物理ファイル GC、telemetry、性能 SLO の新設。
 
 ## Acceptance Criteria

@@ -19,7 +19,7 @@ F1〜F3 で Go 判定済みの既存 stack に、Image Variant 契約と Dialogu
 4. **Image Variant, not overwrite**: 元 Image / Text を書き換えず、新しい Image Node + `derived` Relation を作る。
 5. **Vision is explicit allowlist**: Dialogue の選択 Image だけ pixel を送る。F1 の metadata-only は除外・未選択・cap 超過に残す。
 6. **No auto-regenerate**: 差分説明は AL-0/1。再生成は人間の明示 `generate_image` または PromptBar。
-7. **Dialogue uses default provider**: Settings の既定 Image Provider。request-level 切替は PromptBar のみ。failover なし。
+7. **Dialogue provider is user-controlled**: Settings の既定 Image Provider で開始し、Chat header で run-level 切替可能。Settings は変更せず、failover なし。
 8. **Keep V1.3**: provenance に `origin=image` と optional `prompt` を足す。file version は上げない。
 9. **Caps**: Vision 3 枚 / run、参照画像 5 枚、image timeout 既存 180s、1 tool call あたり 1 枚。
 10. **Physical files persist**: undo / reject は JSON / history だけ戻す。downloadPath のファイルは残す。
@@ -155,7 +155,7 @@ Agent の最初の user content は text + allowlist 済み data URL。tool resu
 - Direct Action: PromptBar Image モード維持。成功後は既存 Direct receipt に `generate-image applied` と Undo。
 - Context Preview: Dialogue で `image-binary → llm` を表示。除外すると metadata に戻る。
 - エラー: 設定を開く、prompt を直す、閉じる。暗黙再生成しない。
-- PromptBar provider selector は Image Direct Action に残す。Dialogue UI には出さない。
+- PromptBar provider selector は Image Direct Action に残し、Dialogue は Chat header に同等の run-level selector を持つ。
 
 ## Agent Contract
 

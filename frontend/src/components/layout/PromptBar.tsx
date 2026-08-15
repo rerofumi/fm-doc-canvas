@@ -1,6 +1,12 @@
 import ContextPreview from "../context/ContextPreview";
 import React, { useEffect, useState } from "react";
-import { Image as ImageIcon, Loader2, Send, Sparkles, Type } from "lucide-react";
+import {
+  Image as ImageIcon,
+  Loader2,
+  Send,
+  Sparkles,
+  Type,
+} from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { AppNode } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
@@ -17,6 +23,7 @@ const PromptBar: React.FC = () => {
     generateText,
     generateSummary,
     generateImage,
+    applyDirectImageVariant,
     getImageDataURL,
     resolveSharedContext,
     config,
@@ -66,17 +73,26 @@ const PromptBar: React.FC = () => {
       const allowlisted = new Set(envelope.bodyAllowlistNodeIds);
       const contextNodes = nodes.filter((node) => allowlisted.has(node.id));
       const contextText = contextNodes
-        .filter((node) => node.type === "customNode" || node.type === "artifactNode")
+        .filter(
+          (node) => node.type === "customNode" || node.type === "artifactNode",
+        )
         .map((node) => (node.data as { content?: string }).content)
         .filter((content): content is string => Boolean(content))
         .join("\n\n---\n\n");
 
       const imageDataURLs: string[] = [];
-      for (const node of contextNodes.filter((item) => item.type === "imageNode")) {
+      for (const node of contextNodes.filter(
+        (item) => item.type === "imageNode",
+      )) {
         try {
-          imageDataURLs.push(await getImageDataURL((node.data as { src: string }).src));
+          imageDataURLs.push(
+            await getImageDataURL((node.data as { src: string }).src),
+          );
         } catch (error) {
-          console.warn("Failed to resolve an allowlisted image context:", error);
+          console.warn(
+            "Failed to resolve an allowlisted image context:",
+            error,
+          );
         }
       }
 
@@ -86,9 +102,14 @@ const PromptBar: React.FC = () => {
         : { x: 400, y: 300 };
 
       if (mode === "text") {
-        const generatedText = imageDataURLs.length > 0
-          ? await AppBackend.GenerateTextWithImages(prompt, contextText, imageDataURLs)
-          : await generateText(prompt, contextText);
+        const generatedText =
+          imageDataURLs.length > 0
+            ? await AppBackend.GenerateTextWithImages(
+                prompt,
+                contextText,
+                imageDataURLs,
+              )
+            : await generateText(prompt, contextText);
         const summary = await generateSummary(generatedText);
         const newNode: AppNode = {
           id: `node-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
@@ -100,27 +121,27 @@ const PromptBar: React.FC = () => {
         };
         addNode(newNode);
       } else {
+        const sourceNodeIds = selectedNodes.map((n) => n.id);
+        const sourceRevisions: Record<string, number> = {};
+        for (const n of selectedNodes) {
+          sourceRevisions[n.id] = (n.data as any)?.revision ?? 0;
+        }
         const imageSrc = await generateImage(
           prompt,
           contextText,
           imageDataURLs,
           imageProvider,
         );
-        const newNode: AppNode = {
-          id: `node-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-          type: "imageNode",
+        applyDirectImageVariant({
+          src: imageSrc,
+          alt: prompt,
+          prompt,
+          provider: imageProvider,
+          model: getSelectedImageModel(),
+          sourceNodeIds,
+          sourceRevisions,
           position,
-          data: {
-            src: imageSrc,
-            alt: prompt,
-            prompt,
-            provider: imageProvider,
-            model: getSelectedImageModel(),
-          },
-          width: 300,
-          height: 200,
-        };
-        addNode(newNode);
+        });
       }
       setPromptInput("");
     } catch (error: any) {
@@ -147,7 +168,11 @@ const PromptBar: React.FC = () => {
       </div>
       <div className="max-w-4xl mx-auto flex flex-col gap-2">
         <div className="flex items-center gap-2 px-2">
-          <div className="flex items-center bg-gray-100 rounded-md p-1" role="group" aria-label="Generation mode">
+          <div
+            className="flex items-center bg-gray-100 rounded-md p-1"
+            role="group"
+            aria-label="Generation mode"
+          >
             <button
               type="button"
               onClick={() => setMode("text")}
@@ -168,7 +193,8 @@ const PromptBar: React.FC = () => {
 
           {selectedNodesCount > 0 && (
             <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full uppercase tracking-tighter">
-              <Sparkles size={10} /> {selectedNodesCount} Node(s) Selected as Context
+              <Sparkles size={10} /> {selectedNodesCount} Node(s) Selected as
+              Context
             </span>
           )}
           {selectedImageNodesCount > 0 && (
@@ -206,29 +232,51 @@ const PromptBar: React.FC = () => {
             onChange={(event) => setPromptInput(event.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isLoading}
-            placeholder={isLoading ? (mode === "text" ? "AI is generating text..." : "AI is generating image...") : (mode === "text" ? "Ask AI to generate documentation or expand on ideas... (Ctrl+Enter to send)" : "Describe the image you want to generate... (Ctrl+Enter to send)")}
+            placeholder={
+              isLoading
+                ? mode === "text"
+                  ? "AI is generating text..."
+                  : "AI is generating image..."
+                : mode === "text"
+                  ? "Ask AI to generate documentation or expand on ideas... (Ctrl+Enter to send)"
+                  : "Describe the image you want to generate... (Ctrl+Enter to send)"
+            }
             aria-label="Prompt"
             className={`w-full p-3 pr-14 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm transition-all min-h-[56px] max-h-32 ${isLoading ? "bg-gray-50 opacity-70" : ""}`}
           />
           <button
             type="button"
-            onClick={() => void runWebSearch(promptInput, { entryRoute: "direct-action" })}
+            onClick={() =>
+              void runWebSearch(promptInput, { entryRoute: "direct-action" })
+            }
             disabled={!promptInput.trim() || isLoading || isWebSearchPending}
             aria-label="Search Web"
             title="Search Web"
             className={`absolute right-12 bottom-2 px-2 py-2 rounded-md text-[11px] font-bold transition-all ${promptInput.trim() && !isLoading && !isWebSearchPending ? "bg-sky-600 text-white hover:bg-sky-700" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
           >
-            {isWebSearchPending ? <Loader2 size={16} className="animate-spin" /> : "Search Web"}
+            {isWebSearchPending ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              "Search Web"
+            )}
           </button>
           <button
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!promptInput.trim() || isLoading}
             aria-label={mode === "text" ? "Generate Text" : "Generate Image"}
-            title={mode === "text" ? "Generate Text (Ctrl+Enter)" : "Generate Image (Ctrl+Enter)"}
+            title={
+              mode === "text"
+                ? "Generate Text (Ctrl+Enter)"
+                : "Generate Image (Ctrl+Enter)"
+            }
             className={`absolute right-2 bottom-2 p-2 rounded-md flex items-center justify-center transition-all ${promptInput.trim() && !isLoading ? "bg-blue-600 text-white hover:bg-blue-700 shadow-sm" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
           >
-            {isLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+            {isLoading ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <Send size={20} />
+            )}
           </button>
         </div>
       </div>

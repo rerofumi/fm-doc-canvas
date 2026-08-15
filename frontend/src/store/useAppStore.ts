@@ -25,6 +25,7 @@ import {
   HistoryState,
 } from "../domain/workspaceCommands";
 import {
+  ApplyImageVariantInput,
   createEmptyWorkspace,
   DomainServices,
   isFolder,
@@ -32,7 +33,10 @@ import {
   WorkspaceState,
 } from "../domain/workspace";
 import { breadcrumbPath, projectCurrentCanvas } from "../domain/projectToFlow";
-import { loadWorkspaceJSON, workspaceToPrettyJSON } from "../domain/workspacePersistence";
+import {
+  loadWorkspaceJSON,
+  workspaceToPrettyJSON,
+} from "../domain/workspacePersistence";
 import { resolveContext } from "../domain/contextResolver";
 import {
   createProposalFromLegacyTool,
@@ -134,7 +138,9 @@ interface StoreExtras {
   workspace: WorkspaceState;
   history: HistoryState;
   lastError: string | null;
-  boundaryAggregates: ReturnType<typeof projectCurrentCanvas>["boundaryAggregates"];
+  boundaryAggregates: ReturnType<
+    typeof projectCurrentCanvas
+  >["boundaryAggregates"];
   dispatch: (command: Parameters<typeof applyCommand>[1]) => boolean;
   newWorkspace: () => void;
   discardWorkspace: () => void;
@@ -151,18 +157,36 @@ interface StoreExtras {
   ) => ReturnType<typeof resolveContext>;
   setContextExcluded: (nodeId: string, excluded: boolean) => void;
   useCanvasAsContext: () => void;
-  runDirectTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
+  runDirectTransform: (
+    operation: "summarize" | "compare" | "counterpoint",
+  ) => Promise<boolean>;
+  applyDirectImageVariant: (input: {
+    src: string;
+    alt?: string;
+    prompt: string;
+    provider?: string;
+    model?: string;
+    sourceNodeIds: string[];
+    sourceRevisions: Record<string, number>;
+    position?: { x: number; y: number };
+  }) => boolean;
   lastDirectReceipt: DirectTransformReceipt | null;
   activePacket: ContextPacket | null;
   lastSearchRequest: WebSearchRequest | null;
   lastOpenedURL: string | null;
-  lastSearchReceipt: { entryRoute: WebSearchEntryRoute; packet: ContextPacket } | null;
+  lastSearchReceipt: {
+    entryRoute: WebSearchEntryRoute;
+    packet: ContextPacket;
+  } | null;
   isWebSearchPending: boolean;
   runWebSearch: (
     query: string,
     options?: { entryRoute?: WebSearchEntryRoute; knownUrls?: string[] },
   ) => Promise<boolean>;
-  applyIncomingPacket: (packet: ContextPacket, entryRoute: WebSearchEntryRoute) => boolean;
+  applyIncomingPacket: (
+    packet: ContextPacket,
+    entryRoute: WebSearchEntryRoute,
+  ) => boolean;
   promoteActivePacket: (selection: {
     selectedClaimIds: string[];
     selectedSourceIds: string[];
@@ -198,14 +222,18 @@ export type ProposalModifyPatch =
   | {
       content?: string;
       reason?: string;
-      suggestedRelations?: NonNullable<ChatToolProposal["transform"]>["suggestedRelations"];
+      suggestedRelations?: NonNullable<
+        ChatToolProposal["transform"]
+      >["suggestedRelations"];
       relation?: NonNullable<ChatToolProposal["relation"]>;
     };
 
 function normalizeModifyPatch(modified?: ProposalModifyPatch): {
   content?: string;
   reason?: string;
-  suggestedRelations?: NonNullable<ChatToolProposal["transform"]>["suggestedRelations"];
+  suggestedRelations?: NonNullable<
+    ChatToolProposal["transform"]
+  >["suggestedRelations"];
   relation?: NonNullable<ChatToolProposal["relation"]>;
 } {
   if (modified == null) return {};
@@ -229,10 +257,18 @@ function createToolProposalDecider(
       : Object.values(ws.runtime.asyncRuns).find((r) => r.status === "active");
     const activeRun = requestedRunId
       ? activeRunEntry
-        ? { runId: activeRunEntry.runId, epoch: activeRunEntry.epoch, status: activeRunEntry.status }
+        ? {
+            runId: activeRunEntry.runId,
+            epoch: activeRunEntry.epoch,
+            status: activeRunEntry.status,
+          }
         : { runId: requestedRunId, epoch: -1, status: "missing" }
       : activeRunEntry
-        ? { runId: activeRunEntry.runId, epoch: activeRunEntry.epoch, status: activeRunEntry.status }
+        ? {
+            runId: activeRunEntry.runId,
+            epoch: activeRunEntry.epoch,
+            status: activeRunEntry.status,
+          }
         : undefined;
     const runId = requestedRunId || activeRunEntry?.runId || "legacy";
     const runEpoch = proposal.runEpoch ?? activeRunEntry?.epoch ?? 0;
@@ -246,7 +282,10 @@ function createToolProposalDecider(
       const targetId = proposal.targetNodeId || proposal.nodeId;
       const node = targetId ? ws.document.nodes[targetId] : undefined;
       if (node && isTextBearing(node)) {
-        content = node.content.replace(proposal.searchText, proposal.replacement);
+        content = node.content.replace(
+          proposal.searchText,
+          proposal.replacement,
+        );
       }
     }
     if (decision === "modify" && modifyPatch.content !== undefined) {
@@ -255,7 +294,11 @@ function createToolProposalDecider(
     if (proposal.operation === "transform" && proposal.transform) {
       const transform = {
         ...proposal.transform,
-        provenance: { origin: "llm" as const, sourceNodeIds: proposal.transform.sourceNodeIds, operation: proposal.transform.operation },
+        provenance: {
+          origin: "llm" as const,
+          sourceNodeIds: proposal.transform.sourceNodeIds,
+          operation: proposal.transform.operation,
+        },
       };
       const record = createTransformProposal({
         proposalId: proposal.toolCallId,
@@ -264,26 +307,41 @@ function createToolProposalDecider(
         runEpoch,
         workspaceId: proposal.workspaceId || ws.document.workspaceId,
         canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
-        runtimeGeneration: proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+        runtimeGeneration:
+          proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
         scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
         transform,
       });
-      const result = decideAndApplyProposal(ws, record, {
-        proposalId: record.proposalId,
-        decisionId: `decision-${proposal.toolCallId}-${decision}`,
-        decision,
-        modifiedContent: decision === "modify" ? (modifyPatch.content ?? proposal.transform.content) : undefined,
-        modifiedReason: decision === "modify" ? modifyPatch.reason : undefined,
-        modifiedSuggestedRelations: decision === "modify" ? modifyPatch.suggestedRelations : undefined,
-      }, services(), get().history, activeRun);
+      const result = decideAndApplyProposal(
+        ws,
+        record,
+        {
+          proposalId: record.proposalId,
+          decisionId: `decision-${proposal.toolCallId}-${decision}`,
+          decision,
+          modifiedContent:
+            decision === "modify"
+              ? (modifyPatch.content ?? proposal.transform.content)
+              : undefined,
+          modifiedReason:
+            decision === "modify" ? modifyPatch.reason : undefined,
+          modifiedSuggestedRelations:
+            decision === "modify" ? modifyPatch.suggestedRelations : undefined,
+        },
+        services(),
+        get().history,
+        activeRun,
+      );
       if (result.status === "applied" && result.history) {
         projectInto(set, result.state, result.history, { lastError: null });
         return { status: "applied" as const };
       }
       if (result.status === "rejected") return { status: "rejected" as const };
       if (result.status === "conflict") return { status: "conflict" as const };
-      if (result.status === "stale") return { status: "error" as const, error: "stale proposal" };
-      if (result.status === "cancelled") return { status: "error" as const, error: result.error || "cancelled" };
+      if (result.status === "stale")
+        return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled")
+        return { status: "error" as const, error: result.error || "cancelled" };
       return { status: "error" as const, error: result.error || result.status };
     }
     if (proposal.operation === "relation" && proposal.relation) {
@@ -297,7 +355,8 @@ function createToolProposalDecider(
         runEpoch,
         workspaceId: proposal.workspaceId || ws.document.workspaceId,
         canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
-        runtimeGeneration: proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+        runtimeGeneration:
+          proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
         scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
         relation,
       });
@@ -320,8 +379,10 @@ function createToolProposalDecider(
       }
       if (result.status === "rejected") return { status: "rejected" as const };
       if (result.status === "conflict") return { status: "conflict" as const };
-      if (result.status === "stale") return { status: "error" as const, error: "stale proposal" };
-      if (result.status === "cancelled") return { status: "error" as const, error: result.error || "cancelled" };
+      if (result.status === "stale")
+        return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled")
+        return { status: "error" as const, error: result.error || "cancelled" };
       return { status: "error" as const, error: result.error || result.status };
     }
     if (proposal.operation === "image-variant" && proposal.imageVariant) {
@@ -333,7 +394,8 @@ function createToolProposalDecider(
         runEpoch,
         workspaceId: variant.workspaceId || ws.document.workspaceId,
         canvasId: variant.canvasId || ws.runtime.currentCanvasId,
-        runtimeGeneration: variant.runtimeGeneration || ws.runtime.runtimeGeneration,
+        runtimeGeneration:
+          variant.runtimeGeneration || ws.runtime.runtimeGeneration,
         scopeEpoch: variant.scopeEpoch ?? ws.runtime.scopeEpoch,
         variant: {
           src: variant.src,
@@ -363,12 +425,21 @@ function createToolProposalDecider(
       }
       if (result.status === "rejected") return { status: "rejected" as const };
       if (result.status === "conflict") return { status: "conflict" as const };
-      if (result.status === "stale") return { status: "error" as const, error: "stale proposal" };
-      if (result.status === "cancelled") return { status: "error" as const, error: result.error || "cancelled" };
+      if (result.status === "stale")
+        return { status: "error" as const, error: "stale proposal" };
+      if (result.status === "cancelled")
+        return { status: "error" as const, error: result.error || "cancelled" };
       return { status: "error" as const, error: result.error || result.status };
     }
-    if (proposal.operation !== "create" && proposal.operation !== "replace" && proposal.operation !== "edit") {
-      return { status: "error" as const, error: "unsupported proposal operation" };
+    if (
+      proposal.operation !== "create" &&
+      proposal.operation !== "replace" &&
+      proposal.operation !== "edit"
+    ) {
+      return {
+        status: "error" as const,
+        error: "unsupported proposal operation",
+      };
     }
     const record = createProposalFromLegacyTool({
       toolCallId: proposal.toolCallId,
@@ -376,7 +447,8 @@ function createToolProposalDecider(
       runEpoch,
       workspaceId: proposal.workspaceId || ws.document.workspaceId,
       canvasId: proposal.canvasId || ws.runtime.currentCanvasId,
-      runtimeGeneration: proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
+      runtimeGeneration:
+        proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
       scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
       operation: proposal.operation,
       targetNodeId: proposal.targetNodeId || proposal.nodeId,
@@ -417,9 +489,13 @@ function createToolProposalDecider(
   };
 }
 
-const mergeWebSearchConfig = (webSearch: any = {}): NonNullable<AppConfig["webSearch"]> => ({
+const mergeWebSearchConfig = (
+  webSearch: any = {},
+): NonNullable<AppConfig["webSearch"]> => ({
   provider:
-    webSearch.provider === "kagi" || webSearch.provider === "brave" || webSearch.provider === "ollama"
+    webSearch.provider === "kagi" ||
+    webSearch.provider === "brave" ||
+    webSearch.provider === "ollama"
       ? webSearch.provider
       : "ollama",
   ollama: { apiKey: "", ...(webSearch.ollama || {}) },
@@ -429,13 +505,17 @@ const mergeWebSearchConfig = (webSearch: any = {}): NonNullable<AppConfig["webSe
 
 const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
   const provider = imageGen.provider || initialConfig.imageGen.provider;
-  const downloadPath = imageGen.downloadPath || initialConfig.imageGen.downloadPath;
+  const downloadPath =
+    imageGen.downloadPath || initialConfig.imageGen.downloadPath;
   const migrated: AppConfig["imageGen"] = {
     ...initialConfig.imageGen,
     ...imageGen,
     provider,
     downloadPath,
-    openrouter: { ...initialConfig.imageGen.openrouter!, ...(imageGen.openrouter || {}) },
+    openrouter: {
+      ...initialConfig.imageGen.openrouter!,
+      ...(imageGen.openrouter || {}),
+    },
     openai: { ...initialConfig.imageGen.openai!, ...(imageGen.openai || {}) },
     google: { ...initialConfig.imageGen.google!, ...(imageGen.google || {}) },
     xai: { ...initialConfig.imageGen.xai!, ...(imageGen.xai || {}) },
@@ -462,7 +542,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
       set({ lastError: result.error || "command failed" });
       return false;
     }
-    projectInto(set, result.state, result.history || history, { lastError: null });
+    projectInto(set, result.state, result.history || history, {
+      lastError: null,
+    });
     return true;
   };
 
@@ -492,11 +574,21 @@ export const useAppStore = create<FullAppState>((set, get) => {
 
     newWorkspace: () => {
       dispatch({ type: "newWorkspace" });
-      set({ isEditorOpen: false, activePacket: null, lastSearchReceipt: null, lastSearchRequest: null });
+      set({
+        isEditorOpen: false,
+        activePacket: null,
+        lastSearchReceipt: null,
+        lastSearchRequest: null,
+      });
     },
     discardWorkspace: () => {
       dispatch({ type: "discardWorkspace" });
-      set({ isEditorOpen: false, activePacket: null, lastSearchReceipt: null, lastSearchRequest: null });
+      set({
+        isEditorOpen: false,
+        activePacket: null,
+        lastSearchReceipt: null,
+        lastSearchRequest: null,
+      });
     },
     switchTextRole: (nodeId, role) => {
       dispatch({ type: "switchTextRole", nodeId, role });
@@ -519,7 +611,8 @@ export const useAppStore = create<FullAppState>((set, get) => {
     undo: () => {
       dispatch({ type: "undo" });
     },
-    getBreadcrumb: () => breadcrumbPath(get().workspace.document, get().workspace.runtime),
+    getBreadcrumb: () =>
+      breadcrumbPath(get().workspace.document, get().workspace.runtime),
     resolveSharedContext: (mode, operation) =>
       resolveContext({
         document: get().workspace.document,
@@ -529,13 +622,27 @@ export const useAppStore = create<FullAppState>((set, get) => {
       }),
     runDirectTransform: async (operation) => {
       const current = get().workspace;
-      const envelope = resolveContext({ document: current.document, runtime: current.runtime, mode: "direct", operation: operation === "compare" || operation === "summarize" || operation === "counterpoint" ? "summarize" : "read" });
+      const envelope = resolveContext({
+        document: current.document,
+        runtime: current.runtime,
+        mode: "direct",
+        operation:
+          operation === "compare" ||
+          operation === "summarize" ||
+          operation === "counterpoint"
+            ? "summarize"
+            : "read",
+      });
       const error = validateTransformSelection(current, operation);
       if (error) {
         set({ lastError: error });
         return false;
       }
-      const request = buildTransformRequest(current, operation, envelope.contextDigest);
+      const request = buildTransformRequest(
+        current,
+        operation,
+        envelope.contextDigest,
+      );
       try {
         const directDraft = await (backend() as any).DirectTransform({
           operation,
@@ -566,9 +673,12 @@ export const useAppStore = create<FullAppState>((set, get) => {
           (directDraft.workspaceId !== request.workspaceId ||
             directDraft.canvasId !== request.canvasId ||
             directDraft.runtimeGeneration !== request.runtimeGeneration ||
-            Number(directDraft.scopeEpoch ?? request.scopeEpoch) !== request.scopeEpoch)
+            Number(directDraft.scopeEpoch ?? request.scopeEpoch) !==
+              request.scopeEpoch)
         ) {
-          set({ lastError: "direct-transform-stale: response correlation mismatch" });
+          set({
+            lastError: "direct-transform-stale: response correlation mismatch",
+          });
           return false;
         }
         const generated = directDraft.content;
@@ -582,12 +692,18 @@ export const useAppStore = create<FullAppState>((set, get) => {
           suggestedRelations: directDraft.suggestedRelations,
           provenance: { origin: "llm" },
         });
-        const result = applyDirectTransform(latest, transform, services(), get().history);
+        const result = applyDirectTransform(
+          latest,
+          transform,
+          services(),
+          get().history,
+        );
         if (result.status !== "applied" || !result.history) {
           set({ lastError: result.error || "direct transform failed" });
           return false;
         }
-        const outputNode = result.state.document.nodes[result.receipt.createdNodeId || ""];
+        const outputNode =
+          result.state.document.nodes[result.receipt.createdNodeId || ""];
         projectInto(set, result.state, result.history, {
           lastError: null,
           lastDirectReceipt: {
@@ -608,13 +724,58 @@ export const useAppStore = create<FullAppState>((set, get) => {
         });
         return true;
       } catch (caught) {
-        set({ lastError: caught instanceof Error ? caught.message : "direct transform failed" });
+        set({
+          lastError:
+            caught instanceof Error
+              ? caught.message
+              : "direct transform failed",
+        });
         return false;
       }
     },
+    applyDirectImageVariant: (input) => {
+      const { workspace, history } = get();
+      const fullInput: ApplyImageVariantInput = {
+        src: input.src,
+        alt: input.alt || input.prompt,
+        prompt: input.prompt,
+        provider: input.provider,
+        model: input.model,
+        sourceNodeIds: input.sourceNodeIds,
+        sourceRevisions: input.sourceRevisions,
+        workspaceId: workspace.document.workspaceId,
+        canvasId: workspace.runtime.currentCanvasId,
+        runtimeGeneration: workspace.runtime.runtimeGeneration,
+        scopeEpoch: workspace.runtime.scopeEpoch,
+        position: input.position,
+      };
+      const result = applyCommand(
+        workspace,
+        { type: "applyImageVariant", input: fullInput },
+        services(),
+        history,
+      );
+      if (!result.ok) {
+        set({ lastError: result.error || "image variant failed" });
+        return false;
+      }
+      projectInto(set, result.state, result.history || history, {
+        lastError: null,
+        lastDirectReceipt: {
+          operation: "generate-image",
+          sourceNodeIds: input.sourceNodeIds,
+          createdNodeId: result.createdNodeId,
+          createdRelationIds: result.createdRelationIds,
+          summary: input.prompt,
+        },
+      });
+      return true;
+    },
     applyIncomingPacket: (packet, entryRoute) => {
       const current = get().workspace;
-      const run = packet.runId ? current.runtime.asyncRuns[packet.runId] : undefined;
+      const run = packet.runId
+        ? current.runtime.asyncRuns[packet.runId]
+        : undefined;
       const rejection = incomingPacketRejection(
         packet,
         {
@@ -634,8 +795,14 @@ export const useAppStore = create<FullAppState>((set, get) => {
       }
       set({
         activePacket: packet,
-        lastSearchReceipt: entryRoute === "direct-action" ? { entryRoute, packet } : get().lastSearchReceipt,
-        lastError: packet.status === "failed" ? packet.error?.code || "web-search-provider-error" : null,
+        lastSearchReceipt:
+          entryRoute === "direct-action"
+            ? { entryRoute, packet }
+            : get().lastSearchReceipt,
+        lastError:
+          packet.status === "failed"
+            ? packet.error?.code || "web-search-provider-error"
+            : null,
       });
       return true;
     },
@@ -657,9 +824,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         hintSummaries.push(hintExcerpt(node.summary, node.content));
       }
       const request: WebSearchRequest = {
-        query: entryRoute === "direct-action"
-          ? resolveWebSearchQuery(query, hintSummaries)
-          : resolveWebSearchQuery(query, []),
+        query:
+          entryRoute === "direct-action"
+            ? resolveWebSearchQuery(query, hintSummaries)
+            : resolveWebSearchQuery(query, []),
         hintNodeIds,
         hintSummaries,
         knownUrls: options?.knownUrls,
@@ -685,13 +853,19 @@ export const useAppStore = create<FullAppState>((set, get) => {
         set({ lastSearchRequest: request });
       }
       try {
-        const packet = (await (backend() as any).SearchWeb(request)) as ContextPacket;
+        const packet = (await (backend() as any).SearchWeb(
+          request,
+        )) as ContextPacket;
         if (entryRoute === "dialogue-agent") {
           const chat = (await import("./useChatStore")).useChatStore.getState();
           const sessionId = chat.activeSessionId ?? chat.createSession().id;
           const packetRunId = packet.runId || runId || `search-${Date.now()}`;
           const assistantId = `search-assistant-${Date.now()}`;
-          if (!chat.sessions.find((session) => session.id === sessionId)?.messages.some((message) => message.runId === packetRunId)) {
+          if (
+            !chat.sessions
+              .find((session) => session.id === sessionId)
+              ?.messages.some((message) => message.runId === packetRunId)
+          ) {
             chat.appendMessage(sessionId, {
               id: assistantId,
               role: "assistant",
@@ -714,7 +888,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         const accepted = get().applyIncomingPacket(packet, entryRoute);
         const rejection = accepted ? null : get().lastError;
         if (runId) {
-          get().dispatch({ type: accepted ? "completeAsyncRun" : "cancelAsyncRun", runId });
+          get().dispatch({
+            type: accepted ? "completeAsyncRun" : "cancelAsyncRun",
+            runId,
+          });
         }
         if (rejection) set({ lastError: rejection });
         set({ isWebSearchPending: false });
@@ -725,7 +902,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         }
         set({
           isWebSearchPending: false,
-          lastError: caught instanceof Error ? caught.message : "web-search-provider-error",
+          lastError:
+            caught instanceof Error
+              ? caught.message
+              : "web-search-provider-error",
         });
         return false;
       }
@@ -770,7 +950,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         set({ lastOpenedURL: url, lastError: null });
         return true;
       } catch (caught) {
-        set({ lastError: caught instanceof Error ? caught.message : "web-search-invalid-url" });
+        set({
+          lastError:
+            caught instanceof Error ? caught.message : "web-search-invalid-url",
+        });
         return false;
       }
     },
@@ -893,7 +1076,11 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
 
     setArtifactLastEditSummary: (id, summary) => {
-      dispatch({ type: "editTextMetadata", nodeId: id, patch: { lastEditSummary: summary } });
+      dispatch({
+        type: "editTextMetadata",
+        nodeId: id,
+        patch: { lastEditSummary: summary },
+      });
     },
 
     updateNodeSummary: (id, summary) => {
@@ -908,7 +1095,8 @@ export const useAppStore = create<FullAppState>((set, get) => {
     setEdges: (edges) => set({ edges }),
 
     setActiveNode: (id, preserveSelection = false) => {
-      const currentSelection = get().workspace.runtime.selection.selectedNodeIds;
+      const currentSelection =
+        get().workspace.runtime.selection.selectedNodeIds;
       const selectedNodeIds = id
         ? preserveSelection
           ? [...new Set([...currentSelection, id])]
@@ -933,10 +1121,16 @@ export const useAppStore = create<FullAppState>((set, get) => {
           ...state.config,
           ...config,
           imageGen: config.imageGen
-            ? mergeImageGenConfig({ ...state.config.imageGen, ...config.imageGen })
+            ? mergeImageGenConfig({
+                ...state.config.imageGen,
+                ...config.imageGen,
+              })
             : state.config.imageGen,
           webSearch: config.webSearch
-            ? mergeWebSearchConfig({ ...state.config.webSearch, ...config.webSearch })
+            ? mergeWebSearchConfig({
+                ...state.config.webSearch,
+                ...config.webSearch,
+              })
             : state.config.webSearch,
         },
       }));
@@ -973,7 +1167,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
 
     saveCanvas: async () => {
-      const json = workspaceToPrettyJSON(get().workspace, services().clock.nowISO());
+      const json = workspaceToPrettyJSON(
+        get().workspace,
+        services().clock.nowISO(),
+      );
       try {
         return await backend().SaveCanvasToFile(json);
       } catch (error) {
@@ -1002,16 +1199,24 @@ export const useAppStore = create<FullAppState>((set, get) => {
       }
     },
 
-    generateText: async (prompt, context) => backend().GenerateText(prompt, context),
+    generateText: async (prompt, context) =>
+      backend().GenerateText(prompt, context),
     generateSummary: async (text) => backend().GenerateSummary(text),
     generateImage: async (prompt, context, refImages, provider?) =>
       provider
-        ? backend().GenerateImageWithProvider(prompt, context, refImages, provider)
+        ? backend().GenerateImageWithProvider(
+            prompt,
+            context,
+            refImages,
+            provider,
+          )
         : backend().GenerateImage(prompt, context, refImages),
     getImageDataURL: async (src) => backend().GetImageDataURL(src),
 
     importFile: async (filePath) => {
-      const result = (await backend().ImportFile(filePath)) as ImportFileResult & {
+      const result = (await backend().ImportFile(
+        filePath,
+      )) as ImportFileResult & {
         filename?: string;
       };
       return result;
@@ -1050,20 +1255,34 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
 
     onNodesChange: (changes: NodeChange<AppNode>[]) => {
-      const positionChanges: Array<{ nodeId: string; position: { x: number; y: number } }> = [];
+      const positionChanges: Array<{
+        nodeId: string;
+        position: { x: number; y: number };
+      }> = [];
       const selectIds: string[] = [];
       let selectionTouched = false;
       const removeIds: string[] = [];
 
       for (const change of changes) {
-        if (change.type === "position" && change.position && change.dragging === false) {
-          positionChanges.push({ nodeId: change.id, position: change.position });
+        if (
+          change.type === "position" &&
+          change.position &&
+          change.dragging === false
+        ) {
+          positionChanges.push({
+            nodeId: change.id,
+            position: change.position,
+          });
         } else if (change.type === "select") {
           selectionTouched = true;
           if (change.selected) selectIds.push(change.id);
         } else if (change.type === "remove") {
           removeIds.push(change.id);
-        } else if (change.type === "dimensions" && change.dimensions && (change as any).resizing === false) {
+        } else if (
+          change.type === "dimensions" &&
+          change.dimensions &&
+          (change as any).resizing === false
+        ) {
           dispatch({
             type: "resizeNode",
             nodeId: change.id,
@@ -1083,7 +1302,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         dispatch({
           type: "setSelection",
           state: {
-            selectedNodeIds: projectedSelection.length ? projectedSelection : selectIds,
+            selectedNodeIds: projectedSelection.length
+              ? projectedSelection
+              : selectIds,
             // Prefer the node selected by this interaction while preserving the
             // complete React Flow selection set for Ctrl/Meta/Shift selection.
             activeNodeId:
@@ -1094,11 +1315,15 @@ export const useAppStore = create<FullAppState>((set, get) => {
         });
       }
       if (removeIds.length) {
-        const folders = removeIds.filter((id) => isFolder(get().workspace.document.nodes[id]));
+        const folders = removeIds.filter((id) =>
+          isFolder(get().workspace.document.nodes[id]),
+        );
         const normals = removeIds.filter((id) => !folders.includes(id));
         if (normals.length) dispatch({ type: "deleteNodes", nodeIds: normals });
         if (folders.length) {
-          set({ lastError: "Folder delete is disabled; use Dissolve SubCanvas" });
+          set({
+            lastError: "Folder delete is disabled; use Dissolve SubCanvas",
+          });
         }
       }
 

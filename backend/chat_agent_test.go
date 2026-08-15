@@ -377,7 +377,7 @@ func TestAgentStopsAfterTenToolRounds(t *testing.T) {
 	}))
 	defer server.Close()
 	llm := NewLLMService(&ConfigService{config: &Config{LLM: LLMConfig{BaseURL: server.URL, Model: "test"}}})
-	err := runAgent(context.Background(), llm, testChatRequest("inspect"), func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult { return ToolApplicationResult{} }, nil, nil, nil, nil)
+	err := runAgent(context.Background(), llm, testChatRequest("inspect"), func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult { return ToolApplicationResult{} }, nil, nil, nil, nil, nil)
 	if err == nil || requests.Load() != 10 {
 		t.Fatalf("expected ten tool rounds and an error, requests=%d err=%v", requests.Load(), err)
 	}
@@ -511,7 +511,7 @@ func TestAgentPreservesGeminiThoughtSignatureAcrossToolRound(t *testing.T) {
 	}, func(context.Context, *ToolApplyProposal) ToolApplicationResult {
 		t.Fatal("read-only tool unexpectedly requested approval")
 		return ToolApplicationResult{}
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

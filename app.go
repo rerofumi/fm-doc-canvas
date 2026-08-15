@@ -19,6 +19,7 @@ type App struct {
 	configService      *backend.ConfigService
 	fileService        *backend.FileService
 	llmService         *backend.LLMService
+	llmPort            backend.LLMPort
 	imageGenService    backend.ImagePort
 	imageAssetService  backend.ImageAssetPort
 	chatSessionService *backend.ChatSessionService // legacy; not used on active path
@@ -30,6 +31,7 @@ type App struct {
 	webSearch          backend.WebSearchPort
 	searchFixture      *backend.FixtureWebSearch
 	imageFixture       *backend.FixtureImage
+	llmFixture         *backend.FixtureLLM
 	lastOpenedURL      string
 }
 
@@ -50,12 +52,14 @@ func NewProductionApp() *App {
 	chatService := backend.NewChatService(llmService)
 	chatService.SetWebSearch(search, ids, clock)
 	chatService.SetImage(imageGenService)
+	chatService.SetImageAsset(imageAssetService)
 
 	return &App{
 		mode:              backend.RuntimeModeProduction,
 		configService:     configService,
 		fileService:       fileService,
 		llmService:        llmService,
+		llmPort:           llmService,
 		imageGenService:   imageGenService,
 		imageAssetService: imageAssetService,
 		chatService:       chatService,
@@ -105,9 +109,9 @@ func NewE2EAppFromEnv() (*App, error) {
 			SavePath: filepath.Join(abs, "save", "workspace.json"),
 			OpenPath: filepath.Join(abs, "fixtures", "workspace.json"),
 		},
-		Files:  fs,
-		Assets: backend.TempAssetStore{Root: abs, FS: fs},
-		LLM:       backend.FixtureLLM{Text: "fixture-llm-response"},
+		Files:     fs,
+		Assets:    backend.TempAssetStore{Root: abs, FS: fs},
+		LLM:       &backend.FixtureLLM{Text: "fixture-llm-response"},
 		Image:     &backend.FixtureImage{Path: "generated/fixture.png"},
 		WebSearch: backend.NewFixtureWebSearch(),
 		Events:    &backend.CapturingEventPort{},
@@ -158,10 +162,13 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		}
 		fixture.SetFault(opts.FaultPlan.FailOnceAt)
 	}
-	chatService := backend.NewChatService(nil)
+	chatService := backend.NewChatService(opts.LLM)
 	chatService.SetWebSearch(search, opts.IDs, opts.Clock)
 	if opts.Image != nil {
 		chatService.SetImage(opts.Image)
+	}
+	if opts.Assets != nil {
+		chatService.SetImageAsset(opts.Assets)
 	}
 
 	// Wire image services from the injected ports so the E2E composition root
@@ -171,6 +178,7 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 	if f, ok := opts.Image.(*backend.FixtureImage); ok {
 		imageFixture = f
 	}
+	llmFixture, _ := opts.LLM.(*backend.FixtureLLM)
 	var imagePort backend.ImagePort
 	if opts.Image != nil {
 		imagePort = opts.Image
@@ -180,6 +188,7 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		configService:     cfgService,
 		fileService:       fileService,
 		llmService:        nil,
+		llmPort:           opts.LLM,
 		imageGenService:   imagePort,
 		imageAssetService: opts.Assets,
 		chatService:       chatService,
@@ -190,6 +199,7 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		webSearch:         search,
 		searchFixture:     fixture,
 		imageFixture:      imageFixture,
+		llmFixture:        llmFixture,
 	}
 	return app, nil
 }
@@ -251,10 +261,10 @@ func (a *App) ResolveToolApplication(result backend.ToolApplicationResult) error
 
 // GenerateChatReply returns an LLM response for the ChatDrawer.
 func (a *App) GenerateChatReply(prompt string, contextData string) (string, error) {
-	if a.llmService == nil {
-		return "fixture-llm-response", nil
+	if a.llmPort == nil {
+		return "", fmt.Errorf("LLM service is unavailable")
 	}
-	return a.llmService.GenerateChatReply(prompt, contextData)
+	return a.llmPort.GenerateChatReply(prompt, contextData)
 }
 
 // startup is called when the app starts. The context is saved
@@ -296,10 +306,10 @@ func (a *App) LoadCanvasFromFile() (string, error) {
 
 // GenerateText calls the LLM service to generate content based on prompt and context
 func (a *App) GenerateText(prompt string, contextData string) (string, error) {
-	if a.llmService == nil {
-		return "fixture-llm-response", nil
+	if a.llmPort == nil {
+		return "", fmt.Errorf("LLM service is unavailable")
 	}
-	return a.llmService.GenerateText(prompt, contextData)
+	return a.llmPort.GenerateText(prompt, contextData)
 }
 
 // DirectTransform performs exactly one structured transform request for an
@@ -359,11 +369,7 @@ func (a *App) SearchWeb(req backend.WebSearchRequest) (backend.ContextPacket, er
 	if a.webSearch == nil || a.ids == nil || a.clock == nil {
 		return backend.ContextPacket{}, fmt.Errorf("web search is unavailable")
 	}
-	var llm backend.LLMPort
-	if a.llmService != nil {
-		llm = a.llmService
-	}
-	return backend.ExecuteWebSearch(context.Background(), a.webSearch, req, a.ids, a.clock, llm)
+	return backend.ExecuteWebSearch(context.Background(), a.webSearch, req, a.ids, a.clock, a.llmPort)
 }
 
 // OpenExternalURL opens a validated https URL in the OS browser. E2E records the URL only.
@@ -410,8 +416,55 @@ func (a *App) GetImageFixtureObservations() (map[string]interface{}, error) {
 		"provider":  provider,
 		"refs":      refs,
 		"refCount":  refCount,
-		"callCount": a.imageFixture.CallCount,
+		"callCount": a.imageFixture.Calls(),
 	}, nil
+}
+
+func (a *App) GetLLMFixtureObservations() (map[string]interface{}, error) {
+	if a.mode != backend.RuntimeModeE2E || a.llmFixture == nil {
+		return nil, fmt.Errorf("e2e LLM observations are unavailable")
+	}
+	calls, userText, imageURLs := a.llmFixture.Observations()
+	return map[string]interface{}{
+		"callCount":  calls,
+		"userText":   userText,
+		"imageURLs":  imageURLs,
+		"imageCount": len(imageURLs),
+	}, nil
+}
+
+func (a *App) requireImageFixture() (*backend.FixtureImage, error) {
+	if a.mode != backend.RuntimeModeE2E || a.imageFixture == nil {
+		return nil, fmt.Errorf("e2e image fixture is unavailable")
+	}
+	return a.imageFixture, nil
+}
+
+func (a *App) ArmE2EImageFault(code string) error {
+	fixture, err := a.requireImageFixture()
+	if err != nil {
+		return err
+	}
+	fixture.SetFault(code)
+	return nil
+}
+
+func (a *App) ArmDelayedImageGeneration() error {
+	fixture, err := a.requireImageFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ArmDelay()
+	return nil
+}
+
+func (a *App) ReleaseDelayedImageGeneration() error {
+	fixture, err := a.requireImageFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ReleaseDelay()
+	return nil
 }
 
 // ArmE2ESearchFault sets a one-shot fake search error for Core E2E.
@@ -446,10 +499,10 @@ func (a *App) ReleaseDelayedSearchWeb() error {
 
 // GenerateSummary calls the LLM service to summarize text
 func (a *App) GenerateSummary(text string) (string, error) {
-	if a.llmService == nil {
-		return "fixture summary", nil
+	if a.llmPort == nil {
+		return "", fmt.Errorf("LLM service is unavailable")
 	}
-	return a.llmService.GenerateSummary(text)
+	return a.llmPort.GenerateSummary(text)
 }
 
 // Greet returns a greeting for the given name (Legacy / Test)
@@ -495,7 +548,10 @@ func (a *App) ImportFile(filePath string) (backend.ImportFileResult, error) {
 
 // GenerateTextWithImages calls the LLM service to generate content based on prompt, context and images
 func (a *App) GenerateTextWithImages(prompt string, contextData string, imageDataURLs []string) (string, error) {
-	return a.llmService.GenerateTextWithImages(prompt, contextData, imageDataURLs)
+	if a.llmPort == nil {
+		return "", fmt.Errorf("LLM service is unavailable")
+	}
+	return a.llmPort.GenerateTextWithImages(prompt, contextData, imageDataURLs)
 }
 
 // ExportMarkdown opens a dialog and saves the markdown content

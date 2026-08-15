@@ -86,9 +86,20 @@ func (s *LLMService) GenerateText(prompt string, contextData string) (string, er
 	return s.callChatAPI(cfg, messages)
 }
 
-type chatCompletionResult struct {
+type AgentChatResult struct {
 	Content   string
 	ToolCalls []ToolCall
+}
+
+func (s *LLMService) AgentSystemPrompt() string {
+	if s == nil || s.configService == nil {
+		return effectiveAgentSystemPrompt("")
+	}
+	return effectiveAgentSystemPrompt(s.configService.GetConfig().LLM.SystemPrompt)
+}
+
+func (s *LLMService) StreamAgentChat(ctx context.Context, messages []ChatMessage, tools []ToolDefinition, onText func(string)) (AgentChatResult, error) {
+	return s.streamChat(ctx, messages, tools, onText)
 }
 
 // GenerateChatReply answers a conversational request using the selected Canvas
@@ -119,17 +130,17 @@ func (s *LLMService) GenerateChatReply(prompt string, contextData string) (strin
 // completeChat is the tool-calling entry point used by the agent loop. It is
 // deliberately OpenAI-compatible so Ollama and other local compatible servers
 // can be used without a provider-specific dependency.
-func (s *LLMService) completeChat(ctx context.Context, messages []ChatMessage, tools []ToolDefinition) (chatCompletionResult, error) {
+func (s *LLMService) completeChat(ctx context.Context, messages []ChatMessage, tools []ToolDefinition) (AgentChatResult, error) {
 	cfg := s.configService.GetConfig()
 	request := ChatCompletionRequest{Model: cfg.LLM.Model, Messages: messages, Tools: tools}
 	jsonData, err := json.Marshal(request)
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to marshal agent request: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to marshal agent request: %w", err)
 	}
 	url := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(cfg.LLM.BaseURL, "/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonData))
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to create agent request: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to create agent request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.LLM.APIKey != "" {
@@ -137,45 +148,45 @@ func (s *LLMService) completeChat(ctx context.Context, messages []ChatMessage, t
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("agent API request failed: %w", err)
+		return AgentChatResult{}, fmt.Errorf("agent API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to read agent response: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to read agent response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return chatCompletionResult{}, fmt.Errorf("agent API returned error status %d: %s", resp.StatusCode, string(body))
+		return AgentChatResult{}, fmt.Errorf("agent API returned error status %d: %s", resp.StatusCode, string(body))
 	}
 	var result ChatCompletionResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to unmarshal agent response: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to unmarshal agent response: %w", err)
 	}
 	if result.Error != nil {
-		return chatCompletionResult{}, fmt.Errorf("agent provider error: %s", result.Error.Message)
+		return AgentChatResult{}, fmt.Errorf("agent provider error: %s", result.Error.Message)
 	}
 	if len(result.Choices) == 0 {
-		return chatCompletionResult{}, fmt.Errorf("agent provider returned no choices")
+		return AgentChatResult{}, fmt.Errorf("agent provider returned no choices")
 	}
 	message := result.Choices[0].Message
 	content, _ := message.Content.(string)
-	return chatCompletionResult{Content: content, ToolCalls: message.ToolCalls}, nil
+	return AgentChatResult{Content: content, ToolCalls: message.ToolCalls}, nil
 }
 
 // streamChat consumes the OpenAI-compatible SSE stream and reports text deltas
 // as soon as the provider sends them. A non-stream JSON response is accepted as
 // a compatibility fallback for providers that ignore stream=true.
-func (s *LLMService) streamChat(ctx context.Context, messages []ChatMessage, tools []ToolDefinition, onText func(string)) (chatCompletionResult, error) {
+func (s *LLMService) streamChat(ctx context.Context, messages []ChatMessage, tools []ToolDefinition, onText func(string)) (AgentChatResult, error) {
 	cfg := s.configService.GetConfig()
 	request := ChatCompletionRequest{Model: cfg.LLM.Model, Messages: messages, Tools: tools, Stream: true}
 	jsonData, err := json.Marshal(request)
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to marshal agent stream request: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to marshal agent stream request: %w", err)
 	}
 	url := fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(cfg.LLM.BaseURL, "/"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonData))
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to create agent stream request: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to create agent stream request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
@@ -184,34 +195,34 @@ func (s *LLMService) streamChat(ctx context.Context, messages []ChatMessage, too
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return chatCompletionResult{}, fmt.Errorf("agent stream API request failed: %w", err)
+		return AgentChatResult{}, fmt.Errorf("agent stream API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return chatCompletionResult{}, fmt.Errorf("agent API returned error status %d: %s", resp.StatusCode, string(body))
+		return AgentChatResult{}, fmt.Errorf("agent API returned error status %d: %s", resp.StatusCode, string(body))
 	}
 	if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return chatCompletionResult{}, fmt.Errorf("failed to read agent response: %w", err)
+			return AgentChatResult{}, fmt.Errorf("failed to read agent response: %w", err)
 		}
 		var result ChatCompletionResponse
 		if err := json.Unmarshal(body, &result); err != nil {
-			return chatCompletionResult{}, fmt.Errorf("failed to unmarshal agent response: %w", err)
+			return AgentChatResult{}, fmt.Errorf("failed to unmarshal agent response: %w", err)
 		}
 		if result.Error != nil {
-			return chatCompletionResult{}, fmt.Errorf("agent provider error: %s", result.Error.Message)
+			return AgentChatResult{}, fmt.Errorf("agent provider error: %s", result.Error.Message)
 		}
 		if len(result.Choices) == 0 {
-			return chatCompletionResult{}, fmt.Errorf("agent provider returned no choices")
+			return AgentChatResult{}, fmt.Errorf("agent provider returned no choices")
 		}
 		message := result.Choices[0].Message
 		content, _ := message.Content.(string)
 		if content != "" && onText != nil {
 			onText(content)
 		}
-		return chatCompletionResult{Content: content, ToolCalls: message.ToolCalls}, nil
+		return AgentChatResult{Content: content, ToolCalls: message.ToolCalls}, nil
 	}
 
 	type streamToolCall struct {
@@ -251,10 +262,10 @@ func (s *LLMService) streamChat(ctx context.Context, messages []ChatMessage, too
 		}
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			return chatCompletionResult{}, fmt.Errorf("failed to decode agent stream chunk: %w", err)
+			return AgentChatResult{}, fmt.Errorf("failed to decode agent stream chunk: %w", err)
 		}
 		if chunk.Error != nil {
-			return chatCompletionResult{}, fmt.Errorf("agent provider error: %s", chunk.Error.Message)
+			return AgentChatResult{}, fmt.Errorf("agent provider error: %s", chunk.Error.Message)
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -287,9 +298,9 @@ func (s *LLMService) streamChat(ctx context.Context, messages []ChatMessage, too
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return chatCompletionResult{}, fmt.Errorf("failed to read agent stream: %w", err)
+		return AgentChatResult{}, fmt.Errorf("failed to read agent stream: %w", err)
 	}
-	return chatCompletionResult{Content: content.String(), ToolCalls: toolCalls}, nil
+	return AgentChatResult{Content: content.String(), ToolCalls: toolCalls}, nil
 }
 
 // GenerateTextWithImages sends a prompt, context and images to the LLM and returns the generated content

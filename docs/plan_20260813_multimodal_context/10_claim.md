@@ -65,7 +65,7 @@ F1 の Workspace / Context 契約と、F2 の非破壊派生・typed Relation �
 
 - 実 LLM が tool-calling と Vision を同時に安定して扱えるか。Core E2E は fake で画像添付数を固定し、実 VLM 品質は E4 / Conditional とする。
 - Dialogue で送る pixel 数の上限。初期は 1 run あたり 3 枚、image generation の参照画像は既存どおり最大 5 枚。
-- PromptBar の request-level provider 切替を Dialogue に出すか。DC-09 を守り、Dialogue は Settings の既定 Image Provider だけを使う。
+- Dialogue は Settings の既定 Image Provider で開始し、各 run ではユーザーが明示的に provider を選べる。選択しても Settings の既定値は変更しない。
 - undo 後の物理画像ファイル。既存不変条件どおり自動削除しない。残留ファイルは残存リスクとして明示する。
 - 意図と結果の差分説明の copy。専用 UI は作らず、Dialogue 本文または任意の Text Proposal に留める。
 

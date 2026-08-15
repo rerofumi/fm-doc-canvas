@@ -112,7 +112,7 @@ func TestPacketSummaryOmitsSecrets(t *testing.T) {
 
 func TestSynthesizeClaimsAssignsUniqueIDsWhenModelOmitsThem(t *testing.T) {
 	sources := []ContextSource{{SourceID: "source-1", Title: "A", URL: "https://example.com/a"}}
-	llm := FixtureLLM{Text: `{"claims":[{"kind":"consensus","text":"first","sourceIds":["source-1"]},{"kind":"uncertainty","text":"second","sourceIds":["source-1"]}],"suggestedRelations":[]}`}
+	llm := &FixtureLLM{Text: `{"claims":[{"kind":"consensus","text":"first","sourceIds":["source-1"]},{"kind":"uncertainty","text":"second","sourceIds":["source-1"]}],"suggestedRelations":[]}`}
 	claims, _, err := synthesizeClaims(llm, "q", sources, nil, NewSeededIDGenerator("t"))
 	if err != nil {
 		t.Fatal(err)
