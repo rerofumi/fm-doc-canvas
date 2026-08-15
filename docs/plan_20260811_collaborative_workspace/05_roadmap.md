@@ -9,7 +9,7 @@
 - canonical 用語: [08_glossary.md](./08_glossary.md)
 - 基準実装計画（2026-08-11 完了）: [plan_20260810_chat_artifact](../plan_20260810_chat_artifact/)
 - 正式 Full plan: [10_claim.md](./10_claim.md)、[30_requirement.md](./30_requirement.md)、[40_specification.md](./40_specification.md)、[90_status.md](./90_status.md)
-- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 / F-4 core は各 plan で受理済み。F-5B core は [plan_20260815_generated_views](../plan_20260815_generated_views/)（`planned`）。F-3C / F-4B 後半 / F-5A / F-5B 後続候補（Library View・Layout suggestion）/ F-6 は各 Gate 後の別 plan とする。
+- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 / F-4 / F-5B core は各 plan で受理済み。F-5B core は [plan_20260815_generated_views](../plan_20260815_generated_views/)（`done`、Relation batch / Cluster View + SubCanvasともにGate Go）。F-3C / F-4B 後半 / F-5A / F-5B 後続候補（Library View・Layout suggestion）/ F-6 は各 Gate 後の別 plan とする。
 
 ## 1. 本書の目的
 
@@ -681,7 +681,7 @@ F-3BとF-3Cは独立してGo / Hold / Stopにできる。Specialist subagent bra
 **対応概念**: CW-4B  
 **実施条件**: F-2 の実セッションが十分に集まった後  
 **候補計画名**: `generated_views`  
-**個別計画**: [plan_20260815_generated_views](../plan_20260815_generated_views/)（2026-08-15、`planned`）。F-5B core slice（Relation batch suggestion + Cluster View + Cluster→SubCanvas 変換）。Library View と Layout suggestion は後続候補。
+**個別計画**: [plan_20260815_generated_views](../plan_20260815_generated_views/)（2026-08-15、`done`、Gate Go）。F-5B core slice（Relation batch suggestion + Cluster View + Cluster→SubCanvas 変換）は受理済み。Library View と Layout suggestion は後続候補。
 
 #### Relation / Generated View / SubCanvasの境界（D-08）
 
@@ -709,6 +709,8 @@ F-3BとF-3Cは独立してGo / Hold / Stopにできる。Specialist subagent bra
 意味ある集合として残す場合だけ、選択したClusterをpreview付きでSubCanvasへ変換する。変換を採用するまでGenerated View上の配置は仮状態に留める。
 
 **Gate F-5B**
+
+**Core判定（2026-08-15）**: **Go**。Relation batch suggestionとCluster View + SubCanvas変換を実課題で独立確認し、ともに受理。Library View / Layout suggestionは未判定の後続候補として維持する。
 
 - **Go**: 複数の見方が欠落、対立、まとまりの発見に寄与する。
 - **Hold**: 自動生成ではなく「別の見方を提案」action に限定すれば有用。
@@ -838,7 +840,7 @@ Specialist Subagent BridgeがStop / Holdでも、GoになったDirect Toolや他
 | `specialist_agent_bridge` | read-only Specialist subagent（CLI 実装候補）、Repository / 複数段階 Web 調査、scope / permission、session handle、Context Packet | Full 候補・**有力な将来候補** | F-1 / F-2 Go、深い外部 Context の反復利用例あり |
 | `multimodal_context` | 既存画像生成、実画像入力、Variant、共同評価 | Full・[plan_20260813_multimodal_context](../plan_20260813_multimodal_context/) が F-4A + Vision を `planned` | 2026-08-13 plan 作成。実装未着手。再生成ループは対象外 |
 | `saved_workspace_recall` | 明示Save済みWorkspaceの検索・再発見、read-only外部参照 | Light / Full 候補 | 保存物を実際に探せなかった実例あり。Pause / ResumeやSave催促は対象外 |
-| `generated_views` | Relation、Cluster View / Library View、必要時 layout | Light から開始可能 | F-2 実セッション蓄積後 |
+| `generated_views` | Relation、Cluster View / Library View、必要時 layout | Core done・[plan_20260815_generated_views](../plan_20260815_generated_views/)がGate Go | 2026-08-15受入完了。Library View / Layout suggestionは後続候補 |
 | `collaboration_orchestration` | 役割提案、AL 選択、Acquisition Route の選択、限定委譲、上限・観測・停止 | Full 候補 | 複数能力が Go。Specialist Subagent Bridge は必須ではない |
 
 各計画を開始するときに改めて tier、E2E、worklog、新規依存、外部 API の検証範囲を確定する。

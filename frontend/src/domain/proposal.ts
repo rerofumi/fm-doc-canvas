@@ -616,6 +616,23 @@ export function decideAndApplyProposal(
   }
 
   if (op.kind === "add-relation-batch") {
+    const revisionError = revalidateViewSourceRevisions(
+      op.sourceRevisions,
+      state,
+    );
+    if (revisionError) {
+      nextProposal.status = revisionError.includes("conflict")
+        ? "conflict"
+        : "stale";
+      nextProposal.error = revisionError;
+      return {
+        status: nextProposal.status === "conflict" ? "conflict" : "stale",
+        proposal: nextProposal,
+        state,
+        history,
+        error: revisionError,
+      };
+    }
     const batchError = validateRelationBatch(op.relations, state);
     if (batchError) {
       nextProposal.status = "error";

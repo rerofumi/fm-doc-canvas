@@ -38,6 +38,7 @@ function App() {
     workspace,
     lastDirectReceipt,
     isWebSearchPending,
+    lastSuggestReceipt,
   } = useAppStore();
 
   const clearDirectReceipt = () => {
@@ -179,6 +180,25 @@ function App() {
         >
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           Web検索中…
+        </div>
+      )}
+
+      {lastSuggestReceipt?.status === "pending" && (
+        <div
+          className="flex shrink-0 items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800"
+          role="status"
+          aria-live="polite"
+          aria-label={
+            lastSuggestReceipt.operation === "relations"
+              ? "Relation analysis in progress"
+              : "Cluster analysis in progress"
+          }
+          data-testid="suggest-progress"
+        >
+          <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+          {lastSuggestReceipt.operation === "relations"
+            ? "Relationを解析中… 完了すると提案が表示されます。"
+            : "Clusterを解析中… 完了すると提案が表示されます。"}
         </div>
       )}
 

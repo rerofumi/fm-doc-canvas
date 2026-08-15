@@ -10,6 +10,8 @@ test.describe("F5 Generated Structures core", () => {
     await app.newWorkspace();
     const sourceA = await app.addText("Alpha relation source");
     const sourceB = await app.addText("Beta relation target");
+    const unrelatedA = await app.addText("Unrelated A");
+    const unrelatedB = await app.addText("Unrelated B");
     await app.selectNodes([sourceA!, sourceB!]);
     const before = await app.snapshot();
 
@@ -22,6 +24,19 @@ test.describe("F5 Generated Structures core", () => {
     let snap = await app.snapshot();
     expect(snap.relationCount).toBe(0);
     expect(snap.chat.sessions).toHaveLength(0);
+    expect(snap.pendingDirectProposal?.operation.relations[0]).toMatchObject({
+      sourceNodeId: sourceA,
+      targetNodeId: sourceB,
+    });
+    expect(
+      snap.pendingDirectProposal?.operation.relations.some(
+        (relation: any) =>
+          relation.sourceNodeId === unrelatedA ||
+          relation.sourceNodeId === unrelatedB ||
+          relation.targetNodeId === unrelatedA ||
+          relation.targetNodeId === unrelatedB,
+      ),
+    ).toBeFalsy();
     await card.getByRole("button", { name: "Accept selected (1)" }).click();
 
     snap = await app.snapshot();
@@ -128,6 +143,9 @@ test.describe("F5 Generated Structures core", () => {
     await expect
       .poll(async () => (await app.snapshot()).lastSuggestReceipt?.status)
       .toBe("pending");
+    await expect(page.getByTestId("suggest-progress")).toContainText(
+      "Relationを解析中",
+    );
     await app.newWorkspace();
     await app.releaseDelayedSuggest();
     await expect(pending).resolves.toBeFalsy();

@@ -217,8 +217,8 @@ interface StoreExtras {
     error?: string;
   } | null;
   pendingDirectProposal: ProposalRecord | null;
-  runDirectSuggestRelations: () => Promise<boolean>;
-  runDirectSuggestClusters: () => Promise<boolean>;
+  runDirectSuggestRelations: (sourceNodeIds?: string[]) => Promise<boolean>;
+  runDirectSuggestClusters: (sourceNodeIds?: string[]) => Promise<boolean>;
   closeGeneratedView: () => void;
   setActiveGeneratedView: (view: GeneratedViewRecord | null) => void;
   convertClusterToSubCanvas: (clusterId: string, label?: string) => boolean;
@@ -680,9 +680,11 @@ const mergeImageGenConfig = (imageGen: any = {}): AppConfig["imageGen"] => {
 function directSuggestTargets(
   state: WorkspaceState,
   maxNodes: number,
+  requestedNodeIds?: string[],
 ): { nodeIds: string[] } | { error: string } {
   const current = state.runtime.currentCanvasId;
-  const selected = state.runtime.selection.selectedNodeIds.filter((id) => {
+  const requested = requestedNodeIds ?? state.runtime.selection.selectedNodeIds;
+  const selected = requested.filter((id) => {
     const node = state.document.nodes[id];
     return !!node && node.parentCanvasId === current && !isFolder(node);
   });
@@ -701,6 +703,7 @@ function directSuggestTargets(
 function buildDirectSuggestSource(
   state: WorkspaceState,
   operation: "relate" | "group",
+  requestedNodeIds?: string[],
 ):
   | { error: string }
   | {
@@ -726,7 +729,7 @@ function buildDirectSuggestSource(
     operation,
   });
   const maxNodes = operation === "group" ? MAX_CLUSTER_NODES : 0;
-  const target = directSuggestTargets(state, maxNodes);
+  const target = directSuggestTargets(state, maxNodes, requestedNodeIds);
   if ("error" in target) return { error: target.error };
   const nodeIds = target.nodeIds;
   const visionBinaryIds = new Set(
@@ -1293,9 +1296,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
     dismissDirectProposal: () =>
       set({ pendingDirectProposal: null, lastSuggestReceipt: null }),
-    runDirectSuggestRelations: async () => {
+    runDirectSuggestRelations: async (sourceNodeIds) => {
+      if (get().lastSuggestReceipt?.status === "pending") return false;
       const current = get().workspace;
-      const built = buildDirectSuggestSource(current, "relate");
+      const built = buildDirectSuggestSource(current, "relate", sourceNodeIds);
       if ("error" in built) {
         set({ lastError: built.error });
         return false;
@@ -1402,9 +1406,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return false;
       }
     },
-    runDirectSuggestClusters: async () => {
+    runDirectSuggestClusters: async (sourceNodeIds) => {
+      if (get().lastSuggestReceipt?.status === "pending") return false;
       const current = get().workspace;
-      const built = buildDirectSuggestSource(current, "group");
+      const built = buildDirectSuggestSource(current, "group", sourceNodeIds);
       if ("error" in built) {
         set({ lastError: built.error });
         return false;
@@ -1512,7 +1517,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         {
           proposalId: record.proposalId,
           decisionId: `decision-${record.proposalId}-${decision}`,
-          decision,
+          decision: modified ? "modify" : decision,
           modifiedRelations: modified?.relations,
           modifiedView: modified?.view,
         },

@@ -78,10 +78,12 @@ flowchart TB
 | Decision | 共同検討の結果として人間が採用した判断 | 現時点で専用 Node 型を意味しない |
 | Variant | 元の対象を破壊せずに作る派生候補 | 元データの直接上書きではない |
 | Relation | 二つ以上の対象間に置く、型と由来を持つ意味的な関係 | `edge` は保存・描画上の実装語として使う |
+| Relation batch | AIが複数Node間に提案する、項目別に採否可能なRelation候補の集合 | Accept前はProposalであり、選択した候補だけを一括適用・一括undoできる |
 | Generated View | 同じNodeを別の観点から見せる、一時的で共同編集可能な仮配置 | Node本文、Canvas ownership、確定Relationを暗黙に変更せず、閉じても元の状態を失わない |
 | Cluster View | 類似、対立、論点等にもとづくGenerated View | `Cluster`単独を保存先の名称として使わない。残す集合だけ明示的にSubCanvasへ変換できる |
 | Library View | 再利用候補や関係を特定の評価軸で並べるGenerated View | 恒久Knowledge Baseやフォルダ階層ではなく、全体をSubCanvasへ自動変換しない |
 | ClusterからSubCanvasへの変換 | 採用したClusterのFolder Nodeを作り、対象NodeをそのSubCanvasへ実際に移動する操作 | Generated Viewの保存ではない。対象・移動先・境界Relationをpreviewし、undo可能にする |
+| viewHints | active Generated Viewのcluster label / membershipを次のContext解決へ渡す観測情報 | 確定Relationや恒久groupではなく、Viewを閉じた後や別Canvasには引き継がない |
 | Proposal | AI が提示した、まだ適用・採用されていない変更、Relation、Variant、構造案 | Candidate Context は「読む候補」、Proposal は「行う・採用する候補」 |
 
 ## 5. Context

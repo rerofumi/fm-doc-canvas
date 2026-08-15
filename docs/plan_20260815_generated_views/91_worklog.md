@@ -122,3 +122,25 @@ worklog: enabled
 - Alternatives rejected or deferred: SVG overlay（spike 不要と判定）、batch の個別 Proposal 分割（R-04 に従い addRelations 単一 transaction）。
 - Artifacts updated: `app.go`、`backend/*`、`frontend/src/domain/*`、`frontend/src/store/*`、`frontend/src/components/*`、`frontend/src/types/chat.ts`、`frontend/src/tests/*`、`90_status.md`、`91_worklog.md`。
 - Handoff: Core E2E（`mise run e2e` / ce2e-f5）と REQ-17 E4 は別 session で実施。受理後 `05_roadmap.md` / current docs へ反映。
+
+## WL-011 — Step 11: User acceptance fixes
+
+- Date/time: 2026-08-15
+- Actor/session: User acceptance + Codex fix session
+- Purpose: E4で報告されたRelation batchの選択scope / Accept問題と、長時間解析中のフィードバック不足を修正する。
+- Findings: Node右クリック時のReact Flow選択集合がDirect suggestionへ明示的に渡されず、store側で2件未満としてCanvas全体へfallbackする経路があった。またDirect proposal cardの候補除外は`modifiedRelations`を渡していたが、decisionが`accept`のままでdomain側のmodify分岐を通らず、除外が適用されていなかった。`lastSuggestReceipt: pending`は存在したが画面に描画されていなかった。
+- Actions: Nodeメニューの操作時点で選択Node IDsを固定してRelation解析へ渡した。modified payload付きAcceptを`modify` decisionへ接続し、Relation batch Accept時のsource revision再検証を追加した。Relation / Cluster解析中のspinner付き`role=status` bannerを追加し、同時suggest開始を抑止した。
+- Verification: frontend logic / domain tests passed、TypeScript + Vite production build passed、別ポートでCore E2E 33件 passed。F5-01で4 Node中の選択2 NodeだけがRelation対象になること、F5-04でpending中status表示を確認。
+- Decision: Cluster View + SubCanvasはGoを維持。Relation batchは修正後の人手再確認までHold。
+- Artifacts updated: `frontend/src/store/useAppStore.ts`、`frontend/src/components/canvas/CanvasArea.tsx`、`frontend/src/App.tsx`、`frontend/src/domain/proposal.ts`、`frontend/e2e/ce2e-f5.spec.ts`、`90_status.md`、`91_worklog.md`。
+- Handoff: 実LLMで選択2 NodeのRelation proposal / Acceptと、Relation / Cluster解析中bannerを再確認する。
+
+## WL-012 — Step 12: Final human acceptance
+
+- Date/time: 2026-08-15
+- Actor/session: User acceptance session
+- Purpose: 修正版のRelation batchと解析中表示を再確認し、F-5B core Gateを確定する。
+- Result: ユーザーが修正版を「良さそう」と評価し、確認完了・受け入れ了承を宣言した。
+- Decision: Relation batch suggestionはGo。先にGo判定済みのCluster View + SubCanvasと合わせ、REQ-17をGo、plan stateを`done`とする。
+- Artifacts updated: `90_status.md`、`91_worklog.md`、`docs/plan_index.md`、`05_roadmap.md`、`08_glossary.md`。
+- Handoff: Library View / Layout suggestionは後続候補として独立に計画・判定する。

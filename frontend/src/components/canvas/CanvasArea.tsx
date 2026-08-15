@@ -548,7 +548,13 @@ const CanvasArea: React.FC = () => {
           onSuggestRelations={
             menu.type === "node"
               ? () => {
-                  void runDirectSuggestRelations();
+                  const selected = nodes
+                    .filter((node) => node.selected)
+                    .map((node) => node.id);
+                  const sourceNodeIds = selected.includes(menu.id)
+                    ? selected
+                    : [menu.id];
+                  void runDirectSuggestRelations(sourceNodeIds);
                 }
               : undefined
           }
