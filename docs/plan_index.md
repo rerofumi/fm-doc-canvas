@@ -9,7 +9,8 @@
 | plan_20260811_collaborative_workspace | Full | AI協働型Workspace基盤（Text role、Workspace scope、Context、Proposal） | done | 2026-08-12 完了。D-12・D-02・F-1を受理。Core E2E / worklog enabled |
 | plan_20260812_collaborative_workspace_F2 | Full | Collaborative Transform & Relate（非破壊派生・型付きRelation・共同Proposal） | done | 2026-08-13 user acceptance。REQ-18 Go、Core E2E 17/17。core slice完了後もロードマップ F-2 は後続候補の disposition 完了まで open |
 | plan_20260813_web_context | Full | F-3 Web Context Acquisition（Context Packet、Direct Tool 検索、明示 Promote） | done | 2026-08-13 人間が検索導線、結果パネル、選択、Promote、Node作成を実機確認しGate Go。Core E2E 23 passed。F-3Cは`specialist_agent_bridge`将来候補へdefer。worklog enabled |
-| plan_20260813_multimodal_context | Full | F-4 Multimodal Transform（既存画像生成、Image Variant、Dialogue Vision） | planned | 2026-08-13 Full plan。F-4A + Vision Context。Core E2E / worklog enabled。再生成ループと AL-3 は対象外 |
+| plan_20260813_multimodal_context | Full | F-4 Multimodal Transform（既存画像生成、Image Variant、Dialogue Vision） | done | 2026-08-15 人間実機確認で Gate Go。REQ-16 Go、Core E2E 28/28。確認付き再生成・AL-3・`fm-image-assistant` は後続候補へ defer |
+| plan_20260815_generated_views | Full | F-5B Generated Structures core（Relation batch suggestion、Cluster View、Cluster→SubCanvas 変換） | planned | 2026-08-15 Full plan。Library View / Layout suggestion は後続候補。Core E2E / worklog enabled |
 
 ## 状態凡例
 

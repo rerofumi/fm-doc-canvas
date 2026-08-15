@@ -9,7 +9,7 @@
 - canonical 用語: [08_glossary.md](./08_glossary.md)
 - 基準実装計画（2026-08-11 完了）: [plan_20260810_chat_artifact](../plan_20260810_chat_artifact/)
 - 正式 Full plan: [10_claim.md](./10_claim.md)、[30_requirement.md](./30_requirement.md)、[40_specification.md](./40_specification.md)、[90_status.md](./90_status.md)
-- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 core は各 plan で受理済み。F-4 core は [plan_20260813_multimodal_context](../plan_20260813_multimodal_context/)（`planned`）。F-3C / F-4B 後半 / F-5 / F-6 は各 Gate 後の別 plan とする。
+- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 / F-4 core は各 plan で受理済み。F-5B core は [plan_20260815_generated_views](../plan_20260815_generated_views/)（`planned`）。F-3C / F-4B 後半 / F-5A / F-5B 後続候補（Library View・Layout suggestion）/ F-6 は各 Gate 後の別 plan とする。
 
 ## 1. 本書の目的
 
@@ -680,7 +680,8 @@ F-3BとF-3Cは独立してGo / Hold / Stopにできる。Specialist subagent bra
 
 **対応概念**: CW-4B  
 **実施条件**: F-2 の実セッションが十分に集まった後  
-**候補計画名**: `generated_views`
+**候補計画名**: `generated_views`  
+**個別計画**: [plan_20260815_generated_views](../plan_20260815_generated_views/)（2026-08-15、`planned`）。F-5B core slice（Relation batch suggestion + Cluster View + Cluster→SubCanvas 変換）。Library View と Layout suggestion は後続候補。
 
 #### Relation / Generated View / SubCanvasの境界（D-08）
 
