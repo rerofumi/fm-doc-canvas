@@ -48,6 +48,7 @@ AI協働型Workspaceは、人間と AI が同じ材料・関係・途中状態�
 - Mutation Target: 書き換え、派生、生成の対象。
 - Relation Target: 関係付ける対象と関係の向き・種類。
 - Proposal: AI が提示し、人間の採用前には確定状態を変更しない候補。
+- Action Proposal: 現在の局面に対して AI Partner が示す「次の一手」の候補。workflow の確定 step ではなく、実行前に role、Action Level、対象、期待結果、制御方法を人間と共有する。
 - Provenance: どの材料・操作・外部情報から生じたかという由来。
 - Generated View: ownership や本文を変えず、同じ材料を別の観点で一時配置する見方。
 - Short Recovery: 恒久履歴ではなく事故直後だけを対象にする復旧層。
@@ -81,5 +82,7 @@ AI協働型Workspaceは、人間と AI が同じ材料・関係・途中状態�
 6. Save と Export は異なる。Save は作業状態、Export は選択 Outcome を扱う。
 7. Direct Action は明示入力へ忠実で、Dialogue の自動判断を暗黙に継承しない。
 8. 外部取得結果は Candidate として入り、明示採用された部分だけが Workspace の確定材料になる。
+9. Action Level は成熟度ではなく局面ごとの協働方法であり、高い自律度を単独の価値にしない。
+10. Action Proposal の生成と action の実行を分け、人間が選ぶ前に Tool、外部取得、確定変更を開始しない。
 
 具体的な保存形式、Context件数、test isolation、UI selector、provider制約は各projectのRequirement / Specificationで決める。

@@ -11,6 +11,7 @@
 | plan_20260813_web_context | Full | F-3 Web Context Acquisition（Context Packet、Direct Tool 検索、明示 Promote） | done | 2026-08-13 人間が検索導線、結果パネル、選択、Promote、Node作成を実機確認しGate Go。Core E2E 23 passed。F-3Cは`specialist_agent_bridge`将来候補へdefer。worklog enabled |
 | plan_20260813_multimodal_context | Full | F-4 Multimodal Transform（既存画像生成、Image Variant、Dialogue Vision） | done | 2026-08-15 人間実機確認で Gate Go。REQ-16 Go、Core E2E 28/28。確認付き再生成・AL-3・`fm-image-assistant` は後続候補へ defer |
 | plan_20260815_generated_views | Full | F-5B Generated Structures core（Relation batch suggestion、Cluster View、Cluster→SubCanvas 変換） | done | 2026-08-15 人間実機確認でRelation batch / Cluster View + SubCanvasともにGate Go。Core E2E 33件pass。Library View / Layout suggestionは後続候補 |
+| plan_20260816_collaboration_orchestration | Full | F-6 Collaboration Orchestration（AI Partner の役割・AL・route提案） | planned | 2026-08-16 Full plan作成。manual Next Action Proposal + human-controlled single dispatchをcoreとし、Core E2E / worklog enabled |
 
 ## 状態凡例
 
