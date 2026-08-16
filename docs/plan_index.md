@@ -12,6 +12,7 @@
 | plan_20260813_multimodal_context | Full | F-4 Multimodal Transform（既存画像生成、Image Variant、Dialogue Vision） | done | 2026-08-15 人間実機確認で Gate Go。REQ-16 Go、Core E2E 28/28。確認付き再生成・AL-3・`fm-image-assistant` は後続候補へ defer |
 | plan_20260815_generated_views | Full | F-5B Generated Structures core（Relation batch suggestion、Cluster View、Cluster→SubCanvas 変換） | done | 2026-08-15 人間実機確認でRelation batch / Cluster View + SubCanvasともにGate Go。Core E2E 33件pass。Library View / Layout suggestionは後続候補 |
 | plan_20260816_collaboration_orchestration | Full | F-6 Collaboration Orchestration（AI Partner の役割・AL・route提案） | done | 2026-08-16 Human実機承認、Core E2E 41件pass、F-6 Gate Go |
+| plan_20260816_gui_update | Full | GUI/UX 刷新（Chat/Direct統合、親引き上げ・安全解体、Canvas領域整理） | planned | 2026-08-16改訂。i18nと任意Canvas pickerは後続候補、Core E2EはPlaywright |
 
 ## 状態凡例
 
