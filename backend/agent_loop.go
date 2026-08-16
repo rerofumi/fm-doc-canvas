@@ -139,7 +139,13 @@ func runAgent(ctx context.Context, llm LLMPort, req ChatRequest, emit func(ChatE
 				toolEvent.Summary = result.Content
 			}
 			emit(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_done", ToolEvent: toolEvent})
-			messages = append(messages, ChatMessage{Role: "tool", ToolCallID: call.ID, Content: result.Content})
+			// OpenAI-compatible providers identify a custom function result by both
+			// the originating call id and function name. Gemini's compatibility
+			// layer is strict about this correlation (and Gemini 3 also requires
+			// the assistant tool-call metadata, including thought_signature, to be
+			// replayed unchanged). Keep the provider id/name pair on the result;
+			// the assistant message above already carries the original ToolCall.
+			messages = append(messages, ChatMessage{Role: "tool", ToolCallID: call.ID, Name: call.Function.Name, Content: result.Content})
 		}
 	}
 	return fmt.Errorf("maximum tool rounds (%d) reached", 10)

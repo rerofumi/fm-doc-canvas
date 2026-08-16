@@ -193,10 +193,18 @@ frontend request builder は次の順で planning intent を組み立てる。
 1. `ContextEnvelope.focus?.text`。
 2. active Chat session の最新 complete user message。
 3. selected / active Node の label / summary から得た短い query seed。
+4. 上記がすべて空で Current Canvas に Text-bearing Node がある場合、その bounded canvas hints を read-only planning context として使う。
 
 上位があっても下位情報を hidden instruction として結合しない。request では `focusText`、`dialogueHistory`、`nodeHints` を別 field のまま送る。
 
-usable intent がなく、eligible Node action もない場合、backend は LLM を呼ばず deterministic `clarify` を返してよい。この場合も proposal set contract と correlation を維持する。通常 case の provider call は最大1回である。
+Current Canvas にも usable material がなく、eligible Node action もない場合だけ、backend は LLM を呼ばず deterministic `clarify` を返してよい。この場合も proposal set contract と correlation を維持する。通常 case の provider call は最大1回である。canvas-wide fallback は助言生成用であり、明示 target を必要とする child action の対象を暗黙確定しない。
+
+## Acceptance Amend — 2026-08-16 runtime findings
+
+- `canvas-2.json` 相当の実データを fixture 化し、1件選択、2件選択、再提案、未選択を反復検証する。
+- backend の validation error は typed orchestration error として frontend へ渡し、`next-actions-failed` の回復文言は「再提案、対象変更、通常 Chat」に限定する。Undo / New Workspace / relation / transform 再作成という他機能向け文言を流用しない。
+- 通常 Chat の `read_canvas_node` 後 continuation request を request-shape test で固定し、tool call ID、tool name、tool result role/part、provider adapterの順序・必須fieldを検証する。
+- 修正単位は `WP-6 — Runtime acceptance repair` とし、REQ-05/17/18/19/20/21/22/23 と NFR-02/03/06 を対象にする。
 
 ## Prompt Contract
 
@@ -414,8 +422,10 @@ Implementation may choose to auto-clear ready proposal immediately on scope chan
 | REQ-15/16 | runtime lifecycle / stale / cancel | store lifecycle, orchestration domain | F6-05 |
 | REQ-17 | errors / no fallback | Go parser, store, panel | fault tests, F6-05 |
 | REQ-18 | accessibility / regression | panel/cards/ChatInput | F6-01/05, E4 |
-| REQ-19/20 | harness / commands | fixture, E2E bridge, tests, mise tasks | plan checks |
+| REQ-19/20 | harness / commands | fixture, E2E bridge, tests, mise tasks | F6-01〜07, plan checks |
 | REQ-21 | value Gate | task protocol / review note | separate E4 |
+| REQ-22 | Current Canvas fallback | `contextResolver.ts`, `orchestration.ts`, `app.go` | F6-06, E4 |
+| REQ-23 | Chat tool continuation | `agent_loop.go`, provider adapter, E2E bridge | request-shape test, F6-07, E2 |
 | NFR-01 | no dependencies | package / module diff | E3 |
 | NFR-02 | read-only / atomic reuse | state snapshot / existing commands | E1 |
 | NFR-03/04 | data / limits | payload / parser / limit tests | E1/E3 |
@@ -432,6 +442,7 @@ Implementation may choose to auto-clear ready proposal immediately on scope chan
 | WP-3 — Store / dispatcher / lifecycle | REQ-08〜17, NFR-02/05/06 | `useAppStore.ts`, transform request helpers, `useChatStore.ts` integration | pending/cancel/stale/dispatch state、exact target、single child action、New/Load/navigation clear、existing results reuse |
 | WP-4 — UI / accessibility | REQ-01/07/08/09/14/18 | `components/collaboration/NextActionPanel.tsx`, `NextActionCard.tsx`, `ChatDrawer.tsx`, `ChatInput.tsx` | manual trigger、1〜3 cards、edits、clarify、progress/error/receipt、keyboard / accessible names |
 | WP-5 — Regression / Gate handoff | REQ-01〜21, NFR-01〜06 | `f6Orchestration.test.ts`, `ce2e-f6.spec.ts`, plan evidence / E4 note | F6-01〜05、all plan commands、F1〜F5 regression pass。route family別 E4 packet が separate acceptance に渡せる |
+| WP-6 — Runtime acceptance repair | REQ-04/05/17〜23, NFR-02/03/06 | orchestration prompt/provider adapter、resolver/store/UI、Chat tool adapter、F6-06/07 | canvas-wide提案、typed recovery、Gemini tool continuation、real-shape相当fixture、全plan commandsがpass。E2/E4 handoff可能 |
 
 ## Implementation Order / First Checks
 
@@ -441,5 +452,6 @@ Implementation may choose to auto-clear ready proposal immediately on scope chan
 4. WP-3 で UI なしの store dispatch と stale / no-op を検証する。
 5. WP-4 で manual flow と accessibility を接続する。
 6. WP-5 で F6-01〜05、build / vet、E4 handoff を完了する。
+7. Human acceptance failを受け、WP-6でF6-06/07とprovider互換修正を追加し、自動再受入後にE2/E4へ戻す。
 
 各 WP 完了時、実装 session は `90_status.md` の implementer state / evidence のみ更新する。Acceptance column と plan `done` は別 session / human が更新する。

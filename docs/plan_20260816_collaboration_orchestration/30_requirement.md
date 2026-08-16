@@ -31,6 +31,8 @@ F6 core は、明示的な `次の一手` 呼出しから、context-aware な Ac
 | REQ-19 | Core E2E は fake LLM / fake Web Search と既存 bridge だけを使い、実 API key / 外部 network を要求しない。F6-01〜F6-05 を追加し、F1〜F5 E2E を回帰実行する。fixture は action ranking、invalid response、delay / cancel、child dispatch を決定的に制御できる。 | Harness inspection、`mise run e2e` | E1 |
 | REQ-20 | plan-defined frontend / Go tests、Go vet、frontend / Wails build、Core E2E が全て pass する。新規 F6 frontend test は既存 test entry / config / script に明示登録し、`mise run test` の標準出力で実行を確認する。 | `mise run test`、`mise exec -- go vet ./...`、`mise exec -- npm --prefix frontend run build`、`mise run build`、`mise run e2e` | E1 |
 | REQ-21 | 別受入 session / human review で、(a) Contextual Proposal layer、(b) Transform route、(c) Research route、(d) Structure route を独立に Go / Hold / Stop 判定する。Contextual Proposal layer の Go と、3 route family 中 2 つ以上の Go、かつ Context / Control に Stop がないことを F6 core Go の必要条件とする。採用率、Tool call 数、介入回数の少なさは単独の Go 条件にしない。 | Plan-defined task-based E4 review | E4 |
+| REQ-22 | 明示 Focus・selection・最新 user intent がなくても、Current Canvas に利用可能な Text-bearing Node がある場合は、その bounded canvas context を使って助言候補を生成する。Current Canvas に材料が本当にない場合だけ deterministic `clarify` とする。canvas-wide context から exact target が確定できない action は実行可能として提案せず、必要なら質問へ落とす。 | Resolver/request/backend tests、Core E2E F6-06、human review | E1 / E4 |
+| REQ-23 | F6 導入後も通常 Chat の agent tool loop は維持される。Node について意見を求め、`read_canvas_node` が成功した場合、その tool result を含む後続 provider request が `400 INVALID_ARGUMENT` にならず、assistant response または既存の actionable error として完結する。 | Backend request-shape regression test、Core E2E F6-07、実 API smoke | E1 / E2 |
 
 ## Non-Functional Requirements
 
@@ -61,7 +63,7 @@ F6 core は、明示的な `次の一手` 呼出しから、context-aware な Ac
 - Wails production build: `mise run build`
 - Core E2E: `mise run e2e`
 - Core E2E in scope: yes
-- Core E2E REQ IDs: REQ-01〜19
+- Core E2E REQ IDs: REQ-01〜20、REQ-22〜23
 - Human task-based Gate: REQ-21
 
 ## Core E2E Scope
@@ -85,6 +87,14 @@ F6 core は、明示的な `次の一手` 呼出しから、context-aware な Ac
 ### F6-05 — Clarify, lifecycle, cancel, errors, accessibility, regression
 
 Focus / 対象不足では `clarify` 一問だけを示す。delay 中 local cancel、late result、invalid JSON、unknown kind、4件超過、scope/navigation/New/Load/Discard stale、Save非含入、主要 control の accessible name / keyboard、既存 Chat / PromptBar / F1〜F5 導線の回帰を確認する。
+
+### F6-06 — Canvas-wide suggestion and real-canvas validation
+
+明示 Focus / selection がないが Current Canvas に Text-bearing Node がある状態では、canvas-wide bounded context から `次の一手` が提案されることを確認する。1件選択、2件選択、再提案を `canvas-2.json` 相当の複数URL・日本語本文を含むfixtureで反復し、valid scopeで `next-actions-failed` にならないこと、invalid provider response時の回復文言が orchestration 向けであることを確認する。
+
+### F6-07 — Existing Chat node-tool regression
+
+通常 Chat で Node への意見を求め、`read_canvas_node` の tool call/result 後に provider continuation が成功することを確認する。providerへ送る message / tool-call correlation が対象APIの契約を満たし、`400 INVALID_ARGUMENT` を回帰させない。
 
 ## Human Value Review Protocol
 

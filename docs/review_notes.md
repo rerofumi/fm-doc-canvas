@@ -50,3 +50,10 @@
 - `docs/plan_20260810_chat_artifact/` の Sprint A〜C はユーザー受理と自動検証を完了し、plan state を `done` とした。
 - Artifact、CanvasFile V1.2、ChatDrawer、Canvas 別 session、request-local snapshot、agent tool、revision acknowledgment の確定挙動を current docs へ反映した。
 - 残存していた性能測定、専用 compatibility/secret/XSS 検証、横断 Core E2E は、現時点で実利用上の課題を感じていないというユーザー判断により EX waiver とした。試験合格を意味せず、詳細な残余リスクと再検討条件は同計画の `90_status.md` に残す。
+
+## 2026-08-16 F6 Collaboration Orchestration Closure
+
+- 初回実機受入で単一/複数選択の`next-actions-failed`、不適切な回復文言、未選択時のcanvas context不足、Gemini `read_canvas_node`後400を検出し、同planのWP-6へ差し戻した。
+- kind別planner contract、canvas-wide bounded fallback、typed recovery、tool result `name` / `tool_call_id` / thought signature保持、F6-06/07を追加した。
+- HumanがF6要素を期待動作として承認。Contextual Proposal、Transform、Research、Structure、Context / ControlをGoとし、Core E2E 41件passでplanをdoneとした。
+- AL-3、Specialist subagent、multi-step、自動trigger、proposal persistenceは引き続き対象外であり、core closureに含めない。

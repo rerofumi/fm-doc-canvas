@@ -9,7 +9,7 @@
 - canonical 用語: [08_glossary.md](./08_glossary.md)
 - 基準実装計画（2026-08-11 完了）: [plan_20260810_chat_artifact](../plan_20260810_chat_artifact/)
 - 正式 Full plan: [10_claim.md](./10_claim.md)、[30_requirement.md](./30_requirement.md)、[40_specification.md](./40_specification.md)、[90_status.md](./90_status.md)
-- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 / F-4 / F-5B core は各 plan で受理済み。F-5B core は [plan_20260815_generated_views](../plan_20260815_generated_views/)（`done`、Relation batch / Cluster View + SubCanvasともにGate Go）。F-3C / F-4B 後半 / F-5A / F-5B 後続候補（Library View・Layout suggestion）/ F-6 は各 Gate 後の別 plan とする。
+- 昇格済み範囲: D-12・D-02・F-1 / F-2 / F-3 / F-4 / F-5B / F-6 core は各 plan で受理済み。F-6 core は [plan_20260816_collaboration_orchestration](../plan_20260816_collaboration_orchestration/)（`done`、Contextual Proposalと3 route family、Context / ControlがGate Go）。F-3C / F-4B 後半 / F-5A / F-5B後続候補 / F-6後続候補は別planとする。
 
 ## 1. 本書の目的
 
@@ -736,6 +736,8 @@ F-6 は閉ループ自動化の頂点ではない。Go になった能力を使�
 
 **Gate F-6**
 
+**Core判定（2026-08-16）**: **Go**。ChatDrawerの明示「次の一手」、bounded context、1〜3件のAction Proposal、human-controlled single dispatch、Transform / Research / Structure route、clarify / recoveryを実機確認し受理した。未選択時はCurrent Canvasから助言し、未選択Nodeを暗黙targetにしない。AL-3、Specialist subagent、multi-step、自動triggerは後続候補に留める。
+
 - AI Partner の役割と実行レベルが局面に合っている。
 - Acquisition Route が依頼の複雑さに合い、必要時には人間が訂正できる。
 - 人間が現在の状態、次の判断、変更・停止・取消方法を理解できる。
@@ -841,7 +843,7 @@ Specialist Subagent BridgeがStop / Holdでも、GoになったDirect Toolや他
 | `multimodal_context` | 既存画像生成、実画像入力、Variant、共同評価 | Full・[plan_20260813_multimodal_context](../plan_20260813_multimodal_context/) が F-4A + Vision を `planned` | 2026-08-13 plan 作成。実装未着手。再生成ループは対象外 |
 | `saved_workspace_recall` | 明示Save済みWorkspaceの検索・再発見、read-only外部参照 | Light / Full 候補 | 保存物を実際に探せなかった実例あり。Pause / ResumeやSave催促は対象外 |
 | `generated_views` | Relation、Cluster View / Library View、必要時 layout | Core done・[plan_20260815_generated_views](../plan_20260815_generated_views/)がGate Go | 2026-08-15受入完了。Library View / Layout suggestionは後続候補 |
-| `collaboration_orchestration` | 役割提案、AL 選択、Acquisition Route の選択、限定委譲、上限・観測・停止 | Full 候補 | 複数能力が Go。Specialist Subagent Bridge は必須ではない |
+| `collaboration_orchestration` | 役割提案、AL 選択、Acquisition Route の選択、限定委譲、上限・観測・停止 | Full・[plan_20260816_collaboration_orchestration](../plan_20260816_collaboration_orchestration/) core `done` | 2026-08-16受入完了。AL-3 / Specialist / multi-step / auto-triggerは後続候補 |
 
 各計画を開始するときに改めて tier、E2E、worklog、新規依存、外部 API の検証範囲を確定する。
 

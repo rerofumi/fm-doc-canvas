@@ -312,6 +312,48 @@ func (a *App) GenerateText(prompt string, contextData string) (string, error) {
 	return a.llmPort.GenerateText(prompt, contextData)
 }
 
+// SuggestNextActions returns a read-only, one-shot structured proposal set.
+// It never enters the Agent loop and never mutates Workspace or Dialogue.
+func (a *App) SuggestNextActions(req backend.NextActionRequest) (backend.NextActionProposalSet, error) {
+	if err := req.Validate(); err != nil {
+		return backend.NextActionProposalSet{}, err
+	}
+	eligible := backend.EligibleNextActionKinds(req)
+	// With no usable intent or eligible child action, clarify is deterministic and
+	// deliberately avoids a provider call.
+	if strings.TrimSpace(req.FocusText) == "" && len(req.DialogueHistory) == 0 && len(req.SelectedNodeIDs) == 0 && len(req.NodeHints) == 0 {
+		raw := `{"actions":[{"kind":"clarify","title":"作業の焦点を一つ決める","reason":"次の一手を選ぶための材料が不足しています。","expectedResult":"具体的な質問を一つ決めます。","question":"今回の作業で最も重視したいことは何ですか？","targetNodeIds":[]}]}`
+		return backend.ParseNextActions(raw, req, []backend.NextActionKind{backend.ActionClarify})
+	}
+	prompt := backend.BuildNextActionPrompt(req, eligible)
+	var raw string
+	var err error
+	if fixture, ok := a.llmPort.(*backend.FixtureLLM); ok {
+		raw, err = fixture.NextActionsResponse(eligible, req.SelectedNodeIDs)
+	} else if orchestrationLLM, ok := a.llmPort.(interface{ GenerateOrchestrationProposal(string) (string, error) }); ok {
+		raw, err = orchestrationLLM.GenerateOrchestrationProposal(prompt)
+	} else if a.mode == backend.RuntimeModeProduction {
+		// Production must use the dedicated adapter so a configured general
+		// system prompt can never enter the orchestration route.
+		err = fmt.Errorf("orchestration provider does not implement the dedicated proposal adapter")
+	} else if a.llmPort != nil {
+		// E2E-only compatibility fallback for injected ports that predate the
+		// dedicated orchestration surface. The fallback is never used by the
+		// production composition root.
+		raw, err = a.llmPort.GenerateText(prompt, "")
+	} else {
+		err = fmt.Errorf("LLM service is unavailable")
+	}
+	if err != nil {
+		return backend.NextActionProposalSet{}, fmt.Errorf("orchestration-provider-error: %w", err)
+	}
+	proposal, err := backend.ParseNextActions(raw, req, eligible)
+	if err != nil {
+		return backend.NextActionProposalSet{}, fmt.Errorf("orchestration-validation-error: %w", err)
+	}
+	return proposal, nil
+}
+
 // DirectTransform performs exactly one structured transform request for an
 // explicit canvas action. It never enters the dialogue/agent loop or creates a
 // proposal acknowledgement, and returns only a validated draft for the
@@ -470,6 +512,48 @@ func (a *App) requireSuggestFixture() (*backend.FixtureLLM, error) {
 	return fixture, nil
 }
 
+// SetE2ENextActionsFixture configures the one-shot planner fixture in E2E only.
+func (a *App) SetE2ENextActionsFixture(raw string) error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.SetNextActionsJSON(raw)
+	return nil
+}
+func (a *App) ArmDelayedNextActions() error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ArmNextActionsDelay()
+	return nil
+}
+func (a *App) ReleaseDelayedNextActions() error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ReleaseNextActionsDelay()
+	return nil
+}
+func (a *App) ArmNextActionsFault(code string) error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.SetNextActionsFault(code)
+	return nil
+}
+
+func (a *App) GetE2ENextActionsCallCount() (int, error) {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return 0, err
+	}
+	return fixture.NextActionsCallCount(), nil
+}
+
 // ArmDelayedSuggest holds the next Direct suggestion until ReleaseDelayedSuggest.
 func (a *App) ArmDelayedSuggest() error {
 	fixture, err := a.requireSuggestFixture()
@@ -563,10 +647,11 @@ func (a *App) GetLLMFixtureObservations() (map[string]interface{}, error) {
 	}
 	calls, userText, imageURLs := a.llmFixture.Observations()
 	return map[string]interface{}{
-		"callCount":  calls,
-		"userText":   userText,
-		"imageURLs":  imageURLs,
-		"imageCount": len(imageURLs),
+		"callCount":     calls,
+		"userText":      userText,
+		"imageURLs":     imageURLs,
+		"imageCount":    len(imageURLs),
+		"agentRequests": a.llmFixture.AgentRequestObservations(),
 	}, nil
 }
 

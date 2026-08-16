@@ -102,3 +102,58 @@ func TestE2EObservationsGuard(t *testing.T) {
 		t.Fatal("expected observations guard to fail in production mode")
 	}
 }
+
+func TestSuggestNextActionsNoContextSkipsProviderAndNormalUsesOneCall(t *testing.T) {
+	fixture := &backend.FixtureLLM{}
+	opts := e2eOptions(t)
+	opts.LLM = fixture
+	app, err := NewAppWithOptions(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := backend.NextActionRequest{
+		RequestID:         "next-action-no-context",
+		WorkspaceID:       "workspace",
+		CanvasID:          "canvas",
+		RuntimeGeneration: "generation",
+		ContextDigest:     "digest",
+		SourceRevisions:   map[string]int64{},
+	}
+	proposal, err := app.SuggestNextActions(request)
+	if err != nil || len(proposal.Actions) != 1 || proposal.Actions[0].Kind != backend.ActionClarify {
+		t.Fatalf("expected deterministic clarify proposal, got %+v: %v", proposal, err)
+	}
+	if calls := fixture.NextActionsCallCount(); calls != 0 {
+		t.Fatalf("no-context request must skip provider, calls=%d", calls)
+	}
+	request.FocusText = "choose a focus"
+	proposal, err = app.SuggestNextActions(request)
+	if err != nil || len(proposal.Actions) != 1 {
+		t.Fatalf("expected one valid provider proposal, got %+v: %v", proposal, err)
+	}
+	if calls := fixture.NextActionsCallCount(); calls != 1 {
+		t.Fatalf("normal request must use one provider call, calls=%d", calls)
+	}
+}
+
+func TestSuggestNextActionsCanvasHintsAreProviderBacked(t *testing.T) {
+	fixture := &backend.FixtureLLM{}
+	opts := e2eOptions(t)
+	opts.LLM = fixture
+	app, err := NewAppWithOptions(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := backend.NextActionRequest{
+		RequestID: "canvas-fallback", WorkspaceID: "workspace", CanvasID: "canvas",
+		RuntimeGeneration: "generation", ContextDigest: "digest", SourceRevisions: map[string]int64{"text-1": 2},
+		NodeHints: []backend.OrchestrationNodeHint{{ID: "text-1", Type: "text", Revision: 2, Label: "日本語の本文", Excerpt: "検討中の本文"}},
+	}
+	proposal, err := app.SuggestNextActions(request)
+	if err != nil || len(proposal.Actions) != 1 {
+		t.Fatalf("expected provider-backed bounded canvas proposal, got %+v: %v", proposal, err)
+	}
+	if proposal.Actions[0].Kind != backend.ActionClarify || fixture.NextActionsCallCount() != 1 {
+		t.Fatalf("canvas hints must not use deterministic empty-canvas clarify: kind=%s calls=%d", proposal.Actions[0].Kind, fixture.NextActionsCallCount())
+	}
+}

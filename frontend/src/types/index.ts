@@ -208,7 +208,7 @@ export interface AppState {
     status: "applied" | "rejected" | "conflict" | "error";
     error?: string;
   };
-  runDirectTransform: (operation: "summarize" | "compare" | "counterpoint") => Promise<boolean>;
+  runDirectTransform: (operation: "summarize" | "compare" | "counterpoint", sourceNodeIds?: string[]) => Promise<boolean>;
   lastDirectReceipt: DirectTransformReceipt | null;
 
   // Backend actions

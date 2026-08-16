@@ -25,6 +25,8 @@
 - 選択した Text-bearing Nodeを summarize / compare / counterpoint し、元Nodeを変更せずderived Nodeとprovenanceを作成できる。
 - DialogueではTransform / Relation ProposalをModify / Accept / Rejectでき、Direct Actionでは適用後diffとUndoを確認できる。
 - typed Relationはkind、方向、reasonを作成・編集・反転・削除できる。
+- ChatDrawerの「次の一手」は1〜3件のrole / AL / target / reason / expected resultを提示し、利用者が再提案・対象/query編集・拒否・単一実行できる。長文提案はChat入力を押し出さずpanel内でscrollできる。
+- FocusやselectionがなくてもCurrent Canvasのbounded text contextから助言し、未選択Nodeを暗黙の実行targetにはしない。
 - 右クリックメニューからノード/エッジ削除、ノード単体エクスポート、選択ノードの Marp エクスポートを実行できる。
 
 ## MVP Features
@@ -40,6 +42,7 @@
 - Workspace / Canvas tree、Text / Artifact、typed Relation、provenanceを含む Canvas file V1.3 と旧形式migration。
 - memory-only Dialogue、bounded active history、scope / generation / revisionによるstale result拒否。
 - non-destructive transform、structured Proposal、Direct Action、atomic apply / one undo。
+- runtime-only Next Action Proposal、既存result surfaceへのsingle dispatch、typed recovery、Gemini互換tool continuation。
 - テキストファイルと画像ファイルのインポート。
 - Markdown、画像、Marp Markdown のエクスポート。
 

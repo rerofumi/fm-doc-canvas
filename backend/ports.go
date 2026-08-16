@@ -433,6 +433,19 @@ func (NoopDialog) OpenFile(context.Context, string, []FileFilter) (string, error
 	return "", fmt.Errorf("dialog not available")
 }
 
+// FixtureAgentRequest captures the provider-facing message shape used by the
+// fake agent provider. It intentionally records only correlation fields and
+// tool result content needed by the fake-only regression tests.
+type FixtureAgentRequest struct {
+	Roles                  []string `json:"roles"`
+	AssistantToolCallIDs   []string `json:"assistantToolCallIds,omitempty"`
+	AssistantToolCallNames []string `json:"assistantToolCallNames,omitempty"`
+	ToolResultIDs          []string `json:"toolResultIds,omitempty"`
+	ToolResultNames        []string `json:"toolResultNames,omitempty"`
+	ToolResultContents     []string `json:"toolResultContents,omitempty"`
+	ThoughtSignatures      []string `json:"thoughtSignatures,omitempty"`
+}
+
 // FixtureLLM returns deterministic text without network access.
 type FixtureLLM struct {
 	Text string
@@ -441,14 +454,99 @@ type FixtureLLM struct {
 	// responses when set (Core E2E assertions use the deterministic defaults).
 	RelationBatchJSON string
 	ClusterViewJSON   string
+	NextActionsJSON   string
 
 	mu            sync.Mutex
 	CallCount     int
 	LastUserText  string
 	LastImageURLs []string
+	AgentRequests []FixtureAgentRequest
 
-	suggestFault string
-	suggestHold  chan struct{}
+	suggestFault    string
+	suggestHold     chan struct{}
+	nextActionFault string
+	nextActionHold  chan struct{}
+}
+
+func (f *FixtureLLM) SetNextActionsJSON(raw string) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.NextActionsJSON = raw
+}
+func (f *FixtureLLM) SetNextActionsFault(code string) {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextActionFault = strings.TrimSpace(code)
+}
+func (f *FixtureLLM) ArmNextActionsDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.nextActionHold == nil {
+		f.nextActionHold = make(chan struct{})
+	}
+}
+func (f *FixtureLLM) ReleaseNextActionsDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	h := f.nextActionHold
+	f.nextActionHold = nil
+	f.mu.Unlock()
+	if h != nil {
+		close(h)
+	}
+}
+func (f *FixtureLLM) NextActionsResponse(eligible []NextActionKind, selected []string) (string, error) {
+	f.mu.Lock()
+	raw := f.NextActionsJSON
+	fault := f.nextActionFault
+	f.nextActionFault = ""
+	h := f.nextActionHold
+	f.nextActionHold = nil
+	f.CallCount++
+	f.mu.Unlock()
+	if h != nil {
+		<-h
+	}
+	if fault != "" {
+		return "", fmt.Errorf("%s", fault)
+	}
+	if raw != "" {
+		return raw, nil
+	}
+	target := append([]string(nil), selected...)
+	actions := []map[string]interface{}{}
+	for _, k := range eligible {
+		if k == ActionClarify {
+			actions = append(actions, map[string]interface{}{"kind": "clarify", "targetNodeIds": []string{}, "title": "確認したい点を一つ決める", "reason": "情報がまだ足りません。", "expectedResult": "次の判断に必要な一問", "question": "この作業で最も重視する判断軸は何ですか？"})
+			break
+		}
+		if k == ActionCompare && len(target) >= 2 {
+			actions = append(actions, map[string]interface{}{"kind": "compare", "targetNodeIds": target[:2], "title": "二案を比較する", "reason": "選択中の案の判断軸を整理できます。", "expectedResult": "共通点と相違点を持つ派生Text"})
+			break
+		}
+	}
+	b, _ := json.Marshal(map[string]interface{}{"actions": actions})
+	return string(b), nil
+}
+
+func (f *FixtureLLM) NextActionsCallCount() int {
+	if f == nil {
+		return 0
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.CallCount
 }
 
 // SetSuggestFault arms a one-shot Direct suggestion fault for Core E2E error paths.
@@ -570,6 +668,45 @@ func (f *FixtureLLM) GenerateSummary(string) (string, error)           { return 
 func (f *FixtureLLM) GenerateChatReply(string, string) (string, error) { return f.reply(), nil }
 func (f *FixtureLLM) AgentSystemPrompt() string                        { return effectiveAgentSystemPrompt("") }
 
+func fixtureAgentRequest(messages []ChatMessage) FixtureAgentRequest {
+	observation := FixtureAgentRequest{Roles: make([]string, 0, len(messages))}
+	for _, message := range messages {
+		observation.Roles = append(observation.Roles, message.Role)
+		for _, call := range message.ToolCalls {
+			observation.AssistantToolCallIDs = append(observation.AssistantToolCallIDs, call.ID)
+			observation.AssistantToolCallNames = append(observation.AssistantToolCallNames, call.Function.Name)
+			var extra struct {
+				Google struct {
+					ThoughtSignature string `json:"thought_signature"`
+				} `json:"google"`
+			}
+			if len(call.ExtraContent) > 0 && json.Unmarshal(call.ExtraContent, &extra) == nil && extra.Google.ThoughtSignature != "" {
+				observation.ThoughtSignatures = append(observation.ThoughtSignatures, extra.Google.ThoughtSignature)
+			}
+		}
+		if message.Role == "tool" {
+			observation.ToolResultIDs = append(observation.ToolResultIDs, message.ToolCallID)
+			observation.ToolResultNames = append(observation.ToolResultNames, message.Name)
+			if content, ok := message.Content.(string); ok {
+				observation.ToolResultContents = append(observation.ToolResultContents, content)
+			} else {
+				observation.ToolResultContents = append(observation.ToolResultContents, fmt.Sprint(message.Content))
+			}
+		}
+	}
+	return observation
+}
+
+// AgentRequestObservations returns provider-facing fake request summaries.
+func (f *FixtureLLM) AgentRequestObservations() []FixtureAgentRequest {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]FixtureAgentRequest(nil), f.AgentRequests...)
+}
+
 func fixtureUserContent(messages []ChatMessage) (string, []string) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != "user" {
@@ -642,9 +779,29 @@ func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage
 	f.CallCount++
 	f.LastUserText = userText
 	f.LastImageURLs = append([]string(nil), imageURLs...)
+	f.AgentRequests = append(f.AgentRequests, fixtureAgentRequest(messages))
 	f.mu.Unlock()
 
 	lower := strings.ToLower(userText)
+	if strings.Contains(lower, "fixture:read_canvas_node") {
+		if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
+			content := "fixture read_canvas_node continuation completed"
+			if onText != nil {
+				onText(content)
+			}
+			return AgentChatResult{Content: content}, nil
+		}
+		ids := fixtureNodeIDs(userText)
+		nodeID := "text-1"
+		if len(ids) > 0 {
+			nodeID = ids[0]
+		}
+		encoded, _ := json.Marshal(map[string]string{"node_id": nodeID})
+		call := ToolCall{ID: "fixture-read-canvas-node", Type: "function", ExtraContent: json.RawMessage(`{"google":{"thought_signature":"fixture-thought-signature"}}`)}
+		call.Function.Name = "read_canvas_node"
+		call.Function.Arguments = string(encoded)
+		return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
+	}
 	if strings.Contains(lower, "fixture:relation-batch") || strings.Contains(lower, "fixture:cluster-view") {
 		ids := fixtureNodeIDs(userText)
 		if len(ids) < 2 {

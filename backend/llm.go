@@ -86,6 +86,19 @@ func (s *LLMService) GenerateText(prompt string, contextData string) (string, er
 	return s.callChatAPI(cfg, messages)
 }
 
+// GenerateOrchestrationProposal uses a fixed, narrowly scoped system prompt.
+// Next Action planning must not inherit a user's general-purpose system prompt
+// (which may ask for prose, tools, or mutations) because the contract is a
+// one-shot read-only JSON proposal.
+func (s *LLMService) GenerateOrchestrationProposal(prompt string) (string, error) {
+	if s == nil || s.configService == nil {
+		return "", fmt.Errorf("orchestration provider is unavailable")
+	}
+	cfg := s.configService.GetConfig()
+	systemPrompt := "You are the Next Action planner. Return only the requested JSON object. You are read-only: do not call tools, mutate documents, or write dialogue. Follow every kind, target, arity, and required-field constraint in the user prompt."
+	return s.callChatAPI(cfg, []ChatMessage{{Role: "system", Content: systemPrompt}, {Role: "user", Content: prompt}})
+}
+
 type AgentChatResult struct {
 	Content   string
 	ToolCalls []ToolCall

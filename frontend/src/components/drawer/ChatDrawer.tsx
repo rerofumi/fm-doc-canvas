@@ -3,6 +3,7 @@ import { CancelChat, ResolveToolApplication, SendChat } from "../../../wailsjs/g
 import { EventsOn } from "../../../wailsjs/runtime/runtime";
 import ChatHeader from "../chat/ChatHeader";
 import ChatInput from "../chat/ChatInput";
+import NextActionPanel from "../collaboration/NextActionPanel";
 import MessageList from "../chat/MessageList";
 import { ChatEvent, ChatMessage, ChatRequest, ChatSession, ImageProvider } from "../../types/chat";
 import { useChatStore } from "../../store/useChatStore";
@@ -146,6 +147,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
   }, []);
 
 const send = async (content: string) => {
+    useAppStore.getState().dismissNextActions();
     const session: ChatSession = activeSession ?? store.createSession();
     const runId = newId();
     const now = Date.now();
@@ -197,6 +199,7 @@ const send = async (content: string) => {
     {store.loadError && <div className="border-b border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">会話履歴を読み込めませんでした: {store.loadError}</div>}
     {store.contextWarning && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">{store.contextWarning}</div>}
     <MessageList messages={activeSession?.messages ?? []} sessionId={activeSession?.id} />
+    <NextActionPanel messages={activeSession?.messages ?? []} />
     <ChatInput disabled={!store.isLoaded} sending={Boolean(activeRun)} onSend={send} onStop={stop} />
   </aside>;
 };

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useE2EBridge } from "./runtime/e2eBridge";
+import { isNextActionError } from "./domain/orchestration";
 
 function App() {
   const {
@@ -67,6 +68,10 @@ function App() {
       contextWarning: null,
     });
   }, [workspace.document.workspaceId, workspace.runtime.runtimeGeneration]);
+
+  // Next Action failures have their own recovery controls in ChatDrawer.
+  // Keep the global workspace banner for document/action errors only.
+  const globalError = lastError && !isNextActionError(lastError) ? lastError : null;
 
   const handleSave = async () => {
     try {
@@ -202,13 +207,14 @@ function App() {
         </div>
       )}
 
-      {lastError && (
+      {globalError && (
         <div
           className="border-b border-red-200 bg-red-50 px-4 py-1 text-xs text-red-700"
           role="alert"
           aria-label="Workspace error"
+          data-testid="global-error-banner"
         >
-          <div>{lastError}</div>
+          <div>{globalError}</div>
           <div className="mt-0.5 text-[10px] text-red-600">
             次の操作: Undo、修正して再実行、New Workspace、または relation /
             transform を作り直す。

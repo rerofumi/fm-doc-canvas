@@ -47,6 +47,10 @@
 - API キーは canvas JSON へ保存しない。
 - Agent loop は最大 10 tool round で停止し、run / session / tool call を相関付けて処理する。
 - Agent による Text / Artifact mutation は Frontend が正本であり、revision conflict 時は適用しない。
+- Next Action suggestionは明示操作時だけ開始し、最大1 provider call、1〜3件、最大40 Nodeのbounded hints、固定allowlist/mapping、strict whole-set validationを守る。
+- proposalはruntime-onlyとし、再提案・編集・拒否・単一dispatchを提供する。dispatchは既存Transform / Web / Relation / Cluster / Dialogue導線を再利用し、自動chainingしない。
+- Focus/selectionがなくてもCurrent CanvasにText-bearing Nodeがあればbounded contextから助言し、真の空contextだけclarifyする。
+- Chat tool continuationはtool call/resultのIDとname、Gemini thought signatureを保持する。
 
 ## Constraints
 
@@ -86,3 +90,4 @@
 - Artifact を作成・編集・Preview・Markdown export でき、Workspace V1.3 で保存／復元できること。
 - ChatDrawer で対象ノードを文脈にした通常応答と tool calling が動作し、Dialogue sessionがactive Workspace内だけで保持されること。
 - Agent の edit は read revision と acknowledgment を必要とし、Stop または競合時に未適用変更を反映しないこと。
+- 「次の一手」が未選択・1件・複数選択で動作し、長文proposalをscrollでき、通常Chatの`read_canvas_node`後もassistant responseまで完結すること。

@@ -1,4 +1,14 @@
 import { expect, Page, test } from "@playwright/test";
+import type { ChatMessage } from "../src/types/chat";
+import type { SuggestedPacketRelation } from "../src/domain/contextPacket";
+import type {
+  ClusterViewDraft,
+  RelationBatchItem,
+} from "../src/domain/generatedView";
+import type {
+  NextActionProposalSet,
+  NextActionRequest,
+} from "../src/domain/orchestration";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -38,7 +48,7 @@ export type E2EBridge = {
   promotePacket: (selection: {
     selectedClaimIds: string[];
     selectedSourceIds: string[];
-    acceptedRelations?: any[];
+    acceptedRelations?: SuggestedPacketRelation[];
   }) => Promise<boolean>;
   dismissPacket: () => Promise<void>;
   openPacketURL: (url: string) => Promise<boolean>;
@@ -78,7 +88,7 @@ export type E2EBridge = {
   suggestClusters: () => Promise<boolean>;
   decideDirectProposal: (
     decision: "accept" | "reject",
-    modified?: { relations?: any[]; view?: any },
+    modified?: { relations?: RelationBatchItem[]; view?: ClusterViewDraft },
   ) => Promise<any>;
   closeGeneratedView: () => Promise<void>;
   convertClusterToSubCanvas: (
@@ -103,7 +113,33 @@ export type E2EBridge = {
       "context" | "source" | "derived" | "supports" | "opposes" | "similar",
     reason?: string,
   ) => Promise<string>;
+  nextActions: (messages?: ChatMessage[]) => Promise<boolean>;
+  nextActionsCallCount: () => Promise<number>;
+  orchestrationSnapshot: () => Promise<NextActionSnapshot>;
+  cancelNextActions: () => Promise<void>;
+  dismissNextActions: () => Promise<void>;
+  rejectNextAction: (actionId: string) => Promise<void>;
+  dispatchNextAction: (
+    actionId: string,
+    edits?: NextActionEdits,
+  ) => Promise<boolean>;
+  setNextActionsFixture: (raw: string) => Promise<void>;
+  armDelayedNextActions: () => Promise<void>;
+  releaseDelayedNextActions: () => Promise<void>;
+  armNextActionsFault: (code: string) => Promise<void>;
 };
+
+export interface NextActionEdits {
+  targetNodeIds?: string[];
+  query?: string;
+}
+
+export interface NextActionSnapshot {
+  status: string;
+  request: NextActionRequest | null;
+  proposal: NextActionProposalSet | null;
+  error: string | null;
+}
 
 export async function installNetworkGuard(page: Page) {
   await page.route("**/*", async (route) => {
@@ -366,6 +402,24 @@ export async function e2e(page: Page): Promise<E2EBridge> {
             ({ s, t, k, r }) => (window as any).__E2E__.addRelation(s, t, k, r),
             { s: sourceId, t: targetId, k: kind, r: reason },
           ),
+        nextActions: (messages?: ChatMessage[]) => page.evaluate((m) => (window as any).__E2E__.nextActions(m), messages),
+        nextActionsCallCount: () => page.evaluate(() => (window as any).__E2E__.nextActionsCallCount()),
+        orchestrationSnapshot: () => page.evaluate(() => (window as any).__E2E__.orchestrationSnapshot()),
+        cancelNextActions: () => page.evaluate(() => (window as any).__E2E__.cancelNextActions()),
+        dismissNextActions: () => page.evaluate(() => (window as any).__E2E__.dismissNextActions()),
+        rejectNextAction: (actionId: string) => page.evaluate((id) => (window as any).__E2E__.rejectNextAction(id), actionId),
+        dispatchNextAction: (
+          actionId: string,
+          edits?: NextActionEdits,
+        ) =>
+          page.evaluate(
+            ({ id, e }) => (window as any).__E2E__.dispatchNextAction(id, e),
+            { id: actionId, e: edits },
+          ),
+        setNextActionsFixture: (raw: string) => page.evaluate((r) => (window as any).__E2E__.setNextActionsFixture(r), raw),
+        armDelayedNextActions: () => page.evaluate(() => (window as any).__E2E__.armDelayedNextActions()),
+        releaseDelayedNextActions: () => page.evaluate(() => (window as any).__E2E__.releaseDelayedNextActions()),
+        armNextActionsFault: (code: string) => page.evaluate((c) => (window as any).__E2E__.armNextActionsFault(c), code),
       } satisfies E2EBridge;
     });
 }

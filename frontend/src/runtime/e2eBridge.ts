@@ -1,4 +1,14 @@
 import { useEffect } from "react";
+import type { ChatMessage } from "../types/chat";
+import type { SuggestedPacketRelation } from "../domain/contextPacket";
+import type {
+  ClusterViewDraft,
+  RelationBatchItem,
+} from "../domain/generatedView";
+import type {
+  NextActionProposalSet,
+  NextActionRequest,
+} from "../domain/orchestration";
 import { useAppStore } from "../store/useAppStore";
 import { useChatStore } from "../store/useChatStore";
 import {
@@ -10,6 +20,22 @@ import {
   createSeededIds,
   RuntimeEnvironment,
 } from "./runtimeEnvironment";
+
+interface NextActionEdits {
+  targetNodeIds?: string[];
+  query?: string;
+}
+
+interface NextActionSnapshot {
+  status: string;
+  request: NextActionRequest | null;
+  proposal: NextActionProposalSet | null;
+  error: string | null;
+}
+
+type NextActionBackend = RuntimeEnvironment["backend"] & {
+  SuggestNextActions(request: NextActionRequest): Promise<unknown>;
+};
 
 declare global {
   interface Window {
@@ -29,6 +55,8 @@ function makeServices(env: RuntimeEnvironment) {
 export function installE2EBridge(env: RuntimeEnvironment) {
   if (env.mode !== "e2e") return;
   const services = () => makeServices(env);
+  let nextActionRelease: (() => void) | null = null;
+  const baseBackend = env.backend;
 
   window.__E2E__ = {
     mode: "e2e",
@@ -90,8 +118,9 @@ export function installE2EBridge(env: RuntimeEnvironment) {
          activePacket: app.activePacket,
         lastSearchRequest: app.lastSearchRequest,
         lastOpenedURL: app.lastOpenedURL,
-        lastSearchReceipt: app.lastSearchReceipt,
-        json: workspaceToPrettyJSON(app.workspace, services().clock.nowISO()),
+         lastSearchReceipt: app.lastSearchReceipt,
+         json: workspaceToPrettyJSON(app.workspace, services().clock.nowISO()),
+        orchestration: { status: app.orchestrationStatus, request: app.orchestrationRequest, proposal: app.nextActionProposal },
       };
     },
     async addText(content = "hello text") {
@@ -205,7 +234,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
     async promotePacket(selection: {
       selectedClaimIds: string[];
       selectedSourceIds: string[];
-      acceptedRelations?: any[];
+      acceptedRelations?: SuggestedPacketRelation[];
     }) {
       return useAppStore.getState().promoteActivePacket({
         selectedClaimIds: selection.selectedClaimIds,
@@ -449,7 +478,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
      },
      async decideDirectProposal(
        decision: "accept" | "reject",
-       modified?: { relations?: any[]; view?: any },
+       modified?: { relations?: RelationBatchItem[]; view?: ClusterViewDraft },
      ) {
        return useAppStore.getState().decideDirectProposal(decision, modified);
      },
@@ -589,9 +618,72 @@ export function installE2EBridge(env: RuntimeEnvironment) {
           kind,
           status: "accepted",
           reason,
+          provenance: {
+            origin: "user",
+            query: reason || "fixture accepted relation query",
+            createdAt: services().clock.nowISO(),
+          },
         },
       });
       return id;
+    },
+    async nextActions(messages: ChatMessage[] = []) {
+      return useAppStore.getState().requestNextActions(messages);
+    },
+    async nextActionsCallCount() {
+      const { GetE2ENextActionsCallCount } = await import("../../wailsjs/go/main/App");
+      return GetE2ENextActionsCallCount();
+    },
+    async orchestrationSnapshot(): Promise<NextActionSnapshot> {
+      const state = useAppStore.getState();
+      return {
+        status: state.orchestrationStatus,
+        request: state.orchestrationRequest,
+        proposal: state.nextActionProposal,
+        error: state.lastError,
+      };
+    },
+    async cancelNextActions() {
+      useAppStore.getState().cancelNextActionRequest();
+    },
+    async dismissNextActions() {
+      useAppStore.getState().dismissNextActions();
+    },
+    async rejectNextAction(actionId: string) {
+      useAppStore.getState().rejectNextAction(actionId);
+    },
+    async dispatchNextAction(actionId: string, edits?: NextActionEdits) {
+      return useAppStore.getState().dispatchNextAction(actionId, edits);
+    },
+    async setNextActionsFixture(raw: string) {
+      const { SetE2ENextActionsFixture } = await import("../../wailsjs/go/main/App");
+      return SetE2ENextActionsFixture(raw);
+    },
+    async armDelayedNextActions() {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      nextActionRelease = release;
+      const { configureAppRuntime } = await import("../store/useAppStore");
+      const delayedBackend: NextActionBackend = {
+        ...(baseBackend as NextActionBackend),
+        SuggestNextActions: async (request) => {
+          await gate;
+          return (baseBackend as NextActionBackend).SuggestNextActions(request);
+        },
+      };
+      configureAppRuntime({ ...env, backend: delayedBackend });
+    },
+    async releaseDelayedNextActions() {
+      nextActionRelease?.();
+      nextActionRelease = null;
+      const { configureAppRuntime } = await import("../store/useAppStore");
+      configureAppRuntime({ ...env, backend: baseBackend });
+    },
+    async armNextActionsFault(code: string) {
+      const { ArmNextActionsFault } = await import("../../wailsjs/go/main/App");
+      return ArmNextActionsFault(code);
     },
   };
 }

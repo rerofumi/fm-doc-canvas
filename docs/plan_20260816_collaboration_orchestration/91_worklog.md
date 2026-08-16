@@ -131,3 +131,64 @@ worklog: enabled
 - Artifacts updated: `90_status.md`、`91_worklog.md`。
 - Open questions / risks: 実装後のseparate acceptanceとREQ-21 human Gateは未実施。
 - Handoff to next step: WP-0から実装し、実装sessionはstatusのImplementer state / Evidenceのみ更新する。
+
+## WL-011 — Step 9: Implementation start
+
+- Date: 2026-08-16
+- Actor/session: Codex reader session
+- Purpose: `fm-dev-imprement` に従い、実装可能性を確認して worker へ WP-0〜5 を引き渡す。
+- Sources and checks: `30_requirement.md`、`40_specification.md`、`50_review_notes.md`、`90_status.md`、repository / mise task / jj status、指定実装プロセス。
+- Actions: plan と codebase の対応、27 IDs の検証方法、WP 順序、Core E2E、既存変更なしを確認し、plan state と plan index を `implementing` へ更新した。
+- Decision and concise rationale: 未決仕様や外部権限 blocker はなく、指定の worker model で WP-0 から順次実装可能と判断した。reader は製品コードを変更せず受入と進行管理に専念する。
+- Alternatives rejected or deferred: reader 自身による製品コード修正、Acceptance の先行記入、WP 順序を無視した並行実装。
+- Artifacts updated: `90_status.md`、`docs/plan_index.md`、`91_worklog.md`。
+- Open questions / risks: REQ-21 の E4 Human Value Gate は automated implementation 後も人間確認が必要になり得る。
+- Handoff to next step: worker が WP-0〜5 を実装・検証し、Implementer state / Evidence のみ更新する。
+
+## WL-012 — Step 10: Automated acceptance
+
+- Date: 2026-08-16
+- Actor/session: Codex reader session
+- Purpose: worker自己申告から分離し、REQ/NFR evidenceと実コードを照合して自動受入を行う。
+- Sources and checks: `jj diff`、REQ-01〜21 / NFR-01〜06、Go/TS validator、store lifecycle、UI/E2E、dependency/persistence diff、plan-defined 6 commands。
+- Actions: 初回実装のsilent truncation、correlation、validation、UI/lifecycle、test coverage不足をworkerへ3回差し戻して修正した。最終差分を再検査し、Go test/vet、frontend test/build、Wails build、Core E2Eをreaderが再実行した。
+- Evidence: Go test/vet exit 0、frontend全testとbuild exit 0、Wails v2.12.0 production build exit 0、F6-01〜05を含むCore E2E 38 passed、新規dependency/APIなし、Workspace V1.3にorchestration state非含入。
+- Decision and concise rationale: E1/E3項目はpass。REQ-07/09/14/18のE1部分もpassしたがUX判断はE4 pending、REQ-21 Human Value Gateもpendingのためstateは`accepting`とする。
+- Artifacts updated: `90_status.md`、`docs/plan_index.md`、`91_worklog.md`。
+- Open questions / risks: 4課題のHuman Value ReviewでContextual Proposal layer、Transform/Research/Structure各route、Context/Control safetyをGo/Hold/Stop判定する必要がある。
+- Handoff to next step: 人間が4課題を実施し結果を報告後、readerがE4受入、current docs feedback、plan `done`を判断する。
+
+## WL-013 — Step 10: Human acceptance failure and plan amend
+
+- Date: 2026-08-16
+- Actor/session: Human acceptance + Codex leader session
+- Purpose: 実機で判明したF6 proposal不安定性と既存Chat回帰を受入表へ戻し、修正可能な要件・検証へ変換する。
+- Sources and checks: Human report、`C:\Users\rero2\Desktop\canvas-2.json`、REQ-05/17/18/19/21、Focus Resolution、既存38件E2E evidence。
+- Actions: Human Gateをfailとして記録し、REQ-22/23、F6-06/07、WP-6を追加。旧suiteで検出できなかった行をfail/pendingへ戻した。
+- Decision and concise rationale: 未選択でもCurrent Canvasに材料があればbounded canvas contextを使う。空canvasだけclarifyとする。通常Chatのtool continuation 400はF6導入によるnon-regression違反として同じplanで修復する。
+- Artifacts updated: `30_requirement.md`、`40_specification.md`、`50_review_notes.md`、`90_status.md`、`91_worklog.md`。
+- Open questions / risks: 実APIの400原因はprovider request shape、tool correlation、adapter差異をacceptance調査で特定する。実API smokeは認証・外部状態に依存するためE1 fixtureとE2 human再確認を分ける。
+- Handoff to next step: acceptance sub-agentの原因調査を受け、新規WP-6 workerへ修正を指示する。
+
+## WL-014 — Steps 9-10: WP-6 repair and automated re-acceptance
+
+- Date: 2026-08-16
+- Actor/session: Two fresh worker sessions + persistent acceptance sub-agent + Codex leader
+- Purpose: 実機不適合を修正し、real-shape相当fixtureとGemini互換のstrict fakeで再発を自動検出可能にする。
+- Actions: canvas-wide fallback、kind別planner contract、typed recovery、Gemini tool result `name` / `tool_call_id` / thought signature保持、F6-06/07を実装。第2受入のcoverage不足を新規workerへ差し戻し、第3受入で全E1/E3を受理した。
+- Evidence: Go test/vet、frontend test/build、Wails buildがpass。Core E2E F6-01〜07を含む40件pass。strict fakeは欠落fieldをHTTP 400相当で拒否。
+- Decision and concise rationale: 自動修正は受理するが、実GeminiとHuman Value Gateを自動証拠で代替しない。plan stateは`accepting`を維持する。
+- Artifacts updated: 製品code/tests、`30_requirement.md`、`40_specification.md`、`50_review_notes.md`、`90_status.md`、Gemini互換cheatsheet。
+- Open questions / risks: 実Gemini endpoint/modelのE2 smokeと、4課題のroute family別E4判定が残る。
+- Handoff to next step: 人間が指定手順で再確認し、結果をleaderへ報告する。
+
+## WL-015 — Steps 10-11: Human acceptance and documentation feedback
+
+- Date: 2026-08-16
+- Actor/session: Human final acceptance + Codex leader
+- Purpose: E2/E4を確定し、F6 coreを完了してas-builtをcurrent docsへ戻す。
+- Evidence: HumanがF6要素を期待動作として承認。スクロールPatch後のfrontend test/build、F6 E2E 8件、全Core E2E 41件pass。
+- Actions: 全Acceptanceをpass、Gate MatrixをGo、stateとplan indexをdoneへ更新。current Claim/App Requirements/Requirements/Specification/Review Notesとroadmapへ確認済みcoreを反映した。
+- Decision and concise rationale: 自動E1/E3とHuman E2/E4が揃い、全REQ/NFRとGate条件を満たした。後続候補はcore closureへ混ぜない。
+- Open questions / risks: なし。AL-3 / Specialist / multi-step / auto-triggerは明示的な将来plan候補。
+- Handoff to next step: plan完了。今後は具体的な実利用上の問題が生じた場合だけ別Patch/planで扱う。

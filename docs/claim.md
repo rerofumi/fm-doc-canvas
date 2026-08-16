@@ -30,6 +30,7 @@
 - 空の Workspace から Text / Artifact を明示作成し、root Canvas / nested SubCanvas を移動する共同作業領域。
 - Current Canvas と明示 selection を境界とする Context preview、Dialogue Proposal、Direct Action。
 - summarize / compare / counterpoint による非破壊 derived Text Node、provenance、typed Relation、Modify / Accept / Reject / Undo。
+- ChatDrawerの明示的な「次の一手」から、Current Canvas / Focus / Dialogue / selectionに応じたAction Proposalを確認・修正・拒否し、既存Transform / Web / Relation / Cluster導線へ一回だけdispatchする協働調整。
 
 ## Assumptions
 

@@ -154,4 +154,4 @@ Acceptance 後のみ次を current docs へ反映する。
 ## Amend History
 
 - 2026-08-16: 初版。Full / Core E2E / worklog をユーザー確認後、orchestration core と将来候補を分離。
-
+- 2026-08-16: Human Value Gate の実機確認を不合格として受領。単一/複数選択での `next-actions-failed`、不適切な回復文言、未選択時のcanvas-wide助言不足、通常Chatの`read_canvas_node`後400を同じplanのWP-6へ差し戻した。未選択時はCurrent Canvasのbounded contextを既定入力にする決定を採用し、REQ-22/23とF6-06/07を追加した。

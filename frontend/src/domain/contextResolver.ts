@@ -25,7 +25,8 @@ export type ResolveOperation =
   | "relate"
   | "group"
   | "move"
-  | "web-search";
+  | "web-search"
+  | "orchestrate";
 
 // VISION_CAP is the maximum number of explicitly selected images that a single
 // Dialogue run may send as pixel (`image-binary`) to the LLM. The 4th+ selected
@@ -291,6 +292,23 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     }
   }
 
+  // Next Action is an explicit, read-only entry point. When there is no
+  // focus, selection, or added context, allow it to inspect a bounded view of
+  // the current canvas so it can provide contextual advice. Keep selection
+  // empty: these hints are never implicit execution targets.
+  if (
+    operation === "orchestrate" &&
+    activeContextNodeIds.length === 0 &&
+    selection.selectedNodeIds.length === 0 &&
+    !runtime.focus &&
+    runtime.contextSelection.addedContextTargets.length === 0
+  ) {
+    for (const node of nodesOnCanvas(document as WorkspaceDocument, currentCanvasId)) {
+      if (isFolder(node) || excluded.has(node.id) || !isTextBearing(node)) continue;
+      pushUnique(activeContextNodeIds, node.id);
+    }
+  }
+
   // Mutation target
   let mutationTarget = runtime.contextSelection.explicitMutationTarget;
   if (!mutationTarget && mode === "dialogue" && selection.activeNodeId) {
@@ -346,7 +364,10 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
       targetNodeId: rel.targetNodeId,
       kind: rel.kind,
       reason: rel.reason,
-      provenance: document.nodes[rel.targetNodeId]?.provenance,
+      // Relation provenance is the source of the accepted link's query or
+      // provider metadata. Fall back to the target node provenance only for
+      // legacy documents that predate relation-level provenance.
+      provenance: rel.provenance || document.nodes[rel.targetNodeId]?.provenance,
     }));
   const spatialHints: SpatialContextHint[] = activeContextNodeIds
     .map((nodeId) => document.nodes[nodeId])

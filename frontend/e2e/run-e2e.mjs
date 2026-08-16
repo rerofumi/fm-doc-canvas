@@ -189,7 +189,10 @@ async function main() {
     }
     log("server ready; running playwright CE2E suite...");
 
-const pw = await run(
+    const requestedTests = process.env.FM_E2E_TEST_ARGS
+      ? process.env.FM_E2E_TEST_ARGS.split(/\s+/).filter(Boolean)
+      : ["."];
+    const pw = await run(
       "mise",
       [
         "x",
@@ -199,7 +202,7 @@ const pw = await run(
         "test",
         "-c",
         "playwright.config.ts",
-        ".",
+        ...requestedTests,
       ],
       { cwd: frontendDir, env },
     );

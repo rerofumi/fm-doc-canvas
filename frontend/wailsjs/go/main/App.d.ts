@@ -4,6 +4,8 @@ import {backend} from '../models';
 
 export function ArmDelayedImageGeneration():Promise<void>;
 
+export function ArmDelayedNextActions():Promise<void>;
+
 export function ArmDelayedSearchWeb():Promise<void>;
 
 export function ArmDelayedSuggest():Promise<void>;
@@ -13,6 +15,8 @@ export function ArmE2EImageFault(arg1:string):Promise<void>;
 export function ArmE2ESearchFault(arg1:string):Promise<void>;
 
 export function ArmE2ESuggestFault(arg1:string):Promise<void>;
+
+export function ArmNextActionsFault(arg1:string):Promise<void>;
 
 export function CancelChat(arg1:string):Promise<void>;
 
@@ -38,6 +42,8 @@ export function GenerateTextWithImages(arg1:string,arg2:string,arg3:Array<string
 
 export function GetConfig():Promise<backend.Config>;
 
+export function GetE2ENextActionsCallCount():Promise<number>;
+
 export function GetImageDataURL(arg1:string):Promise<string>;
 
 export function GetImageFileURL(arg1:string):Promise<string>;
@@ -60,6 +66,8 @@ export function OpenExternalURL(arg1:string):Promise<void>;
 
 export function ReleaseDelayedImageGeneration():Promise<void>;
 
+export function ReleaseDelayedNextActions():Promise<void>;
+
 export function ReleaseDelayedSearchWeb():Promise<void>;
 
 export function ReleaseDelayedSuggest():Promise<void>;
@@ -76,6 +84,10 @@ export function SearchWeb(arg1:backend.WebSearchRequest):Promise<backend.Context
 
 export function SendChat(arg1:backend.ChatRequest):Promise<void>;
 
+export function SetE2ENextActionsFixture(arg1:string):Promise<void>;
+
 export function SuggestClusters(arg1:backend.DirectSuggestClustersRequest):Promise<backend.ClusterViewProposal>;
+
+export function SuggestNextActions(arg1:backend.NextActionRequest):Promise<backend.NextActionProposalSet>;
 
 export function SuggestRelations(arg1:backend.DirectSuggestRelationsRequest):Promise<backend.RelationBatchProposal>;

@@ -17,7 +17,7 @@ import type {
   ImportFileResult,
   TextNodeData,
 } from "../types";
-import type { ChatToolProposal } from "../types/chat";
+import type { ChatMessage, ChatToolProposal } from "../types/chat";
 import {
   applyCommand,
   createHistory,
@@ -39,6 +39,7 @@ import {
   workspaceToPrettyJSON,
 } from "../domain/workspacePersistence";
 import { resolveContext } from "../domain/contextResolver";
+import { buildNextActionRequest, NEXT_ACTION_MAPPINGS, normalizeNextActionError, normalizeNextActionProposal, revalidateNextActionScope, validateEditedAction, type NextActionProposalSet, type NextActionRequest } from "../domain/orchestration";
 import {
   createProposalFromLegacyTool,
   createTransformProposal,
@@ -175,7 +176,17 @@ interface StoreExtras {
   useCanvasAsContext: () => void;
   runDirectTransform: (
     operation: "summarize" | "compare" | "counterpoint",
+    sourceNodeIds?: string[],
   ) => Promise<boolean>;
+  orchestrationStatus: "idle" | "pending" | "ready" | "cancelled" | "stale" | "error" | "dispatching" | "dispatched";
+  orchestrationRequest: NextActionRequest | null;
+  nextActionProposal: NextActionProposalSet | null;
+  orchestrationReceipt: { kind: string; targetNodeIds: string[]; resultSurface: string } | null;
+  requestNextActions: (messages?: ChatMessage[]) => Promise<boolean>;
+  cancelNextActionRequest: () => void;
+  dismissNextActions: () => void;
+  rejectNextAction: (actionId: string) => void;
+  dispatchNextAction: (actionId: string, edits?: { targetNodeIds?: string[]; query?: string }) => Promise<boolean>;
   applyDirectImageVariant: (input: {
     src: string;
     alt?: string;
@@ -842,6 +853,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
     activeGeneratedView: null,
     lastSuggestReceipt: null,
     pendingDirectProposal: null,
+    orchestrationStatus: "idle",
+    orchestrationRequest: null,
+    nextActionProposal: null,
+    orchestrationReceipt: null,
     boundaryAggregates: initialProjection.boundaryAggregates,
     nodes: initialProjection.nodes,
     edges: initialProjection.edges,
@@ -864,6 +879,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         activeGeneratedView: null,
         pendingDirectProposal: null,
         lastSuggestReceipt: null,
+        orchestrationStatus: "idle",
+        orchestrationRequest: null,
+        nextActionProposal: null,
+        orchestrationReceipt: null,
       });
     },
     discardWorkspace: () => {
@@ -876,6 +895,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         activeGeneratedView: null,
         pendingDirectProposal: null,
         lastSuggestReceipt: null,
+        orchestrationStatus: "idle",
+        orchestrationRequest: null,
+        nextActionProposal: null,
+        orchestrationReceipt: null,
       });
     },
     switchTextRole: (nodeId, role) => {
@@ -890,6 +913,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         isEditorOpen: false,
         activeGeneratedView: null,
         pendingDirectProposal: null,
+        orchestrationStatus: "stale",
+        orchestrationRequest: null,
+        nextActionProposal: null,
+        orchestrationReceipt: null,
       });
     },
     navigateParent: () => {
@@ -898,6 +925,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         isEditorOpen: false,
         activeGeneratedView: null,
         pendingDirectProposal: null,
+        orchestrationStatus: "stale",
+        orchestrationRequest: null,
+        nextActionProposal: null,
+        orchestrationReceipt: null,
       });
     },
     navigateBack: () => {
@@ -906,6 +937,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         isEditorOpen: false,
         activeGeneratedView: null,
         pendingDirectProposal: null,
+        orchestrationStatus: "stale",
+        orchestrationRequest: null,
+        nextActionProposal: null,
       });
     },
     undo: () => {
@@ -940,7 +974,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         operation,
         generatedView: get().activeGeneratedView,
       }),
-    runDirectTransform: async (operation) => {
+    runDirectTransform: async (operation, sourceNodeIds) => {
       const current = get().workspace;
       const envelope = resolveContext({
         document: current.document,
@@ -953,7 +987,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
             ? "summarize"
             : "read",
       });
-      const error = validateTransformSelection(current, operation);
+      const error = validateTransformSelection(current, operation, sourceNodeIds);
       if (error) {
         set({ lastError: error });
         return false;
@@ -962,6 +996,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         current,
         operation,
         envelope.contextDigest,
+        sourceNodeIds,
       );
       try {
         const directDraft = await (backend() as any).DirectTransform({
@@ -1052,6 +1087,64 @@ export const useAppStore = create<FullAppState>((set, get) => {
         });
         return false;
       }
+    },
+    requestNextActions: async (messages: ChatMessage[] = []) => {
+      const state = get();
+      if (state.orchestrationStatus === "pending" || state.orchestrationStatus === "dispatching") return false;
+      const requestId = services().ids.next("next-action");
+      const envelope = resolveContext({ document: state.workspace.document, runtime: state.workspace.runtime, mode: "direct", operation: "orchestrate", generatedView: state.activeGeneratedView });
+      let request: NextActionRequest;
+      try { request = buildNextActionRequest(state.workspace, envelope, messages, requestId); } catch (error) { set({ orchestrationStatus: "error", lastError: error instanceof Error ? error.message : "orchestration-context-error" }); return false; }
+      set({ orchestrationStatus: "pending", orchestrationRequest: request, nextActionProposal: null, lastError: null });
+      try {
+        const result = await (backend() as any).SuggestNextActions(request);
+        const latest = get().workspace;
+        const latestEnvelope = resolveContext({ document: latest.document, runtime: latest.runtime, mode: "direct", operation: "orchestrate", generatedView: get().activeGeneratedView });
+        const currentSelected = latest.runtime.selection.selectedNodeIds.filter((id) => latestEnvelope.bodyAllowlistNodeIds.includes(id) && !latestEnvelope.excludedNodeIds.includes(id) && latest.document.nodes[id]?.kind !== "folder");
+        const scope = { ...latestEnvelope, focusText: latestEnvelope.focus?.text, selectedNodeIds: currentSelected };
+        if (get().orchestrationRequest?.requestId !== requestId || !revalidateNextActionScope(request, latest, scope)) { set({ orchestrationStatus: "stale", nextActionProposal: null }); return false; }
+        const normalized = normalizeNextActionProposal(result, request);
+        set({ orchestrationStatus: "ready", nextActionProposal: normalized, orchestrationReceipt: null }); return true;
+      } catch (error) { if (get().orchestrationRequest?.requestId !== requestId) return false; set({ orchestrationStatus: "error", lastError: normalizeNextActionError(error) }); return false; }
+    },
+    cancelNextActionRequest: () => {
+      if (get().orchestrationStatus !== "pending") return;
+      set({ orchestrationStatus: "cancelled", orchestrationRequest: null, nextActionProposal: null, orchestrationReceipt: null });
+    },
+    dismissNextActions: () => set({ orchestrationStatus: "idle", orchestrationRequest: null, nextActionProposal: null, orchestrationReceipt: null }),
+    rejectNextAction: (actionId) => set((state) => {
+      if (!state.nextActionProposal) return state;
+      const actions = state.nextActionProposal.actions.filter((a) => a.id !== actionId);
+      return actions.length ? { nextActionProposal: { ...state.nextActionProposal, actions } } : { orchestrationStatus: "idle", nextActionProposal: null, orchestrationRequest: null, orchestrationReceipt: null };
+    }),
+    dispatchNextAction: async (actionId, edits) => {
+      const state = get(); const proposal = state.nextActionProposal; if (!proposal || state.orchestrationStatus !== "ready") return false;
+      const item = proposal.actions.find((a) => a.id === actionId);
+      const currentEnvelope = resolveContext({ document: state.workspace.document, runtime: state.workspace.runtime, mode: "direct", operation: "orchestrate", generatedView: state.activeGeneratedView });
+      const currentSelected = state.workspace.runtime.selection.selectedNodeIds.filter((id) => currentEnvelope.bodyAllowlistNodeIds.includes(id) && !currentEnvelope.excludedNodeIds.includes(id) && state.workspace.document.nodes[id]?.kind !== "folder");
+      const scope = { ...currentEnvelope, focusText: currentEnvelope.focus?.text, selectedNodeIds: currentSelected };
+      if (!item || !state.orchestrationRequest || !revalidateNextActionScope(state.orchestrationRequest, state.workspace, scope)) { set({ orchestrationStatus: "stale", nextActionProposal: null }); return false; }
+      if (get().orchestrationStatus === "dispatching") return false;
+      const targets = edits?.targetNodeIds ?? item.targetNodeIds ?? []; const query = edits?.query ?? item.query;
+      if (!validateEditedAction(item, targets, query, state.orchestrationRequest) || targets.some((id) => !state.orchestrationRequest?.selectedNodeIds.includes(id))) { set({ orchestrationStatus: "error", lastError: "next-action-edit-invalid" }); return false; }
+      set({ orchestrationStatus: "dispatching" }); let ok = false;
+      try {
+        if (item.kind === "compare" || item.kind === "counterpoint") ok = await get().runDirectTransform(item.kind, targets);
+        else if (item.kind === "web_search") ok = await get().runWebSearch(query?.trim() || state.orchestrationRequest.focusText || "", { entryRoute: "direct-action" });
+        else if (item.kind === "suggest_relations") ok = await get().runDirectSuggestRelations(targets);
+        else if (item.kind === "suggest_clusters") ok = await get().runDirectSuggestClusters(targets);
+        else if (item.kind === "clarify" && item.question?.trim()) {
+          const chat = (await import("./useChatStore")).useChatStore;
+          const current = chat.getState();
+          const session = current.activeSessionId ? current.sessions.find((s) => s.id === current.activeSessionId) : undefined;
+          const targetSession = session ?? current.createSession();
+          chat.getState().appendMessage(targetSession.id, { id: services().ids.next("clarify"), role: "assistant", content: item.question.trim(), createdAt: services().clock.now() });
+          window.dispatchEvent(new CustomEvent("fm:focus-chat-input"));
+          ok = true;
+        } else ok = false;
+      } catch { ok = false; }
+      set(ok ? { orchestrationStatus: "dispatched", nextActionProposal: null, orchestrationReceipt: { kind: item.kind, targetNodeIds: targets, resultSurface: NEXT_ACTION_MAPPINGS[item.kind].resultSurface } } : { orchestrationStatus: "error", lastError: get().lastError || "next-action-dispatch-failed" });
+      return ok;
     },
     applyDirectImageVariant: (input) => {
       const { workspace, history } = get();
@@ -1818,6 +1911,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
           activeGeneratedView: null,
           pendingDirectProposal: null,
           lastSuggestReceipt: null,
+          orchestrationStatus: "idle",
+          orchestrationRequest: null,
+          nextActionProposal: null,
+          orchestrationReceipt: null,
         });
       } catch (error) {
         console.error("Failed to load canvas:", error);

@@ -473,25 +473,50 @@ func TestAgentPreservesGeminiThoughtSignatureAcrossToolRound(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch calls.Add(1) {
 		case 1:
-			_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"default_api:list_canvas_nodes\",\"type\":\"function\",\"extra_content\":{\"google\":{\"thought_signature\":%q}},\"function\":{\"name\":\"list_canvas_nodes\",\"arguments\":\"{}\"}}]}}]}\n\n", signature)
+			_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"default_api:read_canvas_node\",\"type\":\"function\",\"extra_content\":{\"google\":{\"thought_signature\":%q}},\"function\":{\"name\":\"read_canvas_node\",\"arguments\":\"{\\\"node_id\\\":\\\"text-1\\\"}\"}}]}}]}\n\n", signature)
 		case 2:
 			if len(request.Messages) < 4 {
-				t.Errorf("tool conversation was not preserved: %#v", request.Messages)
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: tool conversation was not preserved"}}`)
+				return
 			} else {
 				assistant := request.Messages[len(request.Messages)-2]
 				if assistant.Role != "assistant" || len(assistant.ToolCalls) != 1 {
-					t.Errorf("assistant tool call missing: %#v", assistant)
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: assistant tool call missing"}}`)
+					return
 				} else {
+					call := assistant.ToolCalls[0]
+					if call.ID != "default_api:read_canvas_node" || call.Type != "function" || call.Function.Name != "read_canvas_node" || call.Function.Arguments != `{"node_id":"text-1"}` {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: assistant read_canvas_node call shape changed"}}`)
+						return
+					}
 					var extra struct {
 						Google struct {
 							ThoughtSignature string `json:"thought_signature"`
 						} `json:"google"`
 					}
 					if err := json.Unmarshal(assistant.ToolCalls[0].ExtraContent, &extra); err != nil {
-						t.Errorf("decode extra_content: %v", err)
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: thought signature missing"}}`)
+						return
 					} else if extra.Google.ThoughtSignature != signature {
-						t.Errorf("thought signature = %q, want %q", extra.Google.ThoughtSignature, signature)
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: thought signature changed"}}`)
+						return
 					}
+				}
+				tool := request.Messages[len(request.Messages)-1]
+				if tool.Role != "tool" || tool.ToolCallID != "default_api:read_canvas_node" || tool.Name != "read_canvas_node" {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: tool result order/id/name changed"}}`)
+					return
+				}
+				if content, ok := tool.Content.(string); !ok || !strings.Contains(content, "text-1") {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = fmt.Fprint(w, `{"error":{"message":"INVALID_ARGUMENT: tool result content missing"}}`)
+					return
 				}
 			}
 			_, _ = fmt.Fprintln(w, `data: {"choices":[{"delta":{"content":"完了しました"}}]}`)

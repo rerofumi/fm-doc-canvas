@@ -118,6 +118,15 @@ Text / Artifact の mutation は `read_canvas_node` または `read_artifact` �
 - Canvas load errors are rethrown after logging.
 - Chat agent run は run/session/toolCall ID で相関し、Stop、timeout、conflict、acknowledgment error を終端状態として返す。
 
+## Collaboration Orchestration
+
+- `SuggestNextActions`は専用system promptとkind別shape契約を使うone-shot plannerであり、provider設定の汎用system promptへfallbackしない。
+- Frontend Context Resolverは明示Focus、bounded Dialogue、selection、accepted Relation、Generated View hintを区別する。未選択時だけCurrent CanvasのText-bearing Nodeをbounded fallbackに使い、execution targetは暗黙補完しない。
+- Action Proposalはruntime-onlyで、clarify / compare / counterpoint / web_search / suggest_relations / suggest_clustersを固定role / AL / routeへmappingする。
+- proposal panelは最大50vhの独立scroll領域とし、ChatInputを表示したまま長文cardへアクセスできる。
+- child actionは一つだけdispatchし、既存Direct Transform、Context Packet、Relation / Cluster Proposal、Dialogueを主result surfaceとして再利用する。
+- Gemini OpenAI互換のtool continuationではassistant tool callとtool resultの`tool_call_id`、function `name`、thought signatureを保持する。
+
 ## Import / Export
 
 - Import text: `.txt` and `.md` are read into a text node.
@@ -139,4 +148,5 @@ Text / Artifact の mutation は `read_canvas_node` または `read_artifact` �
 - Manual verification should cover node editing, connection traversal warnings, generation modes, image import/display, JSON save/load, settings persistence, and export paths.
 - Chat / agent verification should cover target context、memory-only lifetime、tool read/edit、revision conflict、Stop、ToolCard status。
 - F2 verification covers real modifier selection、Proposal lifecycle、Direct diff/Undo、Relation create/edit/reverse/remove、accepted-only Context、stale no-op。
+- F6 verification coversF6-01〜07、real-canvas相当fallback、long proposal scroll、strict provider/tool continuation。Core E2Eは41件pass。
 - Plan-defined automated checks include Go tests/vet, Frontend Sprint C tests, and Wails production build through `mise`.
