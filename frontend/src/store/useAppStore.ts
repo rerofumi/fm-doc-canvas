@@ -20,6 +20,7 @@ import type {
 import type { ChatMessage, ChatToolProposal } from "../types/chat";
 import {
   applyCommand,
+  computeSubCanvasGroupPositions,
   createHistory,
   createRelation,
   type HistoryState,
@@ -83,6 +84,8 @@ import {
   type RuntimeEnvironment,
 } from "../runtime/runtimeEnvironment";
 import * as GeneratedBackend from "../../wailsjs/go/main/App";
+import { useChatStore } from "./useChatStore";
+import type { AssistantScopeSnapshot } from "./useChatStore";
 
 const initialConfig: AppConfig = {
   llm: {
@@ -162,6 +165,16 @@ interface StoreExtras {
   discardWorkspace: () => void;
   switchTextRole: (nodeId: string, role: "text" | "artifact") => void;
   createSubCanvas: (nodeIds: string[], label?: string) => void;
+  renameSubCanvas: (canvasId: string, label: string) => boolean;
+  dissolveSubCanvas: (canvasId: string) => boolean;
+  moveNodesToParent: (nodeIds: string[]) => boolean;
+  createDirectText: (input: {
+    content: string;
+    summary?: string;
+    originalPrompt: string;
+    position?: { x: number; y: number };
+    scope: AssistantScopeSnapshot;
+  }) => { ok: boolean; nodeId?: string; error?: string };
   navigateCanvas: (canvasId: string) => void;
   navigateParent: () => void;
   navigateBack: () => void;
@@ -172,6 +185,7 @@ interface StoreExtras {
     mode: "dialogue" | "direct",
     operation: Parameters<typeof resolveContext>[0]["operation"],
   ) => ReturnType<typeof resolveContext>;
+  /** @deprecated Context exclusions are no longer honored by the resolver. */
   setContextExcluded: (nodeId: string, excluded: boolean) => void;
   useCanvasAsContext: () => void;
   runDirectTransform: (
@@ -196,6 +210,7 @@ interface StoreExtras {
     sourceNodeIds: string[];
     sourceRevisions: Record<string, number>;
     position?: { x: number; y: number };
+    scope?: AssistantScopeSnapshot;
   }) => boolean;
   lastDirectReceipt: DirectTransformReceipt | null;
   activePacket: ContextPacket | null;
@@ -835,6 +850,49 @@ export const useAppStore = create<FullAppState>((set, get) => {
     projectInto(set, result.state, result.history || history, {
       lastError: null,
     });
+    if (command.type === "clearCanvas") {
+      // Clear removes the current canvas' node identity surface.  Drop all
+      // store-level proposals/receipts that may still reference those nodes;
+      // the domain scope bump above makes any late provider result stale.
+      set({
+        activeGeneratedView: null,
+        pendingDirectProposal: null,
+        lastSuggestReceipt: null,
+        lastDirectReceipt: null,
+        activePacket: null,
+        lastSearchRequest: null,
+        lastSearchReceipt: null,
+        isWebSearchPending: false,
+        orchestrationStatus: "idle",
+        orchestrationRequest: null,
+        nextActionProposal: null,
+        orchestrationReceipt: null,
+        isEditorOpen: false,
+        activeNodeId: null,
+      });
+    }
+    // Domain mutations invalidate active dialogue runs.  Propagate that
+    // cancellation through both local chat correlation and the backend so a
+    // late stream cannot keep appending after Undo/navigation/dissolve.
+    for (const runId of result.cancelledRunIds ?? []) {
+      const run = workspace.runtime.asyncRuns[runId];
+      if (run?.kind !== "dialogue") continue;
+      const chat = useChatStore.getState();
+      for (const [sessionId, active] of Object.entries(chat.activeRuns)) {
+        if (active.runId !== runId) continue;
+        chat.replaceMessage(sessionId, active.assistantMessageId, {
+          content: "キャンセルしました。",
+          status: "cancelled",
+        });
+        chat.cancelRun(sessionId);
+      }
+      const cancelChat = (backend() as any).CancelChat;
+      if (typeof cancelChat === "function") {
+        void Promise.resolve(cancelChat(runId)).catch((error) =>
+          console.warn("Failed to cancel chat run after workspace mutation", error),
+        );
+      }
+    }
     return true;
   };
 
@@ -906,6 +964,95 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
     createSubCanvas: (nodeIds, label) => {
       dispatch({ type: "createSubCanvas", nodeIds, label });
+    },
+    renameSubCanvas: (canvasId, label) => {
+      const normalized = label.trim();
+      if (!normalized) {
+        set({ lastError: "SubCanvas name cannot be empty" });
+        return false;
+      }
+      return dispatch({ type: "renameSubCanvas", canvasId, label: normalized });
+    },
+    dissolveSubCanvas: (canvasId) => dispatch({ type: "dissolveSubCanvas", canvasId }),
+    moveNodesToParent: (nodeIds) => {
+      const state = get();
+      const currentCanvas = state.workspace.document.canvases[
+        state.workspace.runtime.currentCanvasId
+      ];
+      if (!currentCanvas?.parentCanvasId || !currentCanvas.folderNodeId) {
+        set({ lastError: "Current Canvas has no parent" });
+        return false;
+      }
+      const uniqueIds = [...new Set(nodeIds)].filter((id) => {
+        const node = state.workspace.document.nodes[id];
+        return node?.parentCanvasId === currentCanvas.id;
+      });
+      if (!uniqueIds.length) {
+        set({ lastError: "No nodes to move" });
+        return false;
+      }
+      const anchor = state.workspace.document.nodes[currentCanvas.folderNodeId];
+      if (!anchor || anchor.kind !== "folder") {
+        set({ lastError: "Parent FolderNode is missing" });
+        return false;
+      }
+      const members = uniqueIds
+        .map((id) => state.workspace.document.nodes[id])
+        .filter((node): node is NonNullable<typeof node> => Boolean(node));
+      // The parent FolderNode anchor is an existing bounding box too.  Keep
+      // it in the collision set so the lifted group never overlaps the
+      // visible anchor itself.
+      const existing = Object.values(state.workspace.document.nodes).filter(
+        (node) =>
+          node.parentCanvasId === currentCanvas.parentCanvasId &&
+          !uniqueIds.includes(node.id),
+      );
+      const positions = computeSubCanvasGroupPositions(members, existing, anchor.position);
+      const ok = dispatch({
+        type: "moveNodes",
+        nodeIds: uniqueIds,
+        destinationCanvasId: currentCanvas.parentCanvasId,
+        positions,
+      });
+      // Success is represented by CanvasArea's notification/toast.  Do not
+      // put success text in lastError: that state renders the red error
+      // banner and must remain reserved for failures.
+      return ok;
+    },
+    createDirectText: (input) => {
+      const current = get().workspace;
+      const scope = input.scope;
+      if (
+        current.document.workspaceId !== scope.workspaceId ||
+        current.runtime.currentCanvasId !== scope.canvasId ||
+        current.runtime.runtimeGeneration !== scope.runtimeGeneration ||
+        current.runtime.scopeEpoch !== scope.scopeEpoch ||
+        current.runtime.selection.revision !== scope.selectionRevision
+      ) {
+        return { ok: false, error: "direct-text-stale" };
+      }
+      const result = applyCommand(current, {
+        type: "createDirectText",
+        canvasId: scope.canvasId,
+        workspaceId: scope.workspaceId,
+        runtimeGeneration: scope.runtimeGeneration,
+        scopeEpoch: scope.scopeEpoch,
+        selectionRevision: scope.selectionRevision,
+        role: "text",
+        input: {
+          content: input.content,
+          summary: input.summary,
+          originalPrompt: input.originalPrompt,
+          position: input.position,
+          provenance: { origin: "llm", sourceNodeIds: [] },
+        },
+      }, services(), get().history);
+      if (!result.ok) {
+        set({ lastError: result.error || "direct-text failed" });
+        return { ok: false, error: result.error || "direct-text failed" };
+      }
+      projectInto(set, result.state, result.history || get().history, { lastError: null });
+      return { ok: true, nodeId: result.createdNodeId };
     },
     navigateCanvas: (canvasId) => {
       dispatch({ type: "navigateCanvas", canvasId });
@@ -1156,10 +1303,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         model: input.model,
         sourceNodeIds: input.sourceNodeIds,
         sourceRevisions: input.sourceRevisions,
-        workspaceId: workspace.document.workspaceId,
-        canvasId: workspace.runtime.currentCanvasId,
-        runtimeGeneration: workspace.runtime.runtimeGeneration,
-        scopeEpoch: workspace.runtime.scopeEpoch,
+        workspaceId: input.scope?.workspaceId ?? workspace.document.workspaceId,
+        canvasId: input.scope?.canvasId ?? workspace.runtime.currentCanvasId,
+        runtimeGeneration: input.scope?.runtimeGeneration ?? workspace.runtime.runtimeGeneration,
+        scopeEpoch: input.scope?.scopeEpoch ?? workspace.runtime.scopeEpoch,
         position: input.position,
       };
       const result = applyCommand(
@@ -1370,6 +1517,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return false;
       }
     },
+    // Kept only so old E2E/serialized fixtures can be loaded and re-selected;
+    // ContextPreview no longer exposes this mutation and the resolver ignores
+    // the legacy field.
     setContextExcluded: (nodeId, excluded) => {
       dispatch({ type: "setContextExcluded", nodeId, excluded });
     },
@@ -1755,15 +1905,15 @@ export const useAppStore = create<FullAppState>((set, get) => {
       dispatch({ type: "removeRelation", id });
     },
 
-    setPromptInput: (value: string) => set({ promptInput: value }),
+    setPromptInput: (value: string) => {
+      const canvasId = get().workspace.runtime.currentCanvasId;
+      useChatStore.getState().setDraft(canvasId, value);
+    },
     appendPromptInput: (value: string) => {
       const prompt = value.trim();
       if (!prompt) return;
-      set((state) => ({
-        promptInput: state.promptInput.trim()
-          ? `${state.promptInput}\n\n${prompt}`
-          : prompt,
-      }));
+      const canvasId = get().workspace.runtime.currentCanvasId;
+      useChatStore.getState().appendDraft(canvasId, prompt);
     },
 
     applyToolProposal: (proposal, requestedRunId) =>

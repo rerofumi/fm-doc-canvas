@@ -230,6 +230,16 @@ export interface HistoryEntry {
 
 export type WorkspaceCommand =
   | { type: "createText"; role: "text" | "artifact"; input: CreateTextInput }
+  | {
+      type: "createDirectText";
+      workspaceId: WorkspaceId;
+      canvasId: CanvasId;
+      runtimeGeneration: string;
+      scopeEpoch: number;
+      selectionRevision: number;
+      role: "text" | "artifact";
+      input: CreateTextInput;
+    }
   | { type: "createImageRef"; input: CreateImageInput }
   | { type: "importTextFile"; result: ImportTextResult }
   | {
@@ -283,6 +293,7 @@ export type WorkspaceCommand =
   | { type: "setFocus"; focus: FocusState | null }
   | { type: "addContextTarget"; target: WorkspaceTargetRef }
   | { type: "removeContextTarget"; target: WorkspaceTargetRef }
+  /** @deprecated Retained for legacy fixture compatibility; resolver ignores it. */
   | { type: "setContextExcluded"; nodeId: NodeId; excluded: boolean }
   | { type: "setMutationTarget"; target?: WorkspaceTargetRef }
   | { type: "setRelationTargets"; nodeIds: NodeId[] }
@@ -308,6 +319,7 @@ export type WorkspaceCommand =
   | { type: "cancelAsyncRun"; runId: string }
   | { type: "completeAsyncRun"; runId: string }
   | { type: "newWorkspace" }
+  | { type: "clearCanvas" }
   | { type: "discardWorkspace" }
   | { type: "replaceWorkspaceAfterValidatedLoad"; load: ValidatedWorkspaceLoad }
   | { type: "undo" }

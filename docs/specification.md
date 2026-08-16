@@ -1,5 +1,13 @@
 # Implementation Specification
 
+## GUI / Assistant as-built (2026-08-17)
+
+- `useChatStore`がAssistant mode、Canvas別draft、Image Provider、single active operation、Chat session load/saveのauthorityである。
+- Direct Text/Imageはworkspace/canvas/runtime generation/scope epoch/selection revisionのsnapshotを適用直前に再検証する。
+- Chat session persistenceは`isDefaultTitle`を持つ。markerなしlegacy dataは完全一致`新しい会話`だけをdefaultとして移行し、保存はCanvas単位の順序queueとbackend atomic renameを使用する。
+- SubCanvas parent lift/dissolveは共通の決定的配置helperを使用し、domain command、runtime cleanup、freshness invalidation、snapshot Undoを一体で適用する。
+- Chat eventはrun単位のmonotonic sequenceで並べ替える。frontend queueはboundedで、terminal/gap/overflowをcleanupし、異常時は一致するrunだけをfail-closedで終了する。
+
 ## Technical Stack
 
 - Desktop shell: Wails v2.

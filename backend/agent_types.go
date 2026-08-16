@@ -382,6 +382,10 @@ type ToolApplicationResult struct {
 type ChatEvent struct {
 	RunID     string             `json:"runId"`
 	SessionID string             `json:"sessionId"`
+	// Sequence is monotonic within a run. Wails events are delivered through
+	// an asynchronous transport, so the frontend must be able to restore the
+	// producer order before applying terminal/freshness state.
+	Sequence  uint64             `json:"sequence,omitempty"`
 	Type      string             `json:"type"`
 	Text      string             `json:"text,omitempty"`
 	ToolEvent *ToolEvent         `json:"toolEvent,omitempty"`

@@ -89,7 +89,7 @@ export function f4VisionCapDegrades() {
   console.log("ok - vision cap degrades 4th image to metadata with warning");
 }
 
-// REQ-07: excluded images are not sent at all (neither binary nor metadata).
+// REQ-09: legacy exclusions no longer suppress a re-selected image.
 export function f4VisionExcludedNotSent() {
   const { state, imageIds } = makeState();
   let sel = select(state, [imageIds[0], imageIds[1]]);
@@ -98,13 +98,16 @@ export function f4VisionExcludedNotSent() {
     { type: "setContextExcluded", nodeId: imageIds[1], excluded: true },
     services(),
   ).state;
+  // Simulate the legacy fixture being loaded, then selecting the node again.
+  sel = select(sel, []);
+  sel = select(sel, [imageIds[1]]);
   const env = dialogueRead(sel);
   const binaries = env.payloadItems.filter((p) => p.kind === "image-binary");
-  const metas = env.payloadItems.filter((p) => p.kind === "image-metadata");
-  if (binaries.length !== 1) throw new Error(`expected 1 image-binary, got ${binaries.length}`);
-  if (binaries[0].nodeId !== imageIds[0]) throw new Error("excluded image must not be sent");
-  if (metas.length !== 0) throw new Error("excluded image must not be metadata either");
-  console.log("ok - excluded image is not sent");
+  if (binaries.length !== 1 || binaries[0].nodeId !== imageIds[1]) {
+    throw new Error("re-selected legacy-excluded image did not return to payload");
+  }
+  if (env.excludedNodeIds.length !== 0) throw new Error("legacy exclusion leaked into resolved envelope");
+  console.log("ok - re-selected legacy-excluded image returns to payload");
 }
 
 // REQ-07: context-relation images (not explicitly selected) stay metadata-only.

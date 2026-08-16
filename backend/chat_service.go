@@ -8,8 +8,9 @@ import (
 )
 
 type chatRun struct {
-	cancel context.CancelFunc
-	ctx    context.Context
+	cancel   context.CancelFunc
+	ctx      context.Context
+	sequence uint64
 }
 
 type pendingToolApplication struct {
@@ -93,15 +94,9 @@ func (s *ChatService) Send(req ChatRequest) error {
 }
 
 func (s *ChatService) execute(req ChatRequest, ctx context.Context) {
-	err := runAgent(ctx, s.llm, req, s.emitEvent, func(waitCtx context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
+	err := runAgent(ctx, s.llm, req, func(event ChatEvent) { s.emitRunEvent(req.RunID, event) }, func(waitCtx context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
 		return s.waitForApplication(waitCtx, req, proposal)
 	}, s.search, s.image, s.assets, s.ids, s.clock)
-	s.mu.Lock()
-	delete(s.runs, req.RunID)
-	if s.sessions[req.SessionID] == req.RunID {
-		delete(s.sessions, req.SessionID)
-	}
-	s.mu.Unlock()
 	terminal := "done"
 	if err != nil {
 		if ctx.Err() != nil {
@@ -114,11 +109,30 @@ func (s *ChatService) execute(req ChatRequest, ctx context.Context) {
 	if err != nil && terminal == "error" {
 		event.Error = err.Error()
 	}
-	s.emitEvent(event)
+	// Emit the terminal event while the run is still registered so it receives
+	// the final sequence number after every continuation stream/tool event.
+	s.emitRunEvent(req.RunID, event)
+	s.mu.Lock()
+	delete(s.runs, req.RunID)
+	if s.sessions[req.SessionID] == req.RunID {
+		delete(s.sessions, req.SessionID)
+	}
+	s.mu.Unlock()
 }
 
 func (s *ChatService) emitEvent(event ChatEvent) {
 	s.mu.Lock()
+	emit := s.emit
+	s.mu.Unlock()
+	emit(event)
+}
+
+func (s *ChatService) emitRunEvent(runID string, event ChatEvent) {
+	s.mu.Lock()
+	if run, ok := s.runs[runID]; ok {
+		run.sequence++
+		event.Sequence = run.sequence
+	}
 	emit := s.emit
 	s.mu.Unlock()
 	emit(event)
@@ -133,7 +147,7 @@ func (s *ChatService) waitForApplication(ctx context.Context, req ChatRequest, p
 	}
 	s.pending[proposal.ToolCallID] = pending
 	s.mu.Unlock()
-	s.emitEvent(ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_apply", Apply: proposal})
+	s.emitRunEvent(req.RunID, ChatEvent{RunID: req.RunID, SessionID: req.SessionID, Type: "chat:tool_apply", Apply: proposal})
 	defer func() { s.mu.Lock(); delete(s.pending, proposal.ToolCallID); s.mu.Unlock() }()
 	if s.applicationTimeout <= 0 {
 		select {

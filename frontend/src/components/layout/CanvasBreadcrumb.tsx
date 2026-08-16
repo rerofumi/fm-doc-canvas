@@ -9,7 +9,6 @@ const CanvasBreadcrumb: React.FC = () => {
   const parentCanvasId = useAppStore((s) =>
     s.workspace.document.canvases[s.workspace.runtime.currentCanvasId]?.parentCanvasId,
   );
-  const useCanvasAsContext = useAppStore((s) => s.useCanvasAsContext);
   const boundaryAggregates = useAppStore((s) => s.boundaryAggregates);
   const crumbs = getBreadcrumb();
   const upCount = boundaryAggregates
@@ -54,6 +53,7 @@ const CanvasBreadcrumb: React.FC = () => {
       </div>
       {upCount > 0 && (
         <span
+          role="status"
           className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700"
           title="Cross-canvas relations via up-boundary"
           aria-label={`${upCount} up-boundary relations`}
@@ -61,14 +61,6 @@ const CanvasBreadcrumb: React.FC = () => {
           ↑ {upCount}
         </span>
       )}
-      <button
-        type="button"
-        onClick={() => useCanvasAsContext()}
-        className="rounded border border-blue-200 bg-blue-50 px-2 py-1 font-semibold text-blue-700 hover:bg-blue-100"
-        aria-label="Use this Canvas as context"
-      >
-        Use this Canvas as context
-      </button>
     </div>
   );
 };

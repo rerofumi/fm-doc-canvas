@@ -45,15 +45,21 @@ test("CE2E-01 blank start, creation entries, dialogue memory, discard", async ({
   expect(snap.chat.sessions[0].id).toBe(sessionId);
   expect(snap.chat.sessions[0].messages.length).toBe(1);
 
-  // Discard / New Workspace clears nodes + dialogue without save modal
-  await page.getByRole("button", { name: /New Workspace/i }).click();
+  // Discard / New Workspace remains available from Settings and clears nodes + dialogue.
+  await page.getByLabel("Close assistant").click();
+  await expect(page.getByRole("complementary")).toHaveClass(/translate-x-full/);
+  await page.locator("header").getByRole("button", { name: "Settings" }).click();
+  const settings = page.getByTestId("settings-drawer");
+  await expect(settings).toHaveClass(/translate-x-0/);
+  await settings.getByRole("button", { name: "New Workspace" }).click();
   snap = await api.snapshot();
   expect(snap.nodeCount).toBe(0);
   expect(snap.chat.sessions.length).toBe(0);
 
-  // legacy chat path should not be written by e2e temp composition
+  // Chat persistence uses the same binding/service path in the isolated E2E
+  // composition, while workspace discard still clears only the active memory.
   const legacy = path.join(tempRoot(), "chat-sessions.json");
-  expect(fs.existsSync(legacy)).toBeFalsy();
+  expect(fs.existsSync(legacy)).toBeTruthy();
 });
 
 test("CE2E-02 text/artifact identity and V1.3 roundtrip", async ({ page }) => {
@@ -165,7 +171,7 @@ test("CE2E-03 SubCanvas scope, boundary, undo", async ({ page }) => {
   expect(snap.domainNodes.some((n: any) => n.kind === "folder")).toBeTruthy();
 });
 
-test("CE2E-04 shared context, exclusion, proposal, reserved refs", async ({
+test("CE2E-04 shared context, legacy exclusion recovery, proposal, reserved refs", async ({
   page,
 }) => {
   const api = await e2e(page);
@@ -184,10 +190,22 @@ test("CE2E-04 shared context, exclusion, proposal, reserved refs", async ({
   await api.exclude(t2!, true);
   snap = await api.snapshot();
   expect(snap.context.bodyAllowlistNodeIds).toContain(t1);
-  expect(snap.context.bodyAllowlistNodeIds).not.toContain(t2);
-  expect(snap.directContext.bodyAllowlistNodeIds).not.toContain(t2);
+  expect(snap.context.bodyAllowlistNodeIds).toContain(t2);
+  expect(snap.directContext.bodyAllowlistNodeIds).toContain(t2);
+
+  // A legacy exclusion can remain in runtime state, but selecting the node
+  // again must restore it to both mode payloads.
+  await api.selectNodes([]);
+  await api.selectNodes([t2!]);
+  snap = await api.snapshot();
+  expect(snap.context.payloadItems.filter((item: any) => item.nodeId === t2)).toHaveLength(1);
+  expect(snap.directContext.payloadItems.filter((item: any) => item.nodeId === t2)).toHaveLength(1);
 
   await expect(page.getByTestId("context-preview")).toBeVisible();
+  const badge = page.getByTestId("context-preview");
+  await expect(badge).toHaveAttribute("role", "status");
+  await expect(badge.locator("button")).toHaveCount(0);
+  await expect(badge.locator("input[type=checkbox]")).toHaveCount(0);
 
   // proposal create/edit/undo
   const created = await api.applyProposal({
@@ -285,5 +303,211 @@ test("CE2E keyboard smoke for primary controls", async ({ page }) => {
   const snap = await api.snapshot();
   expect(snap.nodeCount).toBeGreaterThanOrEqual(1);
   await expect(page.getByRole("navigation", { name: "Canvas breadcrumb" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /New Workspace/i })).toBeVisible();
+  await expect(
+    page.locator("header").getByRole("button", { name: /New Workspace/i }),
+  ).toHaveCount(0);
+  await page.locator("header").getByRole("button", { name: "Settings" }).click();
+  await expect(
+    page.getByTestId("settings-drawer").getByRole("button", { name: "New Workspace" }),
+  ).toBeVisible();
+});
+
+test("CE2E WP-2 SubCanvas dialog rename, parent lift, and dissolve confirmation", async ({ page }) => {
+  const api = await e2e(page);
+  await api.newWorkspace();
+  const a = await api.addText("Lift A");
+  const b = await api.addText("Lift B");
+  const group = await api.createSubCanvas([a!, b!], "Original");
+  expect(group?.folderId).toBeTruthy();
+  const root = (await api.snapshot()).rootCanvasId;
+
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Rename SubCanvas" }).click();
+  const renameDialog = page.getByRole("dialog");
+  await renameDialog.getByRole("textbox", { name: "SubCanvas name" }).fill("   ");
+  await renameDialog.getByRole("button", { name: "Confirm rename SubCanvas" }).click();
+  await expect(renameDialog.getByRole("alert")).toContainText("cannot be empty");
+  await renameDialog.getByRole("textbox", { name: "SubCanvas name" }).fill(" Renamed ");
+  await renameDialog.getByRole("button", { name: "Confirm rename SubCanvas" }).click();
+  let snap = await api.snapshot();
+  expect(snap.canvases.find((canvas: any) => canvas.id === group!.childCanvasId).name).toBe("Renamed");
+  expect(snap.domainNodes.find((node: any) => node.id === group!.folderId).label).toBe("Renamed");
+
+  await api.navigate(group!.childCanvasId!);
+  await api.selectNodes([a!, b!]);
+  await api.openContextMenu({ type: "node", id: a! });
+  await page.getByRole("menuitem", { name: "Move selected nodes to parent Canvas" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "件を親 Canvas" })).toBeVisible();
+  snap = await api.snapshot();
+  expect(snap.domainNodes.find((node: any) => node.id === a).parentCanvasId).toBe(root);
+  expect(snap.domainNodes.find((node: any) => node.id === b).parentCanvasId).toBe(root);
+  expect(snap.selection?.selectedNodeIds ?? []).not.toEqual(expect.arrayContaining([a, b]));
+  expect(snap.lastError).toBeNull();
+  await expect(page.getByTestId("global-error-banner")).toHaveCount(0);
+
+  await api.navigate(root);
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Delete SubCanvas" }).click();
+  const dissolveDialog = page.getByRole("dialog");
+  await expect(dissolveDialog).toContainText("0 member");
+  await dissolveDialog.getByRole("button", { name: "Cancel delete SubCanvas" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  snap = await api.snapshot();
+  expect(snap.domainNodes.some((node: any) => node.id === group!.folderId)).toBeTruthy();
+});
+
+test("CE2E WP-2 relation-aware dissolve confirms, preserves members, and undoes atomically", async ({ page }) => {
+  const api = await e2e(page);
+  await api.newWorkspace();
+  const memberA = await api.addText("Dissolve member A");
+  const memberB = await api.addText("Dissolve member B");
+  const outside = await api.addText("Outside node");
+  const group = await api.createSubCanvas([memberA!, memberB!], "Relation Group");
+  const memberRelation = await api.addRelation(memberA!, memberB!, "supports", "member relation");
+  const folderRelation = await api.addRelation(group!.folderId!, outside!, "context", "folder relation");
+  const root = (await api.snapshot()).rootCanvasId;
+  const anchor = page.getByRole("button", { name: "Add Text" });
+  await anchor.focus();
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Delete SubCanvas" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("2 members");
+  await expect(dialog).toContainText("1 FolderNode relation");
+  await expect(dialog).toContainText("Member relations will be preserved");
+  await expect(dialog.getByRole("button", { name: "Cancel delete SubCanvas" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Confirm delete SubCanvas" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(anchor).toBeFocused();
+  let snap = await api.snapshot();
+  expect(snap.relationCount).toBe(2);
+  expect(snap.domainNodes.find((node: any) => node.id === memberA).parentCanvasId).toBe(group!.childCanvasId);
+
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Delete SubCanvas" }).click();
+  await page.getByRole("button", { name: "Confirm delete SubCanvas" }).click();
+  await expect(anchor).toBeFocused();
+  snap = await api.snapshot();
+  expect(snap.canvases.some((canvas: any) => canvas.id === group!.childCanvasId)).toBeFalsy();
+  expect(snap.domainNodes.find((node: any) => node.id === memberA).parentCanvasId).toBe(root);
+  expect(snap.relationCount).toBe(1);
+  expect(snap.edges.some((edge: any) => edge.id === memberRelation)).toBeTruthy();
+  expect(snap.edges.some((edge: any) => edge.id === folderRelation)).toBeFalsy();
+
+  await api.undo();
+  snap = await api.snapshot();
+  expect(snap.canvases.some((canvas: any) => canvas.id === group!.childCanvasId)).toBeTruthy();
+  expect(snap.domainNodes.find((node: any) => node.id === memberA).parentCanvasId).toBe(group!.childCanvasId);
+  expect(snap.relationCount).toBe(2);
+  expect(snap.edges.some((edge: any) => edge.id === folderRelation)).toBeTruthy();
+});
+
+test("CE2E WP-2 parent lift handles one unselected node, notification action, and failed no-op", async ({ page }) => {
+  const api = await e2e(page);
+  await api.newWorkspace();
+  const moved = await api.addText("single lift");
+  const stays = await api.addText("stays in child");
+  const group = await api.createSubCanvas([moved!, stays!], "Single lift group");
+  const root = (await api.snapshot()).rootCanvasId;
+  await api.navigate(group!.childCanvasId!);
+  await api.selectNodes([]);
+  await api.openContextMenu({ type: "node", id: moved! });
+  await page.getByRole("menuitem", { name: "Move selected nodes to parent Canvas" }).click();
+  const moveNotice = page.getByRole("status").filter({ hasText: "親 Canvas へ移動しました" });
+  await expect(moveNotice).toContainText("1件を親 Canvas へ移動しました");
+  let snap = await api.snapshot();
+  expect(snap.domainNodes.find((node: any) => node.id === moved).parentCanvasId).toBe(root);
+  expect(snap.domainNodes.find((node: any) => node.id === stays).parentCanvasId).toBe(group!.childCanvasId);
+  await page.getByRole("button", { name: "親 Canvasを開く" }).click();
+  snap = await api.snapshot();
+  expect(snap.currentCanvasId).toBe(root);
+
+  // A FolderNode is itself movable; its child Canvas must follow it as a
+  // subtree and relations must keep their node IDs.
+  await api.navigate(group!.childCanvasId!);
+  const nestedOther = await api.addText("nested sibling");
+  const nested = await api.createSubCanvas([stays!, nestedOther!], "Nested folder");
+  await api.addRelation(stays!, nestedOther!, "supports", "subtree relation");
+  const relationCountBeforeSubtreeMove = (await api.snapshot()).relationCount;
+  await api.openContextMenu({ type: "node", id: nested.folderId! });
+  await page.getByRole("menuitem", { name: "Move selected nodes to parent Canvas" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "親 Canvas へ移動しました" })).toContainText("1件");
+  snap = await api.snapshot();
+  expect(snap.domainNodes.find((node: any) => node.id === nested.folderId).parentCanvasId).toBe(root);
+  expect(snap.canvases.find((canvas: any) => canvas.id === nested.childCanvasId).parentCanvasId).toBe(root);
+  expect(snap.relationCount).toBe(relationCountBeforeSubtreeMove);
+  await page.getByRole("button", { name: "親 Canvasを開く" }).click();
+
+  const before = await api.snapshot();
+  expect(await api.moveNodesToParent(["missing-node"])).toBeFalsy();
+  const after = await api.snapshot();
+  expect(after.json).toBe(before.json);
+  expect(String(after.lastError || "")).toMatch(/parent|No nodes/i);
+});
+
+test("CE2E WP-2 context menus and SubCanvas dialogs keep keyboard focus", async ({ page }) => {
+  const api = await e2e(page);
+  await api.newWorkspace();
+  const a = await api.addText("Keyboard A");
+  const b = await api.addText("Keyboard B");
+  const relationId = await api.addRelation(a!, b!);
+  expect(relationId).toBeTruthy();
+
+  const menuItems = page.locator('[role="menu"] [role="menuitem"]');
+  const anchor = page.getByRole("button", { name: "Add Text" });
+  await anchor.focus();
+
+  // Node and edge menus opened through the test seam must both start inside
+  // the menu and keep Tab focus contained.
+  await api.openContextMenu({ type: "node", id: a! });
+  await expect(menuItems.first()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(menuItems.nth(1)).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(menuItems.first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(anchor).toBeFocused();
+
+  await anchor.focus();
+  await api.openContextMenu({ type: "edge", id: relationId });
+  await expect(menuItems.first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(anchor).toBeFocused();
+
+  // Pane menu has no optional first action; it still receives initial focus.
+  await anchor.focus();
+  await page.locator(".react-flow__pane").first().click({
+    button: "right",
+    position: { x: 30, y: 30 },
+  });
+  await expect(menuItems.first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+
+  const group = await api.createSubCanvas([a!, b!], "Keyboard Group");
+  expect(group?.folderId).toBeTruthy();
+  await anchor.focus();
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Rename SubCanvas" }).click();
+  const renameDialog = page.getByRole("dialog");
+  await expect(renameDialog.getByRole("textbox", { name: "SubCanvas name" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(renameDialog).toHaveCount(0);
+  await expect(anchor).toBeFocused();
+
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Rename SubCanvas" }).click();
+  await page.getByRole("button", { name: "Cancel rename" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(anchor).toBeFocused();
+
+  await api.openContextMenu({ type: "node", id: group!.folderId! });
+  await page.getByRole("menuitem", { name: "Rename SubCanvas" }).click();
+  await page.getByRole("textbox", { name: "SubCanvas name" }).fill("Keyboard Renamed");
+  await page.getByRole("button", { name: "Confirm rename SubCanvas" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(anchor).toBeFocused();
 });

@@ -59,7 +59,7 @@ test.describe("F5 Generated Structures core", () => {
     await app.openChat();
     const input = page.getByPlaceholder(/メッセージを入力/);
     await input.fill("fixture:relation-batch");
-    await input.press("Enter");
+    await input.press("Control+Enter");
 
     const relationCard = page.getByTestId("relation-batch-proposal");
     await expect(relationCard).toBeVisible({ timeout: 15_000 });
@@ -76,7 +76,7 @@ test.describe("F5 Generated Structures core", () => {
     await app.selectNodes([clusterA!, clusterB!, clusterC!]);
     await app.openChat();
     await page.getByPlaceholder(/メッセージを入力/).fill("fixture:cluster-view");
-    await page.getByPlaceholder(/メッセージを入力/).press("Enter");
+    await page.getByPlaceholder(/メッセージを入力/).press("Control+Enter");
 
     const viewCard = page.getByTestId("generated-view-proposal");
     await expect(viewCard).toBeVisible({ timeout: 15_000 });

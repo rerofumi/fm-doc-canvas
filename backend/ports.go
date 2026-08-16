@@ -466,6 +466,7 @@ type FixtureLLM struct {
 	suggestHold     chan struct{}
 	nextActionFault string
 	nextActionHold  chan struct{}
+	textHold        chan struct{}
 }
 
 func (f *FixtureLLM) SetNextActionsJSON(raw string) {
@@ -615,6 +616,46 @@ func (f *FixtureLLM) SuggestClustersText(sourceNodeIDs []string) (string, error)
 	return f.suggestText("cluster-view", sourceNodeIDs)
 }
 
+// ArmTextDelay holds the next Direct Text generation until ReleaseTextDelay.
+// It is used only by the E2E fixture to exercise freshness guards.
+func (f *FixtureLLM) ArmTextDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.textHold == nil {
+		f.textHold = make(chan struct{})
+	}
+}
+
+func (f *FixtureLLM) ReleaseTextDelay() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	hold := f.textHold
+	f.textHold = nil
+	f.mu.Unlock()
+	if hold != nil {
+		close(hold)
+	}
+}
+
+func (f *FixtureLLM) delayedReply() string {
+	if f == nil {
+		return "fixture-llm-response"
+	}
+	f.mu.Lock()
+	hold := f.textHold
+	f.textHold = nil
+	f.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
+	return f.reply()
+}
+
 func (f *FixtureLLM) reply() string {
 	if f == nil {
 		return "fixture-llm-response"
@@ -624,9 +665,9 @@ func (f *FixtureLLM) reply() string {
 	}
 	return "fixture-llm-response"
 }
-func (f *FixtureLLM) GenerateText(string, string) (string, error) { return f.reply(), nil }
+func (f *FixtureLLM) GenerateText(string, string) (string, error) { return f.delayedReply(), nil }
 func (f *FixtureLLM) GenerateTextWithImages(string, string, []string) (string, error) {
-	return f.reply(), nil
+	return f.delayedReply(), nil
 }
 
 // RelationBatchResponse returns a deterministic valid Relation batch JSON for

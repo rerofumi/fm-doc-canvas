@@ -73,6 +73,103 @@ function nextOrder(document: WorkspaceDocument, canvasId: string): number {
   return Math.max(...nodes.map((n) => n.order)) + 1;
 }
 
+export interface PlacementNode {
+  id: string;
+  position: { x: number; y: number };
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Computes deterministic positions for a group lifted from a SubCanvas.
+ * The group's internal offsets are retained while the group is placed below
+ * the FolderNode anchor.  Collision checks intentionally use persisted node
+ * dimensions only, so the result is stable before React Flow measures nodes.
+ */
+export function computeSubCanvasGroupPositions(
+  members: PlacementNode[],
+  existing: PlacementNode[],
+  anchor: { x: number; y: number },
+): Record<string, { x: number; y: number }> {
+  if (members.length === 0) return {};
+  const minX = Math.min(...members.map((node) => node.position.x));
+  const minY = Math.min(...members.map((node) => node.position.y));
+  const offsets = members.map((node) => ({
+    node,
+    x: node.position.x - minX,
+    y: node.position.y - minY,
+  }));
+  const groupWidth = Math.max(
+    ...members.map((node) => (node.position.x - minX) + (node.width ?? 250)),
+    1,
+  );
+  const groupHeight = Math.max(
+    ...members.map((node) => (node.position.y - minY) + (node.height ?? 150)),
+    1,
+  );
+  const base = { x: anchor.x + 32, y: anchor.y + 32 };
+  const intersects = (x: number, y: number): boolean =>
+    existing.some((node) => {
+      const left = node.position.x;
+      const top = node.position.y;
+      const right = left + (node.width ?? 250);
+      const bottom = top + (node.height ?? 150);
+      return (
+        x < right &&
+        x + groupWidth > left &&
+        y < bottom &&
+        y + groupHeight > top
+      );
+    });
+  let x = base.x;
+  let y = base.y;
+  let attempts = 0;
+  while (attempts < 20 && intersects(x, y)) {
+    x += 48;
+    y += 48;
+    attempts += 1;
+  }
+  return Object.fromEntries(
+    offsets.map(({ node, x: offsetX, y: offsetY }) => [
+      node.id,
+      { x: x + offsetX, y: y + offsetY },
+    ]),
+  );
+}
+
+function pruneRuntimeForMovedNodes(
+  runtime: WorkspaceRuntime,
+  movedIds: Set<string>,
+): void {
+  runtime.selection.selectedNodeIds = runtime.selection.selectedNodeIds.filter(
+    (id) => !movedIds.has(id),
+  );
+  if (runtime.selection.activeNodeId && movedIds.has(runtime.selection.activeNodeId)) {
+    runtime.selection.activeNodeId = undefined;
+  }
+  runtime.selection.revision += 1;
+  const context = runtime.contextSelection;
+  context.addedContextTargets = context.addedContextTargets.filter(
+    (target) => target.kind !== "nodes" || !target.nodeIds.some((id) => movedIds.has(id)),
+  );
+  context.explicitRelationTargetNodeIds = context.explicitRelationTargetNodeIds.filter(
+    (id) => !movedIds.has(id),
+  );
+  context.candidateSeedNodeIds = context.candidateSeedNodeIds.filter(
+    (id) => !movedIds.has(id),
+  );
+  if (
+    context.explicitMutationTarget?.kind === "nodes" &&
+    context.explicitMutationTarget.nodeIds.some((id) => movedIds.has(id))
+  ) {
+    context.explicitMutationTarget = undefined;
+  }
+  context.revision += 1;
+  if (runtime.focus?.target?.kind === "nodes" && runtime.focus.target.nodeIds.some((id) => movedIds.has(id))) {
+    runtime.focus = null;
+  }
+}
+
 function randomPosition(): { x: number; y: number } {
   return { x: 120 + Math.random() * 280, y: 120 + Math.random() * 220 };
 }
@@ -84,14 +181,59 @@ function snapshotRestoreCommand(
   return {
     type: "restoreSnapshot",
     document: cloneWorkspaceState(before).document,
-    runtimePatch: {
-      currentCanvasId: before.runtime.currentCanvasId,
-      selection: before.runtime.selection,
-      contextSelection: before.runtime.contextSelection,
-      focus: before.runtime.focus,
-      navigationBackStack: before.runtime.navigationBackStack,
-    },
+    // Undo restores the user-visible runtime (canvas, selection, focus, and
+    // navigation) while applyRestore keeps freshness authority monotonic.
+    // In particular, an active run from this historical snapshot must never
+    // be resurrected by Undo.
+    runtimePatch: cloneWorkspaceState(before).runtime,
     bumpContentRevisions,
+  };
+}
+
+function restoreRuntimeSnapshotSafely(
+  current: WorkspaceRuntime,
+  snapshot: Partial<WorkspaceRuntime>,
+): WorkspaceRuntime {
+  const patch = structuredClone(snapshot);
+  const restored: WorkspaceRuntime = {
+    ...structuredClone(current),
+    ...patch,
+    selection: patch.selection
+      ? structuredClone(patch.selection)
+      : structuredClone(current.selection),
+    contextSelection: patch.contextSelection
+      ? structuredClone(patch.contextSelection)
+      : structuredClone(current.contextSelection),
+    navigationBackStack: patch.navigationBackStack
+      ? structuredClone(patch.navigationBackStack)
+      : structuredClone(current.navigationBackStack),
+    asyncRuns: patch.asyncRuns
+      ? structuredClone(patch.asyncRuns)
+      : structuredClone(current.asyncRuns),
+  };
+  const currentRuns = structuredClone(current.asyncRuns);
+  const snapshotRuns = restored.asyncRuns;
+  const asyncRuns: WorkspaceRuntime["asyncRuns"] = {
+    ...snapshotRuns,
+    ...currentRuns,
+  };
+
+  // Any active run is tied to a pre-Undo document/scope.  Keep its identity
+  // for correlation, but force it terminal.  This also preserves cancellation
+  // of runs that started after the command's snapshot was captured.
+  for (const run of Object.values(asyncRuns)) {
+    if (run.status === "active") run.status = "cancelled";
+  }
+
+  return {
+    ...restored,
+    // Generation and scope are freshness authority, not user-visible history.
+    // A new scope invalidates every late result created before or during Undo.
+    runtimeGeneration: current.runtimeGeneration,
+    scopeEpoch: Math.max(current.scopeEpoch, snapshot.scopeEpoch ?? current.scopeEpoch) + 1,
+    commandSequence: Math.max(current.commandSequence, snapshot.commandSequence ?? current.commandSequence) + 1,
+    runEpochCounter: Math.max(current.runEpochCounter, snapshot.runEpochCounter ?? current.runEpochCounter),
+    asyncRuns,
   };
 }
 
@@ -109,13 +251,19 @@ function applyRestore(
     return fail(state, "E2E fault: undo-before-commit");
   }
 
+  const cancelledRunIds = Object.values(state.runtime.asyncRuns)
+    .filter((run) => run.status === "active")
+    .map((run) => run.runId);
   const next = cloneWorkspaceState(state);
   next.document = cloneWorkspaceState({
     document: cmd.document,
     runtime: state.runtime,
   }).document;
   if (cmd.runtimePatch) {
-    next.runtime = { ...next.runtime, ...cmd.runtimePatch };
+    next.runtime = restoreRuntimeSnapshotSafely(
+      next.runtime,
+      cmd.runtimePatch,
+    );
   }
   for (const id of cmd.bumpContentRevisions ?? []) {
     const node = next.document.nodes[id];
@@ -125,8 +273,7 @@ function applyRestore(
   }
   const err = validateDocument(next.document);
   if (err) return fail(state, err);
-  bumpCommand(next.runtime);
-  return { ok: true, state: next };
+  return { ok: true, state: next, cancelledRunIds };
 }
 
 function makeTextNode(
@@ -248,6 +395,65 @@ export function applyCommand(
         history: history ? createHistory() : undefined,
       };
     }
+    case "clearCanvas": {
+      isMutation = true;
+      const currentCanvasId = next.runtime.currentCanvasId;
+      const canvasIdsToRemove = new Set<string>();
+      const collectDescendantCanvases = (canvasId: string) => {
+        for (const canvas of Object.values(next.document.canvases)) {
+          if (canvas.parentCanvasId !== canvasId) continue;
+          canvasIdsToRemove.add(canvas.id);
+          collectDescendantCanvases(canvas.id);
+        }
+      };
+
+      // Clearing a canvas removes its visible members. Folder members own
+      // descendant canvases, so remove those subtrees as well to preserve the
+      // folder/canvas invariant instead of leaving orphaned canvases behind.
+      for (const node of Object.values(next.document.nodes)) {
+        if (node.parentCanvasId !== currentCanvasId || !isFolder(node)) continue;
+        canvasIdsToRemove.add(node.childCanvasId);
+        collectDescendantCanvases(node.childCanvasId);
+      }
+
+      const nodeIdsToRemove = new Set(
+        Object.values(next.document.nodes)
+          .filter(
+            (node) =>
+              node.parentCanvasId === currentCanvasId ||
+              canvasIdsToRemove.has(node.parentCanvasId),
+          )
+          .map((node) => node.id),
+      );
+      for (const nodeId of nodeIdsToRemove) delete next.document.nodes[nodeId];
+      for (const canvasId of canvasIdsToRemove)
+        delete next.document.canvases[canvasId];
+      for (const [relationId, relation] of Object.entries(
+        next.document.relations,
+      )) {
+        if (
+          nodeIdsToRemove.has(relation.sourceNodeId) ||
+          nodeIdsToRemove.has(relation.targetNodeId)
+        ) {
+          delete next.document.relations[relationId];
+        }
+      }
+      // Do not leave navigation entries pointing at descendant canvases that
+      // were removed together with the cleared folder subtree.
+      next.runtime.navigationBackStack = next.runtime.navigationBackStack.filter(
+        (entry) => Boolean(next.document.canvases[entry.canvasId]),
+      );
+      next.runtime.selection = emptySelection();
+      next.runtime.contextSelection = emptyContextSelection();
+      next.runtime.focus = null;
+      cancelledRunIds = bumpScope(next.runtime);
+      historyEntry = {
+        label: "clearCanvas",
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
+      break;
+    }
     case "replaceWorkspaceAfterValidatedLoad": {
       const err = validateDocument(command.load.document);
       if (err) return fail(state, err);
@@ -296,6 +502,40 @@ export function applyCommand(
       createdNodeId = node.id;
       historyEntry = {
         label: "createText",
+        undo: snapshotRestoreCommand(before),
+        redo: command,
+      };
+      break;
+    }
+    case "createDirectText": {
+      if (
+        command.workspaceId !== next.document.workspaceId ||
+        command.canvasId !== next.runtime.currentCanvasId ||
+        command.runtimeGeneration !== next.runtime.runtimeGeneration ||
+        command.scopeEpoch !== next.runtime.scopeEpoch ||
+        command.selectionRevision !== next.runtime.selection.revision
+      ) {
+        return fail(state, "direct-text-stale");
+      }
+      isMutation = true;
+      const node = makeTextNode(
+        services,
+        command.canvasId,
+        command.role,
+        {
+          ...command.input,
+          order: nextOrder(next.document, command.canvasId),
+        },
+      );
+      next.document.nodes[node.id] = node;
+      next.runtime.selection = {
+        selectedNodeIds: [node.id],
+        activeNodeId: node.id,
+        revision: next.runtime.selection.revision + 1,
+      };
+      createdNodeId = node.id;
+      historyEntry = {
+        label: "createDirectText",
         undo: snapshotRestoreCommand(before),
         redo: command,
       };
@@ -915,31 +1155,64 @@ export function applyCommand(
       }
       const folder = next.document.nodes[canvas.folderNodeId];
       if (!folder || !isFolder(folder)) return fail(state, "folder missing");
-      // reject if folder is relation endpoint
-      for (const rel of Object.values(next.document.relations)) {
-        if (rel.sourceNodeId === folder.id || rel.targetNodeId === folder.id) {
-          return fail(
-            state,
-            "cannot dissolve folder with relations; remove relations first",
-          );
-        }
-      }
       const parentId = canvas.parentCanvasId;
       const members = nodesOnCanvas(next.document, command.canvasId);
+      const folderRelationIds = Object.values(next.document.relations)
+        .filter(
+          (rel) => rel.sourceNodeId === folder.id || rel.targetNodeId === folder.id,
+        )
+        .map((rel) => rel.id);
+      // The anchor FolderNode remains in the parent and is part of the
+      // persisted bounding boxes used for collision avoidance.
+      const existingParentNodes = nodesOnCanvas(next.document, parentId);
+      const positions = computeSubCanvasGroupPositions(
+        members,
+        existingParentNodes,
+        folder.position,
+      );
       for (const member of members) {
         member.parentCanvasId = parentId;
+        if (positions[member.id]) member.position = positions[member.id];
         if (isFolder(member)) {
           next.document.canvases[member.childCanvasId].parentCanvasId =
             parentId;
         }
       }
+      for (const relationId of folderRelationIds) {
+        delete next.document.relations[relationId];
+      }
       delete next.document.nodes[folder.id];
       delete next.document.canvases[command.canvasId];
+      next.runtime.contextSelection.addedContextTargets =
+        next.runtime.contextSelection.addedContextTargets.filter(
+          (target) => target.kind !== "canvas" || target.canvasId !== command.canvasId,
+        );
+      if (
+        next.runtime.contextSelection.explicitMutationTarget?.kind === "canvas" &&
+        next.runtime.contextSelection.explicitMutationTarget.canvasId === command.canvasId
+      ) {
+        next.runtime.contextSelection.explicitMutationTarget = undefined;
+      }
+      next.runtime.contextSelection.includedRemoteRelationIds =
+        next.runtime.contextSelection.includedRemoteRelationIds.filter(
+          (relationId) => !folderRelationIds.includes(relationId),
+        );
+      next.runtime.contextSelection.revision += 1;
+      if (next.runtime.focus?.target?.kind === "canvas" && next.runtime.focus.target.canvasId === command.canvasId) {
+        next.runtime.focus = null;
+      }
       if (next.runtime.currentCanvasId === command.canvasId) {
         next.runtime.currentCanvasId = parentId;
         cancelledRunIds = bumpScope(next.runtime);
+      }
+      pruneRuntimeForMovedNodes(
+        next.runtime,
+        new Set([folder.id, ...members.map((member) => member.id)]),
+      );
+      if (next.runtime.currentCanvasId === parentId) {
         next.runtime.selection = emptySelection();
         next.runtime.contextSelection = emptyContextSelection();
+        next.runtime.focus = null;
       }
       historyEntry = {
         label: "dissolveSubCanvas",
@@ -978,10 +1251,12 @@ export function applyCommand(
       isMutation = true;
       const canvas = next.document.canvases[command.canvasId];
       if (!canvas) return fail(state, "canvas not found");
-      canvas.name = command.label;
+      const label = command.label.trim();
+      if (!label) return fail(state, "SubCanvas name cannot be empty");
+      canvas.name = label;
       if (canvas.folderNodeId) {
         const folder = next.document.nodes[canvas.folderNodeId];
-        if (folder && isFolder(folder)) folder.label = command.label;
+        if (folder && isFolder(folder)) folder.label = label;
       }
       historyEntry = {
         label: "renameSubCanvas",
@@ -995,9 +1270,14 @@ export function applyCommand(
       const dest = command.destinationCanvasId;
       if (!next.document.canvases[dest])
         return fail(state, "destination missing");
-      for (const id of command.nodeIds) {
+      const ids = [...new Set(command.nodeIds)];
+      if (ids.length === 0) return fail(state, "no nodes to move");
+      for (const id of ids) {
         const node = next.document.nodes[id];
         if (!node) return fail(state, `node ${id} missing`);
+        if (node.parentCanvasId !== next.runtime.currentCanvasId) {
+          return fail(state, "node is outside current canvas");
+        }
         if (isFolder(node)) {
           if (
             dest === node.childCanvasId ||
@@ -1010,13 +1290,17 @@ export function applyCommand(
           }
         }
       }
-      for (const id of command.nodeIds) {
+      for (const id of ids) {
         const node = next.document.nodes[id];
         node.parentCanvasId = dest;
         if (command.positions?.[id]) node.position = command.positions[id];
         if (isFolder(node)) {
           next.document.canvases[node.childCanvasId].parentCanvasId = dest;
         }
+      }
+      if (dest !== next.runtime.currentCanvasId) {
+        cancelledRunIds = bumpScope(next.runtime);
+        pruneRuntimeForMovedNodes(next.runtime, new Set(ids));
       }
       historyEntry = {
         label: "moveNodes",
@@ -1032,6 +1316,10 @@ export function applyCommand(
         if (!node) return fail(state, `node ${change.nodeId} missing`);
         node.position = change.position;
       }
+      // Spatial context is part of the Direct request freshness boundary.
+      // AutoLayout and completed drags must invalidate results started before
+      // the new positions were committed.
+      cancelledRunIds = bumpScope(next.runtime);
       historyEntry = {
         label: "moveNodePositions",
         undo: snapshotRestoreCommand(before),
@@ -1279,6 +1567,8 @@ export function applyCommand(
       break;
     }
     case "setContextExcluded": {
+      // Legacy compatibility only. New UI never dispatches this command;
+      // contextResolver intentionally ignores the retained field.
       const set = new Set(next.runtime.contextSelection.excludedNodeIds);
       if (command.excluded) set.add(command.nodeId);
       else set.delete(command.nodeId);

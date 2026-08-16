@@ -10,6 +10,8 @@ export function ArmDelayedSearchWeb():Promise<void>;
 
 export function ArmDelayedSuggest():Promise<void>;
 
+export function ArmDelayedTextGeneration():Promise<void>;
+
 export function ArmE2EImageFault(arg1:string):Promise<void>;
 
 export function ArmE2ESearchFault(arg1:string):Promise<void>;
@@ -64,6 +66,8 @@ export function LoadChatSessions(arg1:string):Promise<Array<backend.ChatSession>
 
 export function OpenExternalURL(arg1:string):Promise<void>;
 
+export function ReadE2EChatSessionsRaw():Promise<string>;
+
 export function ReleaseDelayedImageGeneration():Promise<void>;
 
 export function ReleaseDelayedNextActions():Promise<void>;
@@ -71,6 +75,8 @@ export function ReleaseDelayedNextActions():Promise<void>;
 export function ReleaseDelayedSearchWeb():Promise<void>;
 
 export function ReleaseDelayedSuggest():Promise<void>;
+
+export function ReleaseDelayedTextGeneration():Promise<void>;
 
 export function ResolveToolApplication(arg1:backend.ToolApplicationResult):Promise<void>;
 

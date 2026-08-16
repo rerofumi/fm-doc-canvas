@@ -67,7 +67,7 @@ Canvas-First レイアウト、Chat / Direct 統合ドロワー、Context 表示
 ## Constraints
 
 - ツール操作は `mise` を経由する。
-- `.fm-canvas.json` schema は変更しない。
+- `.fm-canvas.json` schema は変更しない。Chat session persistence には、REQ-08 の default title を reload 後も一意に識別するため、後方互換な `isDefaultTitle` marker を追加してよい。
 - Chat の既存 run correlation / freshness authority を維持する。
 - Direct backend cancel は追加しない。
 - SubCanvas command の拡張は atomicity、document invariant、Undo snapshot を維持する。

@@ -181,6 +181,8 @@ export interface ChatRequest {
 export interface ChatEvent {
   runId: string;
   sessionId: string;
+  /** Monotonic producer order for events belonging to one chat run. */
+  sequence?: number;
   type: string;
   text?: string;
   toolEvent?: ChatToolEvent;
@@ -211,6 +213,10 @@ export interface DirectTransformReceipt {
 export interface ChatSession {
   id: string;
   title: string;
+  /** Persisted authority for whether the title is still eligible for auto-naming. */
+  // Optional at the TypeScript boundary so marker-less legacy fixtures can
+  // still be loaded and migrated by hydrate/toBackendChatSessions.
+  isDefaultTitle?: boolean;
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];

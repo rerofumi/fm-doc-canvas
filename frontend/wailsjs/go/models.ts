@@ -227,6 +227,7 @@ export namespace backend {
 	export class ChatSession {
 	    id: string;
 	    title: string;
+	    isDefaultTitle: boolean;
 	    createdAt: number;
 	    updatedAt: number;
 	    messages: ChatSessionMessage[];
@@ -239,6 +240,7 @@ export namespace backend {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	        this.isDefaultTitle = source["isDefaultTitle"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	        this.messages = this.convertValues(source["messages"], ChatSessionMessage);

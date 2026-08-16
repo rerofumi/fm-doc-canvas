@@ -1,5 +1,5 @@
 import type React from "react";
-import { useCallback, useState, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Background,
@@ -12,6 +12,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { useAppStore } from "../../store/useAppStore";
+import { useChatStore } from "../../store/useChatStore";
 import CustomNode from "./CustomNode";
 import ImageNode from "./ImageNode";
 import ArtifactNode from "./ArtifactNode";
@@ -19,6 +20,7 @@ import FolderNode from "./FolderNode";
 import ClusterHullNode, { type ClusterHullNodeType } from "./ClusterHullNode";
 import { clusterColor } from "./GeneratedViewBanner";
 import ContextMenu from "../ui/ContextMenu";
+import SubCanvasDialog from "../ui/SubCanvasDialog";
 import RelationEditorDialog, {
   type RelationEditorValue,
   type RelationKindOption,
@@ -38,6 +40,7 @@ const nodeTypes: NodeTypes = {
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4.0;
+type FocusTarget = HTMLElement | SVGElement | null;
 
 const CanvasArea: React.FC = () => {
   const {
@@ -51,6 +54,9 @@ const CanvasArea: React.FC = () => {
     deleteNode,
     deleteEdge,
   } = useAppStore();
+  const moveNodesToParent = useAppStore((s) => s.moveNodesToParent);
+  const renameSubCanvas = useAppStore((s) => s.renameSubCanvas);
+  const dissolveSubCanvas = useAppStore((s) => s.dissolveSubCanvas);
   const activeGeneratedView = useAppStore((s) => s.activeGeneratedView);
   const runDirectSuggestRelations = useAppStore(
     (s) => s.runDirectSuggestRelations,
@@ -64,16 +70,33 @@ const CanvasArea: React.FC = () => {
     y: number;
     id: string;
     type: "node" | "edge";
+    trigger: FocusTarget;
   } | null>(null);
-  const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(
-    null,
-  );
+  const [paneMenu, setPaneMenu] = useState<{
+    x: number;
+    y: number;
+    trigger: FocusTarget;
+  } | null>(null);
   const [relationEditor, setRelationEditor] = useState<{
     mode: "create" | "edit";
     relationId?: string;
     initial: RelationEditorValue;
     nodeOptions: Array<{ id: string; label: string }>;
   } | null>(null);
+  const [subCanvasDialog, setSubCanvasDialog] = useState<{
+    mode: "rename" | "dissolve";
+    canvasId: string;
+    name: string;
+    memberCount: number;
+    folderRelationCount: number;
+  } | null>(null);
+  const [moveNotice, setMoveNotice] = useState<{
+    count: number;
+    parentCanvasId: string;
+  } | null>(null);
+  const canvasRootRef = useRef<HTMLDivElement>(null);
+  const dialogReturnFocusRef = useRef<FocusTarget>(null);
+  const dialogWasOpenRef = useRef(false);
   const reactFlowInstance = useReactFlow();
   const {
     addNode,
@@ -82,6 +105,24 @@ const CanvasArea: React.FC = () => {
     dispatch,
     runDirectTransform,
   } = useAppStore() as any;
+
+  useEffect(() => {
+    if (subCanvasDialog) {
+      dialogWasOpenRef.current = true;
+      return;
+    }
+    if (!dialogWasOpenRef.current) return;
+    dialogWasOpenRef.current = false;
+    const target = dialogReturnFocusRef.current;
+    dialogReturnFocusRef.current = null;
+    requestAnimationFrame(() => {
+      if (target?.isConnected) {
+        target.focus();
+      } else {
+        canvasRootRef.current?.focus();
+      }
+    });
+  }, [subCanvasDialog]);
 
   const hullNodes: ClusterHullNodeType[] = useMemo(() => {
     if (!activeGeneratedView) return [];
@@ -239,6 +280,9 @@ const CanvasArea: React.FC = () => {
         y: target.y ?? 180,
         id: target.id,
         type: target.type,
+        // The E2E opener has no native event target. Preserve the focused
+        // control so dialog close follows the same focus-return contract.
+        trigger: document.activeElement as FocusTarget,
       });
     };
     return () => {
@@ -378,7 +422,11 @@ const CanvasArea: React.FC = () => {
   const onPaneContextMenu = useCallback(
     (event: React.MouseEvent | MouseEvent) => {
       event.preventDefault();
-      setPaneMenu({ x: event.clientX, y: event.clientY });
+      setPaneMenu({
+        x: event.clientX,
+        y: event.clientY,
+        trigger: (event.currentTarget as FocusTarget) ?? null,
+      });
     },
     [],
   );
@@ -391,6 +439,7 @@ const CanvasArea: React.FC = () => {
         y: event.clientY,
         id: node.id,
         type: "node",
+        trigger: (event.currentTarget as FocusTarget) ?? null,
       });
     },
     [],
@@ -404,6 +453,7 @@ const CanvasArea: React.FC = () => {
         y: event.clientY,
         id: edge.id,
         type: "edge",
+        trigger: (event.currentTarget as FocusTarget) ?? null,
       });
     },
     [],
@@ -418,6 +468,34 @@ const CanvasArea: React.FC = () => {
     }
     setMenu(null);
   }, [menu, deleteNode, deleteEdge]);
+
+  const openSubCanvasDialog = useCallback(
+    (mode: "rename" | "dissolve") => {
+      if (!menu || menu.type !== "node") return;
+      dialogReturnFocusRef.current =
+        menu.trigger ?? (document.activeElement as FocusTarget);
+      const workspace = useAppStore.getState().workspace;
+      const node = workspace.document.nodes[menu.id];
+      if (!node || node.kind !== "folder") return;
+      const canvas = workspace.document.canvases[node.childCanvasId];
+      if (!canvas) return;
+      const members = Object.values(workspace.document.nodes).filter(
+        (candidate) => candidate.parentCanvasId === canvas.id,
+      );
+      const folderRelationCount = Object.values(workspace.document.relations).filter(
+        (relation) =>
+          relation.sourceNodeId === node.id || relation.targetNodeId === node.id,
+      ).length;
+      setSubCanvasDialog({
+        mode,
+        canvasId: canvas.id,
+        name: canvas.name,
+        memberCount: members.length,
+        folderRelationCount,
+      });
+    },
+    [menu],
+  );
 
   // Export handlers
   const handleExport = useCallback(async () => {
@@ -456,6 +534,9 @@ const CanvasArea: React.FC = () => {
 
   return (
     <div
+      ref={canvasRootRef}
+      data-testid="canvas-root"
+      tabIndex={-1}
       className="w-full h-full"
       style={{ "--wails-drop-target": "drop" } as React.CSSProperties}
     >
@@ -497,6 +578,8 @@ const CanvasArea: React.FC = () => {
           x={menu.x}
           y={menu.y}
           label={menu.type === "node" ? "Node" : "Edge"}
+          returnFocusTarget={menu.trigger}
+          fallbackFocusTarget={canvasRootRef.current}
           onClose={() => setMenu(null)}
           onDelete={handleDelete}
           onExport={menu.type === "node" ? handleExport : undefined}
@@ -518,6 +601,37 @@ const CanvasArea: React.FC = () => {
                 }
               : undefined
           }
+          onMoveToParent={
+            menu.type === "node" &&
+            Boolean(
+              useAppStore.getState().workspace.document.canvases[
+                useAppStore.getState().workspace.runtime.currentCanvasId
+              ]?.parentCanvasId,
+            )
+              ? () => {
+                  const selected = nodes.filter((node) => node.selected).map((node) => node.id);
+                  const ids = selected.includes(menu.id) ? selected : [menu.id];
+                  const currentCanvas = useAppStore.getState().workspace.document.canvases[
+                    useAppStore.getState().workspace.runtime.currentCanvasId
+                  ];
+                  if (moveNodesToParent(ids) && currentCanvas?.parentCanvasId) {
+                    setMoveNotice({ count: ids.length, parentCanvasId: currentCanvas.parentCanvasId });
+                  }
+                }
+              : undefined
+          }
+          onRenameSubCanvas={
+            menu.type === "node" &&
+            useAppStore.getState().workspace.document.nodes[menu.id]?.kind === "folder"
+              ? () => openSubCanvasDialog("rename")
+              : undefined
+          }
+          onDissolveSubCanvas={
+            menu.type === "node" &&
+            useAppStore.getState().workspace.document.nodes[menu.id]?.kind === "folder"
+              ? () => openSubCanvasDialog("dissolve")
+              : undefined
+          }
           onTransform={
             menu.type === "node"
               ? (operation) => {
@@ -530,9 +644,14 @@ const CanvasArea: React.FC = () => {
               ? () => {
                   void useAppStore
                     .getState()
-                    .runWebSearch(useAppStore.getState().promptInput, {
+                    .runWebSearch(
+                      useChatStore.getState().draftsByCanvasId[
+                        useAppStore.getState().workspace.runtime.currentCanvasId
+                      ] ?? "",
+                      {
                       entryRoute: "direct-action",
-                    });
+                      },
+                    );
                 }
               : undefined
           }
@@ -566,6 +685,8 @@ const CanvasArea: React.FC = () => {
           x={paneMenu.x}
           y={paneMenu.y}
           label="Canvas"
+          returnFocusTarget={paneMenu.trigger}
+          fallbackFocusTarget={canvasRootRef.current}
           onClose={() => setPaneMenu(null)}
           onDelete={() => setPaneMenu(null)}
           onSuggestRelations={() => {
@@ -587,6 +708,55 @@ const CanvasArea: React.FC = () => {
           onSubmit={submitRelationEditor}
           onCancel={() => setRelationEditor(null)}
         />
+      )}
+
+      {subCanvasDialog && (
+        <SubCanvasDialog
+          mode={subCanvasDialog.mode}
+          currentName={subCanvasDialog.name}
+          memberCount={subCanvasDialog.memberCount}
+          folderRelationCount={subCanvasDialog.folderRelationCount}
+          onCancel={() => setSubCanvasDialog(null)}
+          onRename={(label) => {
+            if (renameSubCanvas(subCanvasDialog.canvasId, label)) {
+              setSubCanvasDialog(null);
+            }
+          }}
+          onConfirm={() => {
+            if (dissolveSubCanvas(subCanvasDialog.canvasId)) {
+              setSubCanvasDialog(null);
+            }
+          }}
+        />
+      )}
+
+      {moveNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 left-1/2 z-[180] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-blue-200 bg-white px-4 py-3 text-sm text-blue-900 shadow-lg"
+        >
+          <span>{moveNotice.count}件を親 Canvas へ移動しました</span>
+          <button
+            type="button"
+            className="rounded bg-blue-600 px-2 py-1 text-xs font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            onClick={() => {
+              navigateCanvas(moveNotice.parentCanvasId);
+              setMoveNotice(null);
+            }}
+            aria-label="親 Canvasを開く"
+          >
+            親 Canvasを開く
+          </button>
+          <button
+            type="button"
+            className="text-xs text-gray-500 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300"
+            onClick={() => setMoveNotice(null)}
+            aria-label="移動通知を閉じる"
+          >
+            閉じる
+          </button>
+        </div>
       )}
     </div>
   );

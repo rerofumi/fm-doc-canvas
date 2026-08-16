@@ -1,5 +1,12 @@
 # Chat Tool Provider Compatibility
 
+## Event ordering and lifecycle (2026-08-17)
+
+- Wails eventの到着順は送信順と一致するとは限らない。backendはrun単位のmonotonic `sequence`を全stream/tool/terminal eventへ付与する。
+- frontendはrun別bounded queueでsequence順にdrainし、pendingから処理したterminalでも必ずqueueを閉じる。
+- duplicate/late eventはtombstoneで破棄し、legacy `sequence=0` eventは従来経路で処理する。
+- gap expiryまたはoverflowでは該当runだけをerror terminalへ進め、local active run、matching Assistant operation、domain async run、backend Chatを一度だけ解放する。
+
 OpenAI-compatible Chat Completions を agent tool loop に利用する際の provider 拡張 metadata の扱いを記録する。
 
 ## Google Gemini thought signatures

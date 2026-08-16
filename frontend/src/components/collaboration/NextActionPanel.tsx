@@ -5,13 +5,25 @@ import type { ChatMessage } from "../../types/chat";
 
 export default function NextActionPanel({
   messages,
+  showTrigger = true,
+  triggerDisabled = false,
+  disabled = false,
+  onRetry,
+  onDispatch,
+  onCancel,
 }: {
   messages: ChatMessage[];
+  showTrigger?: boolean;
+  triggerDisabled?: boolean;
+  disabled?: boolean;
+  onRetry?: () => void;
+  onDispatch?: (actionId: string, edits?: { targetNodeIds?: string[]; query?: string }) => void;
+  onCancel?: () => void;
 }) {
   const status = useAppStore((state) => state.orchestrationStatus);
   const proposal = useAppStore((state) => state.nextActionProposal);
   const request = useAppStore((state) => state.requestNextActions);
-  const cancel = useAppStore((state) => state.cancelNextActionRequest);
+  const cancelRequest = useAppStore((state) => state.cancelNextActionRequest);
   const dismiss = useAppStore((state) => state.dismissNextActions);
   const reject = useAppStore((state) => state.rejectNextAction);
   const dispatch = useAppStore((state) => state.dispatchNextAction);
@@ -21,8 +33,15 @@ export default function NextActionPanel({
   const [query, setQuery] = useState("");
   const [targets, setTargets] = useState<Record<string, string[]>>({});
   const actions = useMemo(() => proposal?.actions ?? [], [proposal]);
-  const retry = () => void request(messages);
-  const controlsDisabled = status === "dispatching";
+  const retry = () => {
+    if (onRetry) onRetry();
+    else void request(messages);
+  };
+  const cancel = () => {
+    onCancel?.();
+    cancelRequest();
+  };
+  const controlsDisabled = disabled || status === "dispatching";
 
   const targetLabel = (id: string): string =>
     actionRequest?.nodeHints.find((hint) => hint.id === id)?.label || id;
@@ -32,13 +51,13 @@ export default function NextActionPanel({
       aria-label="Next action proposals"
       className="max-h-[50vh] shrink-0 overflow-y-auto overscroll-contain border-b border-gray-200 bg-slate-50 p-3"
     >
-      {status === "idle" && (
+      {status === "idle" && showTrigger && (
         <button
           type="button"
           aria-label="次の一手を提案"
           className="rounded border px-3 py-1 text-sm"
           onClick={retry}
-          disabled={controlsDisabled}
+          disabled={controlsDisabled || triggerDisabled}
         >
           次の一手
         </button>
@@ -270,7 +289,7 @@ export default function NextActionPanel({
                     aria-label={`${action.title}を実行`}
                     disabled={status === "dispatching"}
                     className="rounded bg-blue-600 px-2 py-1 text-xs text-white"
-                    onClick={() => void dispatch(action.id, edits)}
+                    onClick={() => onDispatch ? onDispatch(action.id, edits) : void dispatch(action.id, edits)}
                   >
                     {action.kind === "clarify" ? "この質問に答える" : "実行"}
                   </button>

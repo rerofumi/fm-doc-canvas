@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { X, Trash2, Save, FolderOpen, Download, Upload } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { AppConfig, OpenAIConfig, GoogleConfig, XAIConfig } from "../../types";
@@ -27,7 +27,17 @@ const ensureImageProviderConfigs = (
   },
 });
 
-const SettingsDrawer: React.FC = () => {
+type FocusTarget = HTMLElement | null;
+
+type SettingsDrawerProps = {
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+  fallbackFocusRef?: React.RefObject<HTMLElement | null>;
+};
+
+const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
+  returnFocusRef,
+  fallbackFocusRef,
+}) => {
   const {
     config,
     setConfig,
@@ -35,14 +45,61 @@ const SettingsDrawer: React.FC = () => {
     loadConfig,
     saveCanvas,
     loadCanvas,
-    setNodes,
-    setEdges,
-    setActiveNode,
+    dispatch,
+    newWorkspace,
     setSettingsOpen,
     isSettingsOpen,
   } = useAppStore();
 
   const [localConfig, setLocalConfig] = useState(config);
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false);
+  const clearCancelRef = useRef<HTMLButtonElement>(null);
+  const clearTriggerRef = useRef<HTMLButtonElement>(null);
+  const clearDialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (isClearDialogOpen) clearCancelRef.current?.focus();
+  }, [isClearDialogOpen]);
+
+  const focusVisibleTarget = (target: FocusTarget) => {
+    const isVisible = (candidate: FocusTarget): candidate is HTMLElement => {
+      if (!candidate?.isConnected) return false;
+      const style = window.getComputedStyle(candidate);
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        candidate.getClientRects().length > 0
+      );
+    };
+
+    if (isVisible(target)) {
+      target.focus();
+      return;
+    }
+
+    const fallback = fallbackFocusRef?.current ??
+      document.querySelector<HTMLElement>('[data-testid="canvas-root"]');
+    if (isVisible(fallback)) fallback.focus();
+  };
+
+  const closeClearDialog = (
+    reason: "cancel" | "escape" | "overlay" | "confirm" = "cancel",
+  ) => {
+    setIsClearDialogOpen(false);
+    if (reason === "confirm") {
+      setSettingsOpen(false);
+      // The drawer closes after confirmation.  Return to a visible application
+      // control, never to the transformed/offscreen drawer trigger.
+      window.setTimeout(
+        () => focusVisibleTarget(returnFocusRef?.current ?? null),
+        0,
+      );
+      return;
+    }
+
+    // Cancel/Escape/overlay leave Settings open and return to its trigger.
+    window.setTimeout(() => clearTriggerRef.current?.focus(), 0);
+  };
 
   // Load config when component mounts
   useEffect(() => {
@@ -85,10 +142,12 @@ const SettingsDrawer: React.FC = () => {
   };
 
   const handleClearCanvas = () => {
-    // Clear canvas without confirmation as per specification
-    setNodes([]);
-    setEdges([]);
-    setActiveNode(null);
+    dispatch({ type: "clearCanvas" });
+    closeClearDialog("confirm");
+  };
+
+  const handleNewWorkspace = () => {
+    newWorkspace();
     setSettingsOpen(false);
   };
 
@@ -96,6 +155,7 @@ const SettingsDrawer: React.FC = () => {
     <>
       {/* Settings Drawer */}
       <div
+        data-testid="settings-drawer"
         className={`fixed top-0 right-0 h-full bg-white shadow-2xl transition-transform duration-300 ease-in-out z-50 flex flex-col border-l border-gray-200 ${
           isSettingsOpen ? "translate-x-0" : "translate-x-full"
         }`}
@@ -141,6 +201,7 @@ const SettingsDrawer: React.FC = () => {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleSaveCanvas}
+                aria-label="Save Canvas"
                 className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <Download size={20} className="text-blue-500 mb-1" />
@@ -148,6 +209,7 @@ const SettingsDrawer: React.FC = () => {
               </button>
               <button
                 onClick={handleLoadCanvas}
+                aria-label="Load Canvas"
                 className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <Upload size={20} className="text-green-500 mb-1" />
@@ -694,14 +756,25 @@ const SettingsDrawer: React.FC = () => {
               Dangerous Zone
             </h3>
             <button
-              onClick={handleClearCanvas}
+              ref={clearTriggerRef}
+              onClick={() => setIsClearDialogOpen(true)}
+              aria-label="Clear Canvas"
               className="w-full flex items-center justify-center gap-2 p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
             >
               <Trash2 size={16} />
               Clear Canvas
             </button>
+            <button
+              onClick={handleNewWorkspace}
+              aria-label="New Workspace"
+              className="mt-2 w-full flex items-center justify-center gap-2 p-3 bg-red-100 text-red-800 rounded-lg hover:bg-red-200 transition-colors"
+            >
+              <Trash2 size={16} />
+              New Workspace
+            </button>
             <p className="text-xs text-red-600 mt-2">
-              This will immediately clear all nodes and edges from the canvas.
+              Clear Canvas removes the current nodes and edges. New Workspace
+              starts a fresh workspace and clears the current dialogue.
             </p>
           </div>
         </div>
@@ -717,6 +790,68 @@ const SettingsDrawer: React.FC = () => {
           </button>
         </div>
       </div>
+      {isClearDialogOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeClearDialog("overlay");
+          }}
+        >
+          <div
+            ref={clearDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="clear-canvas-title"
+            aria-describedby="clear-canvas-description"
+            className="w-full max-w-sm rounded-lg bg-white p-5 shadow-2xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                closeClearDialog("escape");
+                return;
+              }
+              if (event.key !== "Tab") return;
+              const focusable = Array.from(
+                clearDialogRef.current?.querySelectorAll<HTMLElement>(
+                  'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+                ) ?? [],
+              );
+              if (!focusable.length) return;
+              const index = focusable.indexOf(document.activeElement as HTMLElement);
+              const next = event.shiftKey
+                ? (index - 1 + focusable.length) % focusable.length
+                : (index + 1) % focusable.length;
+              event.preventDefault();
+              focusable[next]?.focus();
+            }}
+          >
+            <h2 id="clear-canvas-title" className="text-base font-bold text-gray-800">
+              Clear Canvas
+            </h2>
+            <p id="clear-canvas-description" className="mt-2 text-sm text-gray-600">
+              現在の Canvas の node と relation を削除します。Undo で復元できます。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                ref={clearCancelRef}
+                onClick={() => closeClearDialog("cancel")}
+                className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearCanvas}
+                className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Clear Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

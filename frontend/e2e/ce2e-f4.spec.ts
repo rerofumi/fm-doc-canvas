@@ -18,7 +18,7 @@ test.describe("F4 Multimodal Transform core", () => {
       .selectOption("openai");
     const dialogueInput = page.getByPlaceholder(/メッセージを入力/);
     await dialogueInput.fill("fixture:generate_image a rocket");
-    await dialogueInput.press("Enter");
+    await dialogueInput.press("Control+Enter");
 
     // Tool card shows the image-variant preview with metadata and actions.
     const card = page.getByRole("group", { name: "Proposal proposed" });
@@ -73,21 +73,21 @@ test.describe("F4 Multimodal Transform core", () => {
     expect(snap.relationCount).toBe(before.relationCount);
   });
 
-  test("F4-02 promptbar direct action stays direct", async ({ page }) => {
+  test("F4-02 drawer direct action stays direct", async ({ page }) => {
     await openApp(page);
     const app = await e2e(page);
     const text = await app.addText("Direct source");
     await app.selectNodes([text!]);
     const beforeChat = await app.snapshot();
 
-    // Direct image generation through the actual PromptBar controls.
-    await page.getByRole("button", { name: "Image" }).click();
-    await page
-      .getByTitle("Image generation provider for this request")
-      .selectOption("openrouter");
-    await page.getByLabel("Prompt").fill("a direct rocket");
-    await page.getByRole("button", { name: "Generate Image" }).click();
-    await expect(page.getByTestId("direct-action-receipt")).toBeVisible();
+    // Direct image generation through the unified Assistant drawer.
+    await app.openChat();
+    await page.getByRole("tab", { name: "Direct" }).click();
+    await page.getByTestId("direct-mode-selector").getByRole("button", { name: "Image", exact: true }).click();
+    await page.getByLabel("Dialogue image provider").selectOption("openrouter");
+    await page.getByLabel("Chat message input").fill("a direct rocket");
+    await page.getByRole("button", { name: "生成" }).click();
+    await expect(page.getByTestId("direct-result-surface")).toContainText("generate-image");
 
     // Image Node placed with origin=image provenance and derived relation.
     let snap = await app.snapshot();
@@ -103,14 +103,11 @@ test.describe("F4 Multimodal Transform core", () => {
     // Dialogue session count must be unchanged (Direct Action does not append Dialogue history).
     expect(snap.chat.sessions.length).toBe(beforeChat.chat.sessions.length);
 
-    // Direct Action receipt is visible on UI with Undo button.
-    await expect(page.getByTestId("direct-action-receipt")).toBeVisible();
-    await expect(page.getByTestId("direct-action-receipt")).toContainText(
-      "generate-image applied",
-    );
+    // Direct receipt is visible in the result surface; document Undo remains global.
+    await expect(page.getByTestId("direct-result-surface")).toContainText("a direct rocket");
 
-    // Click Undo on Direct Action receipt removes the Image Node and relation.
-    await page.getByTestId("direct-action-undo").click();
+    // Undo removes the Image Node and relation atomically.
+    await app.undo();
     snap = await app.snapshot();
     expect(snap.nodeCount).toBe(beforeChat.nodeCount);
     expect(snap.relationCount).toBe(beforeChat.relationCount);
@@ -123,13 +120,13 @@ test.describe("F4 Multimodal Transform core", () => {
     const img2 = await app.addImage("generated/img2.png", "image two");
     const text = await app.addText("Vision prompt note");
 
-    // Select all 3 nodes, exclude img2 from context.
+    // Select all 3 nodes and seed a legacy exclusion fixture for img2.
     await app.selectNodes([img1!, img2!, text!]);
     await app.exclude(img2!, true);
 
     const snap = await app.snapshot();
     const payload = snap.context.payloadItems;
-    // img1 is non-excluded -> image-binary to LLM.
+    // Legacy exclusions no longer suppress the selected payload.
     expect(
       payload.some(
         (p: any) =>
@@ -138,8 +135,14 @@ test.describe("F4 Multimodal Transform core", () => {
           p.destination === "llm",
       ),
     ).toBeTruthy();
-    // img2 is excluded -> not sent at all.
-    expect(payload.some((p: any) => p.nodeId === img2)).toBeFalsy();
+    expect(
+      payload.some(
+        (p: any) =>
+          p.kind === "image-binary" &&
+          p.nodeId === img2 &&
+          p.destination === "llm",
+      ),
+    ).toBeTruthy();
     // text is sent as text.
     expect(
       payload.some((p: any) => p.kind === "text" && p.nodeId === text),
@@ -180,7 +183,7 @@ test.describe("F4 Multimodal Transform core", () => {
     await app.openChat();
     const dialogueInput = page.getByPlaceholder(/メッセージを入力/);
     await dialogueInput.fill("Compare the selected images against their intent");
-    await dialogueInput.press("Enter");
+    await dialogueInput.press("Control+Enter");
     await expect(
       page.getByText(
         "fixture vision: the generated result differs from the stated intent",
@@ -259,8 +262,8 @@ test.describe("F4 Multimodal Transform core", () => {
     await app.openChat();
     const dialogueInput = page.getByPlaceholder(/メッセージを入力/);
     await dialogueInput.fill("fixture:generate_image a rocket");
-    await dialogueInput.press("Enter");
-    await expect(page.getByText("generate_image").first()).toBeVisible();
+    await dialogueInput.press("Control+Enter");
+    await expect(page.getByRole("group", { name: "Proposal running" })).toBeVisible();
     await expect(page.getByLabel("Stop dialogue run")).toBeVisible();
     await page.getByLabel("Stop dialogue run").click();
     await app.releaseDelayedImageGeneration();
@@ -332,10 +335,12 @@ test.describe("F4 Multimodal Transform core", () => {
       expect(after.relationCount).toBe(before.relationCount);
     }
 
-    // 4. The actual PromptBar Text direct action still works (F1-F3 regression).
-    await page.getByRole("button", { name: "Text", exact: true }).click();
-    await page.getByLabel("Prompt").fill("PromptBar text regression check");
-    await page.getByRole("button", { name: "Generate Text" }).click();
+    // 4. The unified Assistant Text direct action still works (F1-F3 regression).
+    await app.openChat();
+    await page.getByRole("tab", { name: "Direct" }).click();
+    await page.getByRole("button", { name: "Text", exact: true }).last().click();
+    await page.getByLabel("Chat message input").fill("PromptBar text regression check");
+    await page.getByRole("button", { name: "生成" }).click();
     await expect
       .poll(async () => (await app.snapshot()).nodeCount)
       .toBe(before.nodeCount + 1);

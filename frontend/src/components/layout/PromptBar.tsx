@@ -1,4 +1,3 @@
-import ContextPreview from "../context/ContextPreview";
 import React, { useEffect, useState } from "react";
 import {
   Image as ImageIcon,
@@ -8,18 +7,21 @@ import {
   Type,
 } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
-import { AppNode } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
+import { useChatStore } from "../../store/useChatStore";
+
+const newOperationId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const PromptBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<"text" | "image">("text");
   const [imageProvider, setImageProvider] = useState("openrouter");
   const [isImageProviderDirty, setIsImageProviderDirty] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   const {
     nodes,
-    addNode,
+    createDirectText,
     generateText,
     generateSummary,
     generateImage,
@@ -27,11 +29,13 @@ const PromptBar: React.FC = () => {
     getImageDataURL,
     resolveSharedContext,
     config,
-    promptInput,
-    setPromptInput,
     runWebSearch,
     isWebSearchPending,
   } = useAppStore();
+  const currentCanvasId = useAppStore((state) => state.workspace.runtime.currentCanvasId);
+  const promptInput = useChatStore((state) => state.draftsByCanvasId[currentCanvasId] ?? "");
+  const activeOperation = useChatStore((state) => state.activeOperation);
+  const setPromptInput = (value: string) => useChatStore.getState().setDraft(currentCanvasId, value);
 
   useEffect(() => {
     if (!isImageProviderDirty) {
@@ -63,8 +67,25 @@ const PromptBar: React.FC = () => {
   const handleSubmit = async (event?: React.FormEvent) => {
     event?.preventDefault();
     const prompt = promptInput;
-    if (!prompt.trim() || isLoading) return;
+    if (!prompt.trim() || isLoading || activeOperation) return;
 
+    const operationId = newOperationId();
+
+    const scope = (() => {
+      const current = useAppStore.getState().workspace;
+      return {
+        workspaceId: current.document.workspaceId,
+        canvasId: current.runtime.currentCanvasId,
+        runtimeGeneration: current.runtime.runtimeGeneration,
+        scopeEpoch: current.runtime.scopeEpoch,
+        selectionRevision: current.runtime.selection.revision,
+      };
+    })();
+    if (!useChatStore.getState().beginOperation({
+      kind: mode === "text" ? "direct-text" : "direct-image",
+      operationId,
+      scope,
+    })) return;
     setIsLoading(true);
     try {
       // Direct Action and Dialogue share the same resolver and allowlist.
@@ -111,15 +132,14 @@ const PromptBar: React.FC = () => {
               )
             : await generateText(prompt, contextText);
         const summary = await generateSummary(generatedText);
-        const newNode: AppNode = {
-          id: `node-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
-          type: "customNode",
+        const created = createDirectText({
+          content: generatedText,
+          summary,
+          originalPrompt: prompt,
           position,
-          data: { content: generatedText, summary, originalPrompt: prompt },
-          width: 250,
-          height: 150,
-        };
-        addNode(newNode);
+          scope,
+        });
+        if (!created.ok) throw new Error(created.error || "direct-text failed");
       } else {
         const sourceNodeIds = selectedNodes.map((n) => n.id);
         const sourceRevisions: Record<string, number> = {};
@@ -132,7 +152,7 @@ const PromptBar: React.FC = () => {
           imageDataURLs,
           imageProvider,
         );
-        applyDirectImageVariant({
+        const applied = applyDirectImageVariant({
           src: imageSrc,
           alt: prompt,
           prompt,
@@ -141,14 +161,43 @@ const PromptBar: React.FC = () => {
           sourceNodeIds,
           sourceRevisions,
           position,
+          scope,
         });
+        if (!applied) throw new Error("direct-image-stale");
       }
       setPromptInput("");
     } catch (error: any) {
       console.error("Error generating AI content:", error);
       alert(`Failed to generate content: ${error.message || "Unknown error"}`);
     } finally {
+      useChatStore.getState().finishOperation(operationId);
       setIsLoading(false);
+    }
+  };
+
+  const handleWebSearch = async () => {
+    const query = promptInput.trim();
+    if (!query || isLoading || isSearching || activeOperation) return;
+    const current = useAppStore.getState().workspace;
+    const operationId = newOperationId();
+    if (!useChatStore.getState().beginOperation({
+      kind: "web-search",
+      operationId,
+      scope: {
+        workspaceId: current.document.workspaceId,
+        canvasId: current.runtime.currentCanvasId,
+        runtimeGeneration: current.runtime.runtimeGeneration,
+        scopeEpoch: current.runtime.scopeEpoch,
+        selectionRevision: current.runtime.selection.revision,
+      },
+    })) return;
+    setIsSearching(true);
+    try {
+      const accepted = await runWebSearch(query, { entryRoute: "direct-action" });
+      if (accepted) setPromptInput("");
+    } finally {
+      useChatStore.getState().finishOperation(operationId);
+      setIsSearching(false);
     }
   };
 
@@ -160,12 +209,6 @@ const PromptBar: React.FC = () => {
 
   return (
     <div className="w-full bg-white border-t border-gray-200 p-4 shadow-lg z-10">
-      <div className="px-3 pt-2">
-        <ContextPreview
-          mode="direct"
-          operation={mode === "text" ? "generate-text" : "generate-image"}
-        />
-      </div>
       <div className="max-w-4xl mx-auto flex flex-col gap-2">
         <div className="flex items-center gap-2 px-2">
           <div
@@ -211,8 +254,9 @@ const PromptBar: React.FC = () => {
                 onChange={(event) => {
                   setImageProvider(event.target.value);
                   setIsImageProviderDirty(true);
+                  useChatStore.getState().setImageProvider(event.target.value as "openrouter" | "openai" | "google" | "xai");
                 }}
-                disabled={isLoading}
+                disabled={isLoading || Boolean(activeOperation)}
                 className="h-7 rounded border border-gray-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
                 title="Image generation provider for this request"
               >
@@ -231,7 +275,7 @@ const PromptBar: React.FC = () => {
             value={promptInput}
             onChange={(event) => setPromptInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isLoading}
+            disabled={isLoading || Boolean(activeOperation)}
             placeholder={
               isLoading
                 ? mode === "text"
@@ -246,15 +290,13 @@ const PromptBar: React.FC = () => {
           />
           <button
             type="button"
-            onClick={() =>
-              void runWebSearch(promptInput, { entryRoute: "direct-action" })
-            }
-            disabled={!promptInput.trim() || isLoading || isWebSearchPending}
+            onClick={() => void handleWebSearch()}
+            disabled={!promptInput.trim() || isLoading || isSearching || Boolean(activeOperation) || isWebSearchPending}
             aria-label="Search Web"
             title="Search Web"
             className={`absolute right-12 bottom-2 px-2 py-2 rounded-md text-[11px] font-bold transition-all ${promptInput.trim() && !isLoading && !isWebSearchPending ? "bg-sky-600 text-white hover:bg-sky-700" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}
           >
-            {isWebSearchPending ? (
+            {isSearching || isWebSearchPending ? (
               <Loader2 size={16} className="animate-spin" />
             ) : (
               "Search Web"
@@ -263,7 +305,7 @@ const PromptBar: React.FC = () => {
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!promptInput.trim() || isLoading}
+            disabled={!promptInput.trim() || isLoading || Boolean(activeOperation)}
             aria-label={mode === "text" ? "Generate Text" : "Generate Image"}
             title={
               mode === "text"

@@ -1,26 +1,60 @@
 import { create } from "zustand";
-import { ActiveChatRuns, ChatMessage, ChatSession, ChatTarget, ChatToolEvent } from "../types/chat";
+import { ActiveChatRuns, ChatMessage, ChatSession, ChatTarget, ChatToolEvent, ImageProvider } from "../types/chat";
 
 const newId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-interface ChatState {
+export type AssistantMode = "chat" | "direct";
+export type DirectMode = "text" | "image";
+export interface AssistantScopeSnapshot {
+  workspaceId: string;
+  canvasId: string;
+  runtimeGeneration: string;
+  scopeEpoch: number;
+  selectionRevision: number;
+}
+export type AssistantOperation =
+  | { kind: "chat"; runId: string; sessionId: string }
+  | { kind: "direct-text" | "direct-image" | "web-search" | "next-actions"; operationId: string; scope: AssistantScopeSnapshot }
+  | null;
+
+const NEW_SESSION_TITLE = "新しい会話";
+
+export interface ChatState {
   isOpen: boolean;
   drawerWidth: number;
   target: ChatTarget | null;
   canvasId: string | null;
+  loadGeneration: string | null;
   isLoaded: boolean;
   loadError: string | null;
+  saveError: string | null;
   contextWarning: string | null;
   sessions: ChatSession[];
+  defaultSessionTitles: Record<string, string>;
   activeSessionId: string | null;
   activeRuns: ActiveChatRuns;
+  mode: AssistantMode;
+  directMode: DirectMode;
+  draftsByCanvasId: Record<string, string>;
+  imageProvider: ImageProvider;
+  activeOperation: AssistantOperation;
   setOpen: (isOpen: boolean) => void;
   setDrawerWidth: (width: number) => void;
   setTarget: (target: ChatTarget | null) => void;
+  setMode: (mode: AssistantMode) => void;
+  setDirectMode: (mode: DirectMode) => void;
+  setDraft: (canvasId: string, value: string) => void;
+  appendDraft: (canvasId: string, value: string) => void;
+  clearDraft: (canvasId: string) => void;
+  setImageProvider: (provider: ImageProvider) => void;
+  beginOperation: (operation: Exclude<AssistantOperation, null>) => boolean;
+  finishOperation: (operationId: string) => void;
+  cancelOperation: (operationId: string) => void;
   setContextWarning: (message: string | null) => void;
-  beginLoad: (canvasId: string) => void;
-  hydrate: (canvasId: string, sessions: ChatSession[]) => void;
-  failLoad: (canvasId: string, message: string) => void;
+  beginLoad: (canvasId: string, generation?: string) => void;
+  hydrate: (canvasId: string, sessions: ChatSession[], generation?: string) => void;
+  failLoad: (canvasId: string, message: string, generation?: string) => void;
+  setSaveError: (message: string | null) => void;
   createSession: () => ChatSession;
   setActiveSession: (sessionId: string) => void;
   appendMessage: (sessionId: string, message: ChatMessage) => void;
@@ -37,38 +71,96 @@ export const useChatStore = create<ChatState>((set, get) => ({
   drawerWidth: 420,
   target: null,
   canvasId: null,
+  loadGeneration: null,
   isLoaded: false,
   loadError: null,
+  saveError: null,
   contextWarning: null,
   sessions: [],
+  defaultSessionTitles: {},
   activeSessionId: null,
   activeRuns: {},
+  mode: "chat",
+  directMode: "text",
+  draftsByCanvasId: {},
+  imageProvider: "openrouter",
+  activeOperation: null,
   setOpen: (isOpen) => set({ isOpen }),
   setDrawerWidth: (drawerWidth) => set({ drawerWidth }),
   setTarget: (target) => set({ target, contextWarning: null }),
+  setMode: (mode) => set((state) => state.activeOperation ? state : { mode }),
+  setDirectMode: (directMode) => set((state) => state.activeOperation ? state : { directMode }),
+  setDraft: (canvasId, value) => set((state) => ({
+    draftsByCanvasId: { ...state.draftsByCanvasId, [canvasId]: value },
+  })),
+  appendDraft: (canvasId, value) => set((state) => {
+    const prompt = value.trim();
+    if (!prompt) return state;
+    const current = state.draftsByCanvasId[canvasId] ?? "";
+    return { draftsByCanvasId: { ...state.draftsByCanvasId, [canvasId]: current.trim() ? `${current}\n\n${prompt}` : prompt } };
+  }),
+  clearDraft: (canvasId) => set((state) => ({
+    draftsByCanvasId: { ...state.draftsByCanvasId, [canvasId]: "" },
+  })),
+  setImageProvider: (imageProvider) => set((state) => state.activeOperation ? state : { imageProvider }),
+  beginOperation: (activeOperation) => {
+    if (get().activeOperation) return false;
+    set({ activeOperation });
+    return true;
+  },
+  finishOperation: (operationId) => set((state) => {
+    const current = state.activeOperation;
+    if (!current || ("runId" in current ? current.runId : current.operationId) !== operationId) return state;
+    return { activeOperation: null };
+  }),
+  cancelOperation: (operationId) => set((state) => {
+    const current = state.activeOperation;
+    if (!current || ("runId" in current ? current.runId : current.operationId) !== operationId) return state;
+    return { activeOperation: null };
+  }),
   setContextWarning: (contextWarning) => set({ contextWarning }),
-  beginLoad: (canvasId) => set({
+  setSaveError: (saveError) => set({ saveError }),
+  beginLoad: (canvasId, generation = "") => set({
     canvasId,
+    loadGeneration: generation,
     isLoaded: false,
     loadError: null,
+    saveError: null,
     contextWarning: null,
     sessions: [],
+    defaultSessionTitles: {},
     activeSessionId: null,
     activeRuns: {},
+    activeOperation: null,
   }),
-  hydrate: (canvasId, sessions) => set((state) => {
-    if (state.canvasId !== canvasId) return state;
+  hydrate: (canvasId, sessions, generation = "") => set((state) => {
+    if (state.canvasId !== canvasId || (state.loadGeneration ?? "") !== generation) return state;
+    // The backend migrates marker-less legacy data. Keep a defensive
+    // frontend fallback for fixtures/older bindings: only the exact generic
+    // title is safe to infer; target-derived suffixes are user-owned.
+    const migratedSessions = sessions.map((session) => ({
+      ...session,
+      isDefaultTitle: typeof session.isDefaultTitle === "boolean"
+        ? session.isDefaultTitle
+        : session.title === NEW_SESSION_TITLE,
+    }));
+    const defaultSessionTitles = Object.fromEntries(migratedSessions
+      .filter((session) => session.isDefaultTitle)
+      .map((session) => [session.id, session.title]));
     return {
-      sessions,
-      activeSessionId: sessions[0]?.id ?? null,
+      sessions: migratedSessions,
+      defaultSessionTitles,
+      activeSessionId: migratedSessions[0]?.id ?? null,
       isLoaded: true,
       loadError: null,
+      saveError: null,
       activeRuns: {},
+      activeOperation: null,
     };
   }),
-  failLoad: (canvasId, message) => set((state) =>
-    state.canvasId === canvasId
-      ? { isLoaded: false, loadError: message, sessions: [], activeSessionId: null, activeRuns: {} }
+  failLoad: (canvasId, message, generation = "") => set((state) =>
+    state.canvasId === canvasId && (state.loadGeneration ?? "") === generation
+      ? { isLoaded: false, loadError: message, sessions: [], defaultSessionTitles: {}, activeSessionId: null, activeRuns: {}, activeOperation: null }
       : state,
   ),
   createSession: () => {
@@ -77,18 +169,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const session: ChatSession = {
       id: newId(),
       title: target ? `${target.label} について` : "新しい会話",
+      isDefaultTitle: true,
       createdAt: now,
       updatedAt: now,
       messages: [],
     };
-    set((state) => ({ sessions: [...state.sessions, session], activeSessionId: session.id }));
+    set((state) => ({ sessions: [...state.sessions, session], defaultSessionTitles: { ...state.defaultSessionTitles, [session.id]: session.title }, activeSessionId: session.id }));
     return session;
   },
   setActiveSession: (activeSessionId) => set({ activeSessionId }),
   appendMessage: (sessionId, message) => set((state) => ({
-    sessions: state.sessions.map((session) => session.id === sessionId
-      ? { ...session, messages: [...session.messages, message], updatedAt: Date.now() }
-      : session),
+    sessions: state.sessions.map((session) => {
+      if (session.id !== sessionId) return session;
+      let title = session.title;
+      let isDefaultTitle = session.isDefaultTitle;
+      if (message.role === "user" && !session.messages.some((item) => item.role === "user") &&
+          session.isDefaultTitle) {
+        const normalized = message.content.trim().replace(/\s+/g, " ");
+        if (normalized) {
+          title = Array.from(normalized).slice(0, 24).join("");
+          isDefaultTitle = false;
+        }
+      }
+      return { ...session, title, isDefaultTitle, messages: [...session.messages, message], updatedAt: Date.now() };
+    }),
   })),
   replaceMessage: (sessionId, messageId, patch) => set((state) => ({
     sessions: state.sessions.map((session) => session.id === sessionId
@@ -131,12 +235,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (state.activeRuns[sessionId]?.runId !== runId) return state;
     const activeRuns = { ...state.activeRuns };
     delete activeRuns[sessionId];
-    return { activeRuns };
+    const activeOperation = state.activeOperation && "runId" in state.activeOperation && state.activeOperation.runId === runId ? null : state.activeOperation;
+    return { activeRuns, activeOperation };
   }),
   cancelRun: (sessionId) => set((state) => {
     if (!state.activeRuns[sessionId]) return state;
     const activeRuns = { ...state.activeRuns };
     delete activeRuns[sessionId];
-    return { activeRuns };
+    const active = state.activeRuns[sessionId];
+    const activeOperation = active && state.activeOperation && "runId" in state.activeOperation && state.activeOperation.runId === active.runId ? null : state.activeOperation;
+    return { activeRuns, activeOperation };
   }),
 }));

@@ -1,5 +1,5 @@
 import { expect, Page, test } from "@playwright/test";
-import type { ChatMessage } from "../src/types/chat";
+import type { ChatEvent, ChatMessage } from "../src/types/chat";
 import type { SuggestedPacketRelation } from "../src/domain/contextPacket";
 import type {
   ClusterViewDraft,
@@ -27,6 +27,7 @@ export type E2EBridge = {
   switchRole: (nodeId: string, role: "text" | "artifact") => Promise<void>;
   setFilename: (nodeId: string, filename: string) => Promise<void>;
   selectNodes: (nodeIds: string[]) => Promise<void>;
+  setChatTarget: (nodeId: string) => Promise<void>;
   editText: (nodeId: string, content: string) => Promise<void>;
   moveNode: (nodeId: string, x: number, y: number) => Promise<void>;
   openContextMenu: (target: {
@@ -59,6 +60,8 @@ export type E2EBridge = {
   armImageFault: (code: string) => Promise<void>;
   armDelayedImageGeneration: () => Promise<void>;
   releaseDelayedImageGeneration: () => Promise<void>;
+  armDelayedTextGeneration: () => Promise<void>;
+  releaseDelayedTextGeneration: () => Promise<void>;
   armDelayedSearchWeb: () => Promise<void>;
   releaseDelayedSearchWeb: () => Promise<void>;
   stopActiveDialogue: () => Promise<void>;
@@ -66,10 +69,12 @@ export type E2EBridge = {
     packet: any,
     entryRoute?: "dialogue-agent" | "direct-action",
   ) => Promise<boolean>;
+  emitChatEvent: (event: ChatEvent) => Promise<void>;
   createSubCanvas: (nodeIds: string[], label?: string) => Promise<any>;
   dissolveChildOfRoot: () => Promise<void>;
   navigate: (canvasId: string) => Promise<void>;
   navigateBack: () => Promise<void>;
+  moveNodesToParent: (nodeIds: string[]) => Promise<boolean>;
   useCanvasAsContext: () => Promise<void>;
   exclude: (nodeId: string, excluded?: boolean) => Promise<void>;
   newWorkspace: () => Promise<void>;
@@ -78,6 +83,7 @@ export type E2EBridge = {
   load: () => Promise<void>;
   exportNode: (nodeId: string) => Promise<string>;
   openChat: () => Promise<void>;
+  readChatSessionsRaw: () => Promise<string>;
   startDialogue: (text?: string) => Promise<string>;
   setExternalRefs: () => Promise<void>;
   applyProposal: (payload: any) => Promise<any>;
@@ -228,6 +234,8 @@ export async function e2e(page: Page): Promise<E2EBridge> {
             (ids) => (window as any).__E2E__.selectNodes(ids),
             nodeIds,
           ),
+        setChatTarget: (nodeId: string) =>
+          page.evaluate((id) => (window as any).__E2E__.setChatTarget(id), nodeId),
         editText: (nodeId: string, content: string) =>
           page.evaluate(
             ({ id, c }) => (window as any).__E2E__.editText(id, c),
@@ -291,6 +299,14 @@ export async function e2e(page: Page): Promise<E2EBridge> {
           page.evaluate(() =>
             (window as any).__E2E__.releaseDelayedImageGeneration(),
           ),
+        armDelayedTextGeneration: () =>
+          page.evaluate(() =>
+            (window as any).__E2E__.armDelayedTextGeneration(),
+          ),
+        releaseDelayedTextGeneration: () =>
+          page.evaluate(() =>
+            (window as any).__E2E__.releaseDelayedTextGeneration(),
+          ),
         armDelayedSearchWeb: () =>
           page.evaluate(() => (window as any).__E2E__.armDelayedSearchWeb()),
         releaseDelayedSearchWeb: () =>
@@ -304,6 +320,11 @@ export async function e2e(page: Page): Promise<E2EBridge> {
             ({ p, r }) => (window as any).__E2E__.injectPacket(p, r),
             { p: packet, r: entryRoute },
           ),
+        emitChatEvent: (event) =>
+          page.evaluate(
+            (value) => (window as any).__E2E__.emitChatEvent(value),
+            event,
+          ),
         createSubCanvas: (nodeIds: string[], label?: string) =>
           page.evaluate(
             ({ ids, l }) => (window as any).__E2E__.createSubCanvas(ids, l),
@@ -315,6 +336,11 @@ export async function e2e(page: Page): Promise<E2EBridge> {
           page.evaluate((id) => (window as any).__E2E__.navigate(id), canvasId),
         navigateBack: () =>
           page.evaluate(() => (window as any).__E2E__.navigateBack()),
+        moveNodesToParent: (nodeIds: string[]) =>
+          page.evaluate(
+            (ids) => (window as any).__E2E__.moveNodesToParent(ids),
+            nodeIds,
+          ),
         useCanvasAsContext: () =>
           page.evaluate(() => (window as any).__E2E__.useCanvasAsContext()),
         exclude: (nodeId: string, excluded = true) =>
@@ -330,6 +356,8 @@ export async function e2e(page: Page): Promise<E2EBridge> {
         exportNode: (nodeId: string) =>
           page.evaluate((id) => (window as any).__E2E__.exportNode(id), nodeId),
         openChat: () => page.evaluate(() => (window as any).__E2E__.openChat()),
+        readChatSessionsRaw: () =>
+          page.evaluate(() => (window as any).__E2E__.readChatSessionsRaw()),
         startDialogue: (text?: string) =>
           page.evaluate((t) => (window as any).__E2E__.startDialogue(t), text),
         setExternalRefs: () =>

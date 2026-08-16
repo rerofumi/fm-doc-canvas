@@ -277,7 +277,7 @@ test.describe("F6 Collaboration Orchestration core", () => {
     await app.openChat();
     const input = page.getByLabel("Chat message input");
     await input.fill("fixture:read_canvas_node このNodeについて意見をください");
-    await input.press("Enter");
+    await input.press("Control+Enter");
     await expect(page.locator('[aria-label="Dialogue messages"]')).toContainText("fixture read_canvas_node continuation completed");
 
     const snapshot = await app.snapshot();

@@ -1,5 +1,13 @@
 # Requirements
 
+## GUI / Assistant as-built (2026-08-17)
+
+- Canvasを主領域とし、Direct生成はChat/Direct統合Assistant drawerから実行する。draftはCanvas単位でChat/Directが共有する。
+- Assistant操作は同時に1件だけ実行する。Chatは停止可能、Directは停止不可とし、scopeが変化した遅延Direct結果は適用しない。
+- Context表示はresolverの実Text/Image payload件数だけを示す非操作badgeとし、legacy exclusionはcontext解決へ適用しない。
+- SubCanvasはrename、親Canvasへのnode引き上げ、安全解体に対応する。安全解体はmember配置・member Relationを保持し、FolderNode Relationだけを確認後に削除して単一Undoで復元する。
+- default Chat session名は最初のuser messageで一度だけ自動命名し、後方互換な`isDefaultTitle` markerとともに永続化する。
+
 ## Scope
 
 この文書は 2026-08-11 時点の実装コードと受理済み計画から確認できる現行機能を対象とする。過去フェーズの計画や未実装案は `docs/plan_*` に保管する。

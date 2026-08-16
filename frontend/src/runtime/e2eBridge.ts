@@ -1,5 +1,11 @@
 import { useEffect } from "react";
-import type { ChatMessage } from "../types/chat";
+import { EventsEmit } from "../../wailsjs/runtime/runtime";
+import {
+  LoadChatSessions,
+  ReadE2EChatSessionsRaw,
+  SaveChatSessions,
+} from "../../wailsjs/go/main/App";
+import type { ChatEvent, ChatMessage } from "../types/chat";
 import type { SuggestedPacketRelation } from "../domain/contextPacket";
 import type {
   ClusterViewDraft,
@@ -11,6 +17,7 @@ import type {
 } from "../domain/orchestration";
 import { useAppStore } from "../store/useAppStore";
 import { useChatStore } from "../store/useChatStore";
+import { fromBackendChatSessions } from "../utils/chatSession";
 import {
   loadWorkspaceJSON,
   workspaceToPrettyJSON,
@@ -50,6 +57,30 @@ function makeServices(env: RuntimeEnvironment) {
     faultPlan: env.faultPlan,
     faultState: env.faultState,
   };
+}
+
+/**
+ * Keep the E2E bootstrap on the same load/hydrate lifecycle as ChatDrawer.
+ * Merely calling beginLoad leaves the drawer permanently unloaded when the
+ * workspace is replaced before ChatDrawer's effect can observe the change.
+ */
+async function hydrateE2EChat(canvasId: string, generation: string) {
+  const chat = useChatStore.getState();
+  chat.beginLoad(canvasId, generation);
+  try {
+    const sessions = await LoadChatSessions(canvasId);
+    useChatStore.getState().hydrate(
+      canvasId,
+      fromBackendChatSessions(sessions),
+      generation,
+    );
+  } catch (error) {
+    useChatStore.getState().failLoad(
+      canvasId,
+      error instanceof Error ? error.message : "chat-session-load-failed",
+      generation,
+    );
+  }
 }
 
 export function installE2EBridge(env: RuntimeEnvironment) {
@@ -101,10 +132,20 @@ export function installE2EBridge(env: RuntimeEnvironment) {
           sessions: chat.sessions,
           activeSessionId: chat.activeSessionId,
           isLoaded: chat.isLoaded,
+          loadError: chat.loadError,
+          saveError: chat.saveError,
+          loadGeneration: chat.loadGeneration,
           isOpen: chat.isOpen,
+          target: chat.target,
+          mode: chat.mode,
+          directMode: chat.directMode,
+          draftsByCanvasId: chat.draftsByCanvasId,
+          imageProvider: chat.imageProvider,
+          activeOperation: chat.activeOperation,
         },
         context: app.resolveSharedContext("dialogue", "read"),
         directContext: app.resolveSharedContext("direct", "generate-text"),
+        directImageContext: app.resolveSharedContext("direct", "generate-image"),
         historyLength: app.history.past.length,
         commandSequence: app.workspace.runtime.commandSequence,
         scopeEpoch: app.workspace.runtime.scopeEpoch,
@@ -117,8 +158,8 @@ export function installE2EBridge(env: RuntimeEnvironment) {
          lastSuggestReceipt: app.lastSuggestReceipt,
          activePacket: app.activePacket,
         lastSearchRequest: app.lastSearchRequest,
+        lastSearchReceipt: app.lastSearchReceipt,
         lastOpenedURL: app.lastOpenedURL,
-         lastSearchReceipt: app.lastSearchReceipt,
          json: workspaceToPrettyJSON(app.workspace, services().clock.nowISO()),
         orchestration: { status: app.orchestrationStatus, request: app.orchestrationRequest, proposal: app.nextActionProposal },
       };
@@ -199,6 +240,23 @@ export function installE2EBridge(env: RuntimeEnvironment) {
         },
       });
     },
+    async setChatTarget(nodeId: string) {
+      const node = useAppStore.getState().workspace.document.nodes[nodeId];
+      if (!node || node.kind === "folder") throw new Error("chat target must be a content node");
+      const label = node.kind === "image"
+        ? (node.alt || node.prompt || "Image")
+        : (node.filename || node.content.slice(0, 48) || "Text");
+      const context = node.kind === "image"
+        ? (node.alt || node.prompt || "")
+        : node.content;
+      useChatStore.getState().setTarget({
+        nodeId,
+        type: node.kind === "image" ? "image" : node.role,
+        label,
+        context,
+        revision: node.revision,
+      });
+    },
     async editText(nodeId: string, content: string) {
       useAppStore.getState().updateNodeContent(nodeId, content);
     },
@@ -268,9 +326,17 @@ export function installE2EBridge(env: RuntimeEnvironment) {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       return (GeneratedBackend as any).ArmDelayedImageGeneration();
     },
+    async armDelayedTextGeneration() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ArmDelayedTextGeneration();
+    },
     async releaseDelayedImageGeneration() {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       return (GeneratedBackend as any).ReleaseDelayedImageGeneration();
+    },
+    async releaseDelayedTextGeneration() {
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      return (GeneratedBackend as any).ReleaseDelayedTextGeneration();
     },
     async armDelayedSearchWeb() {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
@@ -296,6 +362,9 @@ export function installE2EBridge(env: RuntimeEnvironment) {
     ) {
       return useAppStore.getState().applyIncomingPacket(packet, entryRoute);
     },
+    async emitChatEvent(event: ChatEvent) {
+      EventsEmit(event.type, event);
+    },
     async selectPacketItems(claimIds: string[], sourceIds: string[]) {
       const panel = document.querySelector(
         '[data-testid="projected-context-panel"]',
@@ -315,10 +384,15 @@ export function installE2EBridge(env: RuntimeEnvironment) {
       }
     },
     async createSubCanvas(nodeIds: string[], label?: string) {
+      const beforeFolderIds = new Set(
+        Object.values(useAppStore.getState().workspace.document.nodes)
+          .filter((node) => node.kind === "folder")
+          .map((node) => node.id),
+      );
       useAppStore.getState().createSubCanvas(nodeIds, label);
       const folder = Object.values(
         useAppStore.getState().workspace.document.nodes,
-      ).find((n) => n.kind === "folder");
+      ).find((node) => node.kind === "folder" && !beforeFolderIds.has(node.id));
       return folder
         ? { folderId: folder.id, childCanvasId: (folder as any).childCanvasId }
         : null;
@@ -342,6 +416,9 @@ export function installE2EBridge(env: RuntimeEnvironment) {
     async navigateBack() {
       useAppStore.getState().navigateBack();
     },
+    async moveNodesToParent(nodeIds: string[]) {
+      return useAppStore.getState().moveNodesToParent(nodeIds);
+    },
     async useCanvasAsContext() {
       useAppStore.getState().useCanvasAsContext();
     },
@@ -349,15 +426,43 @@ export function installE2EBridge(env: RuntimeEnvironment) {
       useAppStore.getState().setContextExcluded(nodeId, excluded);
     },
     async newWorkspace() {
+      // E2E IDs are intentionally deterministic and can reuse a Canvas ID
+      // across tests. A real New Workspace gets a fresh ID, so emulate its
+      // empty dialogue memory by clearing only the colliding fixture entry.
+      // A page reload sets the session marker below and deliberately keeps
+      // persistence for the reload/title contract.
+      const preserveOnReload = (() => {
+        try {
+          return window.sessionStorage.getItem("fm-e2e-preserve-chat") === "1";
+        } catch {
+          return false;
+        }
+      })();
       useAppStore.getState().newWorkspace();
-      useChatStore.setState({
-        sessions: [],
-        activeSessionId: null,
-        activeRuns: {},
-        isLoaded: true,
-        loadError: null,
-        canvasId: useAppStore.getState().workspace.document.workspaceId,
-      });
+      const workspace = useAppStore.getState().workspace;
+      // Keep chat persistence on the same generation-aware lifecycle as the
+      // production drawer. The old E2E-only memory reset raced the load and
+      // could save an empty session list over the persisted generation.
+      // Workspace replacement is observed by ChatDrawer, which performs the
+      // production load/hydrate effect. Keep this beginLoad synchronous so a
+      // new E2E workspace starts with empty in-memory dialogue; startup
+      // bootstrap below is the path that must explicitly hydrate.
+      if (!preserveOnReload) {
+        try {
+          await SaveChatSessions(workspace.runtime.currentCanvasId, []);
+        } catch {
+          // Chat persistence is best effort in the fixture runtime.
+        }
+      }
+      try {
+        window.sessionStorage.removeItem("fm-e2e-preserve-chat");
+      } catch {
+        // Ignore storage restrictions in non-browser test hosts.
+      }
+      useChatStore.getState().beginLoad(
+        workspace.runtime.currentCanvasId,
+        workspace.runtime.runtimeGeneration,
+      );
     },
     async undo() {
       return useAppStore.getState().undo();
@@ -373,17 +478,19 @@ export function installE2EBridge(env: RuntimeEnvironment) {
     },
     async openChat() {
       useChatStore.getState().setOpen(true);
-      useChatStore.setState({
-        isLoaded: true,
-        canvasId: useAppStore.getState().workspace.document.workspaceId,
-      });
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        const app = useAppStore.getState().workspace;
+        const chat = useChatStore.getState();
+        if (chat.isLoaded && chat.canvasId === app.runtime.currentCanvasId) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    },
+    async readChatSessionsRaw() {
+      return ReadE2EChatSessionsRaw();
     },
     async startDialogue(text = "hello dialogue") {
       useChatStore.getState().setOpen(true);
-      useChatStore.setState({
-        isLoaded: true,
-        canvasId: useAppStore.getState().workspace.document.workspaceId,
-      });
+      await (window as any).__E2E__.openChat();
       const session = useChatStore.getState().createSession();
       useChatStore.getState().appendMessage(session.id, {
         id: `m-${Date.now()}`,
@@ -644,6 +751,10 @@ export function installE2EBridge(env: RuntimeEnvironment) {
       };
     },
     async cancelNextActions() {
+      const chat = useChatStore.getState();
+      if (chat.activeOperation?.kind === "next-actions") {
+        chat.cancelOperation(chat.activeOperation.operationId);
+      }
       useAppStore.getState().cancelNextActionRequest();
     },
     async dismissNextActions() {
@@ -719,14 +830,18 @@ export function useE2EBridge() {
           };
           configureAppRuntime(envWithBackend);
           installE2EBridge(envWithBackend);
-          useChatStore.setState({
-            isLoaded: true,
-            loadError: null,
-            canvasId: useAppStore.getState().workspace.document.workspaceId,
-            sessions: [],
-            activeSessionId: null,
-            activeRuns: {},
-          });
+          try {
+            window.addEventListener("beforeunload", () => {
+              window.sessionStorage.setItem("fm-e2e-preserve-chat", "1");
+            }, { once: true });
+          } catch {
+            // Ignore storage restrictions in non-browser test hosts.
+          }
+          const workspace = useAppStore.getState().workspace;
+          await hydrateE2EChat(
+            workspace.runtime.currentCanvasId,
+            workspace.runtime.runtimeGeneration,
+          );
         }
       } catch {
         // production / missing binding

@@ -144,7 +144,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   }
 
   const currentCanvasId = runtime.currentCanvasId;
-  const excluded = new Set(runtime.contextSelection.excludedNodeIds);
   const activeContextNodeIds: string[] = [];
   const activeCanvasTargets: ContextEnvelope["activeCanvasTargets"] = [];
   const candidateContextNodeIds: string[] = [];
@@ -179,7 +178,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
       });
       return;
     }
-    if (excluded.has(nodeId)) return;
     if (isFolder(node)) {
       activeCanvasTargets.push({
         canvasId: node.childCanvasId,
@@ -210,7 +208,7 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
           document as WorkspaceDocument,
           target.canvasId,
         )) {
-          if (isFolder(node) || excluded.has(node.id)) continue;
+          if (isFolder(node)) continue;
           pushUnique(activeContextNodeIds, node.id);
         }
       } else {
@@ -243,7 +241,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
       const src = document.nodes[rel.sourceNodeId];
       if (!src) continue;
       if (src.parentCanvasId !== currentCanvasId) continue;
-      if (excluded.has(src.id)) continue;
       if (visited.has(src.id)) {
         warnings.push({
           kind: "loop",
@@ -264,7 +261,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     if (
       n &&
       n.parentCanvasId === currentCanvasId &&
-      !excluded.has(id) &&
       !activeContextNodeIds.includes(id)
     ) {
       pushUnique(candidateContextNodeIds, id);
@@ -276,7 +272,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
       if (
         n &&
         n.parentCanvasId === currentCanvasId &&
-        !excluded.has(id) &&
         !activeContextNodeIds.includes(id)
       ) {
         pushUnique(candidateContextNodeIds, id);
@@ -285,7 +280,7 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   }
   if (selection.activeNodeId) {
     const id = selection.activeNodeId;
-    if (!activeContextNodeIds.includes(id) && !excluded.has(id)) {
+    if (!activeContextNodeIds.includes(id)) {
       const n = document.nodes[id];
       if (n && n.parentCanvasId === currentCanvasId)
         pushUnique(candidateContextNodeIds, id);
@@ -304,7 +299,7 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     runtime.contextSelection.addedContextTargets.length === 0
   ) {
     for (const node of nodesOnCanvas(document as WorkspaceDocument, currentCanvasId)) {
-      if (isFolder(node) || excluded.has(node.id) || !isTextBearing(node)) continue;
+      if (isFolder(node) || !isTextBearing(node)) continue;
       pushUnique(activeContextNodeIds, node.id);
     }
   }
@@ -313,26 +308,14 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   let mutationTarget = runtime.contextSelection.explicitMutationTarget;
   if (!mutationTarget && mode === "dialogue" && selection.activeNodeId) {
     const n = document.nodes[selection.activeNodeId];
-    if (n && n.parentCanvasId === currentCanvasId && !excluded.has(n.id)) {
+    if (n && n.parentCanvasId === currentCanvasId) {
       mutationTarget = { kind: "nodes", nodeIds: [n.id] };
-    }
-  }
-  if (mutationTarget?.kind === "nodes") {
-    const kept = mutationTarget.nodeIds.filter((id) => !excluded.has(id));
-    if (kept.length === 0) {
-      warnings.push({
-        kind: "mutation-excluded",
-        message: "mutation target excluded",
-      });
-      mutationTarget = undefined;
-    } else if (kept.length !== mutationTarget.nodeIds.length) {
-      mutationTarget = { kind: "nodes", nodeIds: kept };
     }
   }
 
   const relationTargetNodeIds =
     runtime.contextSelection.explicitRelationTargetNodeIds.filter(
-      (id) => document.nodes[id] && !excluded.has(id),
+      (id) => document.nodes[id],
     );
 
   const bodyAllowlistNodeIds =
@@ -384,7 +367,7 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
   const destination: "llm" | "image-provider" =
     operation === "generate-image" ? "image-provider" : "llm";
 
-  // Vision allowlist: in Dialogue mode, explicitly selected (and not excluded)
+  // Vision allowlist: in Dialogue mode, explicitly selected images
   // images are sent as pixel (`image-binary`) to the LLM, up to VISION_CAP.
   // The 4th+ selected image degrades to metadata-only with a `vision-cap`
   // warning. Images pulled in via context relations (not explicitly selected)
@@ -508,7 +491,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     relationHints,
     spatialHints,
     viewHints,
-    excluded: [...excluded].sort(),
   });
 
   return {
@@ -530,7 +512,10 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
     relationHints,
     spatialHints,
     viewHints,
-    excludedNodeIds: [...excluded],
+    // Kept in the envelope for schema compatibility. Exclusions are legacy
+    // runtime state and intentionally never affect resolution after the
+    // exclusion UI was removed.
+    excludedNodeIds: [],
     warnings,
     contextDigest: stableHash(digestSource),
   };

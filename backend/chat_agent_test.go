@@ -727,9 +727,14 @@ func TestChatServiceEmitsStreamToolEventsAndWaitsForAcknowledgment(t *testing.T)
 	toolStart := 0
 	toolDone := 0
 	applySeen := false
+	lastSequence := uint64(0)
 	for {
 		select {
 		case event := <-events:
+			if event.Sequence != lastSequence+1 {
+				t.Fatalf("chat event sequence must be contiguous: previous=%d event=%#v", lastSequence, event)
+			}
+			lastSequence = event.Sequence
 			switch event.Type {
 			case "chat:stream":
 				streamSeen = true

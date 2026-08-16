@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,11 +23,35 @@ type ChatSessionMessage struct {
 
 // ChatSession is a persisted conversation belonging to a Canvas.
 type ChatSession struct {
-	ID        string               `json:"id"`
-	Title     string               `json:"title"`
-	CreatedAt int64                `json:"createdAt"`
-	UpdatedAt int64                `json:"updatedAt"`
-	Messages  []ChatSessionMessage `json:"messages"`
+	ID             string               `json:"id"`
+	Title          string               `json:"title"`
+	IsDefaultTitle bool                 `json:"isDefaultTitle"`
+	CreatedAt      int64                `json:"createdAt"`
+	UpdatedAt      int64                `json:"updatedAt"`
+	Messages       []ChatSessionMessage `json:"messages"`
+}
+
+const newChatSessionTitle = "新しい会話"
+
+// UnmarshalJSON keeps the public model simple while allowing migration to
+// distinguish an omitted legacy marker from an explicit false marker.
+func (s *ChatSession) UnmarshalJSON(data []byte) error {
+	type sessionAlias ChatSession
+	var decoded sessionAlias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*s = ChatSession(decoded)
+	if _, present := fields["isDefaultTitle"]; !present && s.Title == newChatSessionTitle {
+		s.IsDefaultTitle = true
+	}
+	return nil
 }
 
 type chatCanvasSessions struct {
@@ -54,7 +79,14 @@ func NewChatSessionService() (*ChatSessionService, error) {
 	if err := os.MkdirAll(appDir, 0755); err != nil {
 		return nil, fmt.Errorf("could not create app config directory: %w", err)
 	}
-	return newChatSessionService(filepath.Join(appDir, "chat-sessions.json")), nil
+	return NewChatSessionServiceAt(filepath.Join(appDir, "chat-sessions.json")), nil
+}
+
+// NewChatSessionServiceAt creates a session store at an explicit path. It is
+// used by isolated runtimes (such as E2E) to keep persistence inside their
+// temporary workspace while retaining the same binding/service path.
+func NewChatSessionServiceAt(path string) *ChatSessionService {
+	return newChatSessionService(path)
 }
 
 func newChatSessionService(path string) *ChatSessionService {
@@ -95,10 +127,46 @@ func (s *ChatSessionService) Save(canvasID string, sessions []ChatSession) error
 	if err != nil {
 		return fmt.Errorf("could not marshal chat sessions: %w", err)
 	}
-	if err := os.WriteFile(s.path, data, 0644); err != nil {
-		return fmt.Errorf("could not write chat sessions: %w", err)
+	// Write and replace as one filesystem operation. A renderer crash or a
+	// concurrent load must never leave a truncated chat-sessions.json behind.
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("could not create chat sessions temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("could not set chat sessions temp permissions: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("could not write chat sessions temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("could not sync chat sessions temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("could not close chat sessions temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		return fmt.Errorf("could not replace chat sessions: %w", err)
 	}
 	return nil
+}
+
+// ReadRawJSON returns the backing file for E2E evidence. Callers must keep this
+// limited to the isolated E2E composition root; production UI code loads typed
+// sessions through Load instead.
+func (s *ChatSessionService) ReadRawJSON() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return "", fmt.Errorf("could not read chat sessions: %w", err)
+	}
+	return string(data), nil
 }
 
 func (s *ChatSessionService) read() (*chatSessionFile, error) {
@@ -113,20 +181,32 @@ func (s *ChatSessionService) read() (*chatSessionFile, error) {
 		Version  int                        `json:"version"`
 		Canvases map[string]json.RawMessage `json:"canvases"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("chat sessions JSON is malformed: %w", err)
+	}
+	if raw.Version > 1 {
+		return nil, fmt.Errorf("chat sessions version %d is newer than supported version 1", raw.Version)
 	}
 	file := &chatSessionFile{
 		Version:  raw.Version,
 		Canvases: make(map[string]chatCanvasSessions),
 	}
+	if raw.Canvases == nil {
+		raw.Canvases = map[string]json.RawMessage{}
+	}
 	for canvasID, payload := range raw.Canvases {
 		var canvas chatCanvasSessions
-		if err := json.Unmarshal(payload, &canvas); err != nil {
+		canvasDecoder := json.NewDecoder(bytes.NewReader(payload))
+		canvasDecoder.DisallowUnknownFields()
+		if err := canvasDecoder.Decode(&canvas); err != nil {
 			// Migrate the temporary Sprint B format where the Canvas value was
 			// the sessions array directly instead of {"sessions": [...]}.
 			var legacy []ChatSession
-			if legacyErr := json.Unmarshal(payload, &legacy); legacyErr != nil {
+			legacyDecoder := json.NewDecoder(bytes.NewReader(payload))
+			legacyDecoder.DisallowUnknownFields()
+			if legacyErr := legacyDecoder.Decode(&legacy); legacyErr != nil {
 				return nil, fmt.Errorf("chat sessions JSON is malformed for canvas %q: %w", canvasID, err)
 			}
 			canvas.Sessions = legacy

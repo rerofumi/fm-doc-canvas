@@ -4,7 +4,7 @@ import { useAppStore } from "../../store/useAppStore";
 import dagre from "dagre";
 
 const LayoutButton: React.FC = () => {
-  const { nodes, edges, setNodes } = useAppStore();
+  const { nodes, edges, dispatch } = useAppStore();
 
   const handleLayout = () => {
     if (nodes.length === 0) return;
@@ -41,7 +41,13 @@ const LayoutButton: React.FC = () => {
       };
     });
 
-    setNodes(layoutedNodes);
+    dispatch({
+      type: "moveNodePositions",
+      changes: layoutedNodes.map((node) => ({
+        nodeId: node.id,
+        position: node.position,
+      })),
+    });
   };
 
   return (

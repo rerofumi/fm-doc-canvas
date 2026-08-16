@@ -22,7 +22,7 @@ type App struct {
 	llmPort            backend.LLMPort
 	imageGenService    backend.ImagePort
 	imageAssetService  backend.ImageAssetPort
-	chatSessionService *backend.ChatSessionService // legacy; not used on active path
+	chatSessionService *backend.ChatSessionService
 	chatService        *backend.ChatService
 	events             backend.EventPort
 	clock              backend.Clock
@@ -53,20 +53,25 @@ func NewProductionApp() *App {
 	chatService.SetWebSearch(search, ids, clock)
 	chatService.SetImage(imageGenService)
 	chatService.SetImageAsset(imageAssetService)
+	chatSessions, err := backend.NewChatSessionService()
+	if err != nil {
+		fmt.Printf("Error initializing ChatSessionService: %v\n", err)
+	}
 
 	return &App{
-		mode:              backend.RuntimeModeProduction,
-		configService:     configService,
-		fileService:       fileService,
-		llmService:        llmService,
-		llmPort:           llmService,
-		imageGenService:   imageGenService,
-		imageAssetService: imageAssetService,
-		chatService:       chatService,
-		events:            &backend.CapturingEventPort{},
-		clock:             clock,
-		ids:               ids,
-		webSearch:         search,
+		mode:               backend.RuntimeModeProduction,
+		configService:      configService,
+		fileService:        fileService,
+		llmService:         llmService,
+		llmPort:            llmService,
+		imageGenService:    imageGenService,
+		imageAssetService:  imageAssetService,
+		chatService:        chatService,
+		chatSessionService: chatSessions,
+		events:             &backend.CapturingEventPort{},
+		clock:              clock,
+		ids:                ids,
+		webSearch:          search,
 	}
 }
 
@@ -136,7 +141,7 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		return NewProductionApp(), nil
 	}
 
-	// E2E: do not construct ConfigService/ChatSessionService (no %AppData%).
+	// E2E: keep all config/chat state inside the explicit temp root.
 	// FileService still needs a *ConfigService for Resolve paths in current code;
 	// use an in-memory-backed adapter constructed without UserConfigDir side effects.
 	cfgService := backend.NewConfigServiceFromStore(opts.Config)
@@ -184,34 +189,54 @@ func NewAppWithOptions(opts backend.AppOptions) (*App, error) {
 		imagePort = opts.Image
 	}
 	app := &App{
-		mode:              opts.Mode,
-		configService:     cfgService,
-		fileService:       fileService,
-		llmService:        nil,
-		llmPort:           opts.LLM,
-		imageGenService:   imagePort,
-		imageAssetService: opts.Assets,
-		chatService:       chatService,
-		events:            opts.Events,
-		clock:             opts.Clock,
-		ids:               opts.IDs,
-		faultPlan:         opts.FaultPlan,
-		webSearch:         search,
-		searchFixture:     fixture,
-		imageFixture:      imageFixture,
-		llmFixture:        llmFixture,
+		mode:               opts.Mode,
+		configService:      cfgService,
+		fileService:        fileService,
+		llmService:         nil,
+		llmPort:            opts.LLM,
+		imageGenService:    imagePort,
+		imageAssetService:  opts.Assets,
+		chatService:        chatService,
+		chatSessionService: backend.NewChatSessionServiceAt(filepath.Join(opts.Files.Root(), "chat-sessions.json")),
+		events:             opts.Events,
+		clock:              opts.Clock,
+		ids:                opts.IDs,
+		faultPlan:          opts.FaultPlan,
+		webSearch:          search,
+		searchFixture:      fixture,
+		imageFixture:       imageFixture,
+		llmFixture:         llmFixture,
 	}
 	return app, nil
 }
 
-// LoadChatSessions is retained for binding compatibility but is a no-op on the active path.
+// LoadChatSessions loads the existing per-Canvas session store.
 func (a *App) LoadChatSessions(canvasID string) ([]backend.ChatSession, error) {
-	return []backend.ChatSession{}, nil
+	if a.chatSessionService == nil {
+		return []backend.ChatSession{}, nil
+	}
+	return a.chatSessionService.Load(canvasID)
 }
 
-// SaveChatSessions is retained for binding compatibility but does not persist Dialogue.
+// SaveChatSessions persists the per-Canvas session store.
 func (a *App) SaveChatSessions(canvasID string, sessions []backend.ChatSession) error {
-	return nil
+	if a.chatSessionService == nil {
+		return fmt.Errorf("chat session service is unavailable")
+	}
+	return a.chatSessionService.Save(canvasID, sessions)
+}
+
+// ReadE2EChatSessionsRaw exposes the isolated temp-root persistence file so
+// Playwright can assert the actual JSON marker written by the backend. It is
+// intentionally unavailable outside the E2E composition root.
+func (a *App) ReadE2EChatSessionsRaw() (string, error) {
+	if a.mode != backend.RuntimeModeE2E {
+		return "", fmt.Errorf("raw chat session inspection is only available in E2E mode")
+	}
+	if a.chatSessionService == nil {
+		return "", fmt.Errorf("chat session service is unavailable")
+	}
+	return a.chatSessionService.ReadRawJSON()
 }
 
 // GetRuntimeEnvironment exposes mode/seed information for Frontend bootstrap.
@@ -686,6 +711,26 @@ func (a *App) ReleaseDelayedImageGeneration() error {
 		return err
 	}
 	fixture.ReleaseDelay()
+	return nil
+}
+
+// ArmDelayedTextGeneration holds the next E2E Direct Text generation until
+// ReleaseDelayedTextGeneration, allowing navigation freshness tests.
+func (a *App) ArmDelayedTextGeneration() error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ArmTextDelay()
+	return nil
+}
+
+func (a *App) ReleaseDelayedTextGeneration() error {
+	fixture, err := a.requireSuggestFixture()
+	if err != nil {
+		return err
+	}
+	fixture.ReleaseTextDelay()
 	return nil
 }
 

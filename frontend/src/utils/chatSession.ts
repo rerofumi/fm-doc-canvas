@@ -13,6 +13,7 @@ export function fromBackendChatSessions(
   return (sessions ?? []).map((session) => ({
     id: session.id,
     title: session.title,
+    isDefaultTitle: session.isDefaultTitle,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messages: (session.messages ?? []).map((message) => ({
@@ -32,6 +33,7 @@ export function toBackendChatSessions(sessions: ChatSession[]): backend.ChatSess
   return sessions.map((session) => new backend.ChatSession({
     id: session.id,
     title: session.title,
+    isDefaultTitle: session.isDefaultTitle ?? session.title === "新しい会話",
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     messages: session.messages.map((message) => ({

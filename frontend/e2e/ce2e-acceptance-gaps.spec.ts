@@ -27,6 +27,13 @@ test("CE2E-03b cross-canvas relation boundary aggregates", async ({ page }) => {
   expect(
     snap.boundaryAggregates.some((x: any) => x.kind === "up-boundary"),
   ).toBeTruthy();
+  const upCount = snap.boundaryAggregates
+    .filter((x: any) => x.kind === "up-boundary")
+    .reduce((sum: number, x: any) => sum + x.count, 0);
+  await expect(
+    page.getByRole("navigation", { name: "Canvas breadcrumb" })
+      .getByRole("status", { name: `${upCount} up-boundary relations` }),
+  ).toBeVisible();
 });
 
 test("CE2E-04b proposal reject and stale after navigate", async ({ page }) => {
@@ -63,7 +70,7 @@ test("CE2E-04b proposal reject and stale after navigate", async ({ page }) => {
   await expect(page.getByLabel("Dialogue messages")).toBeVisible();
   await expect(page.getByLabel("Stop dialogue run")).toBeVisible();
   await page.getByLabel("Stop dialogue run").click();
-  await expect(page.getByLabel("Send dialogue message")).toBeVisible();
+  await expect(page.getByRole("button", { name: "送信" })).toBeVisible();
 
   // Stale: navigate to new workspace generation then apply old revision edit
   const snap1 = await api.snapshot();
@@ -109,7 +116,11 @@ test("CE2E keyboard role switch and undo accessible", async ({ page }) => {
   await page.keyboard.press("Enter");
   const after = await api.snapshot();
   expect(after.nodeCount).toBe(0);
-  await expect(page.getByRole("button", { name: "Use this Canvas as context" })).toBeVisible();
+  const breadcrumb = page.getByRole("navigation", { name: "Canvas breadcrumb" });
+  await expect(breadcrumb).toBeVisible();
+  await expect(
+    breadcrumb.getByRole("button", { name: "Use this Canvas as context" }),
+  ).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Go to parent canvas" })).toBeVisible();
 });
 
@@ -135,7 +146,8 @@ test("CE2E parent button climbs hierarchy without consuming edit history", async
   snap = await api.snapshot();
   const historyAfterEdit = snap.historyLength;
 
-  await page.getByRole("button", { name: "Go to parent canvas" }).click();
+  const breadcrumb = page.getByRole("navigation", { name: "Canvas breadcrumb" });
+  await breadcrumb.getByRole("button", { name: "Level 1" }).click();
   snap = await api.snapshot();
   expect(snap.currentCanvasId).toBe(level1.childCanvasId);
   expect(snap.historyLength).toBe(historyAfterEdit);

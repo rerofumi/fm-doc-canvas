@@ -63,7 +63,7 @@ frontend/e2e/*.spec.ts
 
 ## 2. Unified Assistant State
 
-`useChatStore` を Assistant drawer の runtime state authority として拡張する。Chat session persistence の schema は変更しない。
+`useChatStore` を Assistant drawer の runtime state authority として拡張する。Chat session persistence には、default title を reload 後も一意に識別する後方互換な `isDefaultTitle` marker を追加する。旧データに marker がない場合、明示的に default と安全に判定できる title だけを default とし、それ以外は user-defined title として保護する。
 
 ```ts
 type AssistantMode = "chat" | "direct";
@@ -160,6 +160,8 @@ Image Provider は app config の `config.imageGen.provider` で初期化し、�
 ### Session title
 
 - Default title は `新しい会話` または `${target.label} について`。
+- session persistence に `isDefaultTitle` を保存し、target の復元順序や reload 時の選択状態に依存せず default title を判定する。
+- marker のない旧 session は `新しい会話` の完全一致のみ default として移行し、`〜 について` の suffix 推定は行わない。
 - 最初の user message append と同じ store update で一度だけ title を更新する。
 - `message.trim().replace(/\s+/g, " ")` を `Array.from(...).slice(0, 24).join("")` で切る。
 - user が後に rename できる機能は本計画外。非 default title は上書きしない。

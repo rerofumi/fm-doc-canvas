@@ -18,6 +18,10 @@ export function ArmDelayedSuggest() {
   return window['go']['main']['App']['ArmDelayedSuggest']();
 }
 
+export function ArmDelayedTextGeneration() {
+  return window['go']['main']['App']['ArmDelayedTextGeneration']();
+}
+
 export function ArmE2EImageFault(arg1) {
   return window['go']['main']['App']['ArmE2EImageFault'](arg1);
 }
@@ -126,6 +130,10 @@ export function OpenExternalURL(arg1) {
   return window['go']['main']['App']['OpenExternalURL'](arg1);
 }
 
+export function ReadE2EChatSessionsRaw() {
+  return window['go']['main']['App']['ReadE2EChatSessionsRaw']();
+}
+
 export function ReleaseDelayedImageGeneration() {
   return window['go']['main']['App']['ReleaseDelayedImageGeneration']();
 }
@@ -140,6 +148,10 @@ export function ReleaseDelayedSearchWeb() {
 
 export function ReleaseDelayedSuggest() {
   return window['go']['main']['App']['ReleaseDelayedSuggest']();
+}
+
+export function ReleaseDelayedTextGeneration() {
+  return window['go']['main']['App']['ReleaseDelayedTextGeneration']();
 }
 
 export function ResolveToolApplication(arg1) {
