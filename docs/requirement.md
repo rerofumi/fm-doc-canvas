@@ -17,6 +17,7 @@
 - アプリは Wails のネイティブウィンドウとして起動し、React フロントエンドを表示する。
 - ユーザーはテキストノードを追加し、Markdown 本文と summary を編集できる。
 - ユーザーは Artifact ノードを追加し、Markdown 本文、filename、summary を編集し、Edit / Preview を切り替えられる。
+- Editor Preview / Artifact Node の絶対 HTTP(S) リンクは OS 標準ブラウザへ渡し、Wails WebView と Canvas を維持する。相対 URL、`file:`、`javascript:`、その他の scheme は外部起動も WebView 遷移もしない。
 - Text / Artifact は content mutation ごとに内部 revision と文字数情報を更新する。
 - ユーザーはテキストノード、Artifact ノード、画像ノードをキャンバス上で移動、リサイズ、削除できる。
 - ユーザーはノード間に typed Relation を作成し、kind、方向、reasonを編集・反転・削除できる。描画時はsource/target handle roleを維持する。
@@ -29,7 +30,10 @@
 - 複数の上流入力やループを検出した場合は警告を表示する。
 - ユーザーは右側 ChatDrawer を開閉・リサイズし、現在の対象ノードを確認して、active Workspace内のmemory-only Dialogue sessionを作成・切替できる。
 - ChatDrawer は対象ノードと接続元を direct context に含め、対象がない場合は Canvas 全文を初期送信しない。
+- ChatDrawer は同一 session の直近12件の完了済み user / assistant 発言を role・時系列・本文どおり送る。空、streaming、error、cancelled の発言は除外し、現在の user prompt は一度だけ送る。
 - Agent loop は request-local Canvas snapshot を保持し、`list_canvas_nodes` / `read_canvas_node` 等で非接続ノードを必要時に取得できる。
+- Agent loop は現在の user prompt が新規作成と対象 role を明示した場合だけ、会話内容を含む新規 Text / Artifact Node を proposal 経由で現在 Canvas に作成できる。否定・取消、既存node編集、過去履歴だけの指示は作成認可に使わない。作成は既存 acknowledgment / freshness を使い、単一 Undo で取り消せる。
+- 新規Node作成guardが指示を認可できない場合、変更未適用であること、現在のメッセージへ明記して再送すること、Text / Artifact 別の正本定型文を ToolCard error に表示する。
 - Agent loop は Text / Artifact の read 済み revision と Frontend acknowledgment を確認し、一致する編集提案だけを適用する。
 - ユーザーが Stop した run は cancel され、停止後または stale revision の未適用編集を Canvas に反映しない。
 - ChatDrawer は assistant text、tool 実行状態、編集 diff / status を run と session に相関付けて表示する。

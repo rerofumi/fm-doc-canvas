@@ -34,22 +34,25 @@ type ToolEvent struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// Role is set for explicit new Text Node creation. Legacy write_artifact
+// proposals omit it and are interpreted as Artifact for compatibility.
 type ToolApplyProposal struct {
 	ToolCallID        string             `json:"toolCallId"`
 	NodeID            string             `json:"nodeId,omitempty"`
 	TargetNodeID      string             `json:"targetNodeId,omitempty"`
 	BaseRevision      int64              `json:"baseRevision,omitempty"`
 	Operation         string             `json:"operation"`
-	Filename          string             `json:"filename,omitempty"`
-	Proposed          string             `json:"proposed"`
-	SearchText        string             `json:"searchText,omitempty"`
-	Replacement       string             `json:"replacement,omitempty"`
-	LastEditSummary   string             `json:"lastEditSummary,omitempty"`
-	WorkspaceID       string             `json:"workspaceId,omitempty"`
-	CanvasID          string             `json:"canvasId,omitempty"`
-	RuntimeGeneration string             `json:"runtimeGeneration,omitempty"`
-	ScopeEpoch        int64              `json:"scopeEpoch,omitempty"`
-	RunEpoch          int64              `json:"runEpoch,omitempty"`
+	Role              string             `json:"role,omitempty"`
+	Filename          string                 `json:"filename,omitempty"`
+	Proposed          string                 `json:"proposed"`
+	SearchText        string                 `json:"searchText,omitempty"`
+	Replacement       string                 `json:"replacement,omitempty"`
+	LastEditSummary   string                 `json:"lastEditSummary,omitempty"`
+	WorkspaceID       string                 `json:"workspaceId,omitempty"`
+	CanvasID          string                 `json:"canvasId,omitempty"`
+	RuntimeGeneration string                 `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch        int64                  `json:"scopeEpoch,omitempty"`
+	RunEpoch          int64                  `json:"runEpoch,omitempty"`
 	Transform         *TransformProposal     `json:"transform,omitempty"`
 	Relation          *RelationProposal      `json:"relation,omitempty"`
 	ImageVariant      *ImageVariantProposal  `json:"imageVariant,omitempty"`

@@ -1,9 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { X, Edit3, Eye, Zap, Loader2, GripVertical } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { ArtifactNodeData } from "../../types";
+import MarkdownContent from "../markdown/MarkdownContent";
 
 const EditorDrawer: React.FC = () => {
 const {
@@ -219,9 +218,9 @@ const {
           />
         ) : (
           <div className="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none prose-blue">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <MarkdownContent>
               {(activeNode as any)?.data.content || "*No content to preview*"}
-            </ReactMarkdown>
+            </MarkdownContent>
           </div>
         )}
       </div>

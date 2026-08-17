@@ -628,6 +628,7 @@ function createToolProposalDecider(
         proposal.runtimeGeneration || ws.runtime.runtimeGeneration,
       scopeEpoch: proposal.scopeEpoch ?? ws.runtime.scopeEpoch,
       operation: proposal.operation,
+      role: proposal.role,
       targetNodeId: proposal.targetNodeId || proposal.nodeId,
       baseRevision: proposal.baseRevision,
       proposed: content,

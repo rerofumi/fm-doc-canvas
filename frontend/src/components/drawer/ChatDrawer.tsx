@@ -293,6 +293,9 @@ if (event.type === "chat:tool_apply" && event.apply) {
     const session: ChatSession = activeSession ?? store.createSession();
     const runId = newId();
     if (!store.beginOperation({ kind: "chat", runId, sessionId: session.id })) return;
+    // Snapshot only the messages that were complete before this turn. The
+    // current user prompt must be sent as ChatRequest.prompt exactly once.
+    const previousMessages = useChatStore.getState().sessions.find((s) => s.id === session.id)?.messages ?? [];
     const now = Date.now();
     const assistantId = newId();
     const user: ChatMessage = { id: newId(), role: "user", content, createdAt: now, runId, targetNodeId: store.target?.nodeId, targetRevision: store.target?.revision };
@@ -303,7 +306,6 @@ if (event.type === "chat:tool_apply" && event.apply) {
     // Register domain async run epoch for stale/cancel correlation.
     app.dispatch({ type: "startAsyncRun", kind: "dialogue", runId });
     const runEpoch = useAppStore.getState().workspace.runtime.asyncRuns[runId]?.epoch ?? 0;
-    const sessionMessages = useChatStore.getState().sessions.find((s) => s.id === session.id)?.messages ?? [];
     const request: ChatRequest = buildChatRequest(
       app.workspace.runtime.currentCanvasId,
       runId,
@@ -313,7 +315,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
       app.nodes,
       app.edges,
       app.workspace,
-      sessionMessages.filter((m) => m.id !== assistantId),
+      previousMessages,
       runEpoch,
        store.imageProvider,
     );

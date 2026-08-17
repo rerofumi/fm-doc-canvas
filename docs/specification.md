@@ -75,7 +75,7 @@
 
 - Header: app title, new Text / Artifact buttons, auto layout button, Chat toggle, settings button.
 - Canvas: React Flow background, controls, minimap, custom node types, context menu.
-- Editor drawer: Text / Artifact の Markdown edit/preview、summary、Artifact filename、count、summary regeneration、resizable drawer width.
+- Editor drawer: Text / Artifact の Markdown edit/preview、summary、Artifact filename、count、summary regeneration、resizable drawer width. Preview と Artifact Node は共通 `MarkdownContent` を使い、全 anchor の既定遷移を抑止する。絶対 HTTP(S) だけを Wails `BrowserOpenURL` へ渡す。
 - Chat drawer: target 表示、Canvas 内 session 作成／切替、message stream、Stop、ToolCard、resizable drawer width.
 - Settings drawer: file operations, LLM settings, image generation provider settings, generation settings, canvas clearing.
 - Prompt bar: Text / Image mode toggle, selected-node indicators, request-level image provider selector in Image mode, prompt textarea, submit button.
@@ -99,6 +99,12 @@
 Context ResolverはCurrent Canvas、明示selection、exclusion、accepted Relation / provenanceを正本としてbody allowlistを構築する。別Canvas本文、未採用Proposal、excluded bodyを暗黙送信しない。
 
 Chat request は target と traversal 結果だけを初期 direct context に含める。target がない場合は Canvas 全文を送らない。snapshot 全体はローカル Backend が request 単位で保持し、LLM は `list_canvas_nodes`、`read_canvas_node`、Artifact 専用 read/list/search tool で必要なノードだけを追加取得する。
+
+ChatDrawer は現在の user message を session へ append する前に履歴を取得し、`ChatRequest.history` の `ChatHistoryMessage` として送る。Frontend は完了済み user / assistant の最新12件に絞り、Backend は role、非空、上限を再検証する。本文は空判定以外で正規化せず完全保持し、provider message は `system → history → current user` の順とする。Canvas direct context と vision payload は current user message にだけ付与する。
+
+`create_text_node` は明示的な新規 Text Node 作成専用 tool であり、`role: text` を `ToolApplyProposal` から Frontend proposal / domain `create-text` command へ伝搬する。Backend の role 共通 `creationIntent(prompt, role)` は current prompt だけを認可対象とし、自然な日本語・英語の対象roleと作成動作を要求する。否定・取消と既存node編集を優先して拒否し、過去履歴や短い了承だけでは作成を許可しない。role がない legacy `write_artifact` create event は後方互換として Artifact を作成する。Node作成は既存の acknowledgment、run freshness、単一 Undo 経路を使う。
+
+明示作成guardの拒否だけは `creationGuardError` を使い、Textでは `新しい Text Node を作成してください`、Artifactでは `新しい Artifact Node を作成してください` を現在のメッセージへ明記して再送するよう案内し、変更未適用も示す。引数不備、provider/tool error、node_id付き既存Artifact編集errorにはこの案内を付加しない。
 
 Text / Artifact の mutation は `read_canvas_node` または `read_artifact` が成功した同一 run / revision を要求する。Backend は mutation proposal を event で送り、Frontend が revision を再確認して返す acknowledgment が `applied` の場合だけ tool success とする。
 

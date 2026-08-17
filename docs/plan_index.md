@@ -13,6 +13,7 @@
 | plan_20260815_generated_views | Full | F-5B Generated Structures core（Relation batch suggestion、Cluster View、Cluster→SubCanvas 変換） | done | 2026-08-15 人間実機確認でRelation batch / Cluster View + SubCanvasともにGate Go。Core E2E 33件pass。Library View / Layout suggestionは後続候補 |
 | plan_20260816_collaboration_orchestration | Full | F-6 Collaboration Orchestration（AI Partner の役割・AL・route提案） | done | 2026-08-16 Human実機承認、Core E2E 41件pass、F-6 Gate Go |
 | plan_20260816_gui_update | Full | GUI/UX 刷新（Chat/Direct統合、親引き上げ・安全解体、Canvas領域整理） | planned | 2026-08-16改訂。i18nと任意Canvas pickerは後続候補、Core E2EはPlaywright |
+| plan_20260817_bugfix | Light | Markdown 外部リンクと Chat session 履歴の不具合修正 | done | 2026-08-17 人間実機承認。REQ-01〜07 Pass、Core E2E 73/73、worklog disabled |
 
 ## 状態凡例
 

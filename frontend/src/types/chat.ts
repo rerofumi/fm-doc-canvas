@@ -41,6 +41,8 @@ export interface ChatToolProposal {
     | "image-variant"
     | "relation-batch"
     | "generated-view";
+  /** Explicit new-node role. Missing on legacy write_artifact events. */
+  role?: "text" | "artifact";
   filename?: string;
   proposed: string;
   searchText?: string;

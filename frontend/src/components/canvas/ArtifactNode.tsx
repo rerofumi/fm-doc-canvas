@@ -1,9 +1,8 @@
 import React, { memo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { Handle, NodeProps, NodeResizer, Position } from "@xyflow/react";
 import { AppNode, ArtifactNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
+import MarkdownContent from "../markdown/MarkdownContent";
 
 const PREVIEW_LIMIT = 1800;
 
@@ -67,9 +66,9 @@ const ArtifactNode = ({
           <span>{artifact.wordCount.toLocaleString()} words</span>
         </div>
         <div className="prose prose-sm min-h-0 max-w-none flex-1 overflow-y-auto pr-1 text-gray-700 custom-scrollbar">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <MarkdownContent>
             {preview || "*No content*"}
-          </ReactMarkdown>
+          </MarkdownContent>
           {artifact.content.length > PREVIEW_LIMIT && (
             <div className="mt-2 text-[10px] italic text-gray-400">Preview truncated…</div>
           )}

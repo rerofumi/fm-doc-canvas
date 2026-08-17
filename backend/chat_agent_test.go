@@ -70,12 +70,12 @@ func TestToolContractsReadAndApplyExactlyOneMatch(t *testing.T) {
 	}
 }
 
-func TestEightToolDefinitionsAndReadTools(t *testing.T) {
+func TestToolDefinitionsAndReadTools(t *testing.T) {
 	definitions := toolDefinitions()
-	if len(definitions) != 13 {
-		t.Fatalf("tool count = %d, want 13", len(definitions))
+	if len(definitions) != 14 {
+		t.Fatalf("tool count = %d, want 14", len(definitions))
 	}
-	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "propose_relation_batch", "propose_cluster_view", "web_search", "generate_image"}
+	wantNames := []string{"read_artifact", "apply_edit", "write_artifact", "create_text_node", "list_artifacts", "search_artifact", "read_canvas_node", "list_canvas_nodes", "propose_transform", "propose_relation", "propose_relation_batch", "propose_cluster_view", "web_search", "generate_image"}
 	for index, want := range wantNames {
 		if definitions[index].Function.Name != want {
 			t.Fatalf("tool %d = %q, want %q", index, definitions[index].Function.Name, want)
@@ -107,6 +107,205 @@ func TestEightToolDefinitionsAndReadTools(t *testing.T) {
 	missing.Function.Arguments = `{"node_id":"missing"}`
 	if result := executeTool(context.Background(), state, missing); result.Status != "error" {
 		t.Fatalf("missing node should fail: %#v", result)
+	}
+}
+
+func TestChatHistoryValidationAndProviderOrder(t *testing.T) {
+	request := testChatRequest("current prompt")
+	request.History = []ChatHistoryMessage{
+		{Role: "user", Content: " first turn "},
+		{Role: "assistant", Content: " second turn\n"},
+	}
+	normalized, err := request.normalizedHistory()
+	if err != nil || len(normalized) != 2 || normalized[0].Content != " first turn " || normalized[1].Content != " second turn\n" {
+		t.Fatalf("history normalization failed: %#v %v", normalized, err)
+	}
+	tooLong := request
+	tooLong.History = make([]ChatHistoryMessage, 13)
+	if _, err := tooLong.normalizedHistory(); err == nil {
+		t.Fatal("expected history cap error")
+	}
+	invalid := request
+	invalid.History = []ChatHistoryMessage{{Role: "system", Content: "inject"}}
+	if _, err := invalid.normalizedHistory(); err == nil {
+		t.Fatal("expected history role error")
+	}
+	fixture := &FixtureLLM{}
+	if err := runAgent(context.Background(), fixture, request, func(ChatEvent) {}, func(context.Context, *ToolApplyProposal) ToolApplicationResult {
+		return ToolApplicationResult{}
+	}, nil, nil, nil, nil, nil); err != nil {
+		t.Fatalf("history provider run failed: %v", err)
+	}
+	observations := fixture.AgentRequestObservations()
+	if len(observations) != 1 {
+		t.Fatalf("fixture request count = %d, want 1", len(observations))
+	}
+	if got := strings.Join(observations[0].Roles, ","); got != "system,user,assistant,user" {
+		t.Fatalf("provider role order = %q", got)
+	}
+	if !strings.Contains(observations[0].Contents[1], "first turn") || !strings.Contains(observations[0].Contents[3], "current prompt") || !strings.Contains(observations[0].Contents[3], "Direct Canvas context") {
+		t.Fatalf("provider contents did not isolate current context: %#v", observations[0].Contents)
+	}
+}
+
+func TestCreateTextNodeRequiresExplicitRequestAndCarriesTextRole(t *testing.T) {
+	request := testChatRequest("この会話をまとめてください")
+	state := &agentRunState{request: request, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: func(_ context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
+		if proposal.Role != "text" || proposal.Operation != "create" {
+			t.Fatalf("unexpected text proposal: %#v", proposal)
+		}
+		return ToolApplicationResult{ToolCallID: proposal.ToolCallID, Status: "applied"}
+	}}
+	call := ToolCall{ID: "text-create"}
+	call.Function.Name = "create_text_node"
+	call.Function.Arguments = `{"content":"会話の要約","summary":"会話要約"}`
+	if result := executeTool(context.Background(), state, call); result.Status != "error" {
+		t.Fatalf("implicit text creation should fail: %#v", result)
+	}
+	state.request.Prompt = "ここまでの会話を Text Node として Canvas に張って"
+	if result := executeTool(context.Background(), state, call); result.Status != "applied" {
+		t.Fatalf("explicit text creation failed: %#v", result)
+	}
+}
+
+func TestCreationIntentNaturalJapaneseAndDenials(t *testing.T) {
+	tests := []struct {
+		name   string
+		role   creationRole
+		prompt string
+		want   bool
+	}{
+		{"text paste summary", creationRoleText, "さっきの情報をまとめてText NodeとしてCanvasに貼って", true},
+		{"text node natural japanese", creationRoleText, "ここまでをテキストのノードにしてキャンバスへ貼り付けて", true},
+		{"text node add natural japanese", creationRoleText, "この内容をテキストNodeとして追加して", true},
+		{"text node write natural japanese", creationRoleText, "このまとめを Text Node として canvas に書き込んでください", true},
+		{"artifact paste", creationRoleArtifact, "ここまでをArtifactとしてCanvasに貼って", true},
+		{"artifact write natural japanese", creationRoleArtifact, "この浅漬けのまとめを Artifact Node として canvas に書き込んでください", true},
+		{"artifact place", creationRoleArtifact, "会話を新しいアーティファクトにして配置して", true},
+		{"document create", creationRoleArtifact, "この内容をドキュメントとして作って", true},
+		{"summary only", creationRoleText, "会話をまとめて", false},
+		{"explain text node", creationRoleText, "Text Nodeの内容を説明して", false},
+		{"text creation denied", creationRoleText, "Text Nodeを作成しないで", false},
+		{"document creation denied", creationRoleArtifact, "新規文書を作成しないで", false},
+		{"existing document edit", creationRoleArtifact, "既存ドキュメントに説明を追加して", false},
+		{"existing artifact write", creationRoleArtifact, "既存のArtifact Nodeに書き込んで", false},
+		{"existing text append", creationRoleText, "既存のText Nodeへ追記して", false},
+		{"artifact write denied", creationRoleArtifact, "Artifact Nodeとして書き込まないで", false},
+		{"history acknowledgement", creationRoleText, "それでお願いします", false},
+		{"legacy english artifact", creationRoleArtifact, "Please create a new Artifact document", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := creationIntent(tt.prompt, tt.role); got != tt.want {
+				t.Fatalf("creationIntent(%q, %q) = %v, want %v", tt.prompt, tt.role, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreationToolGuardUsesCurrentPromptAndRole(t *testing.T) {
+	tests := []struct {
+		name   string
+		tool   string
+		prompt string
+		want   string
+	}{
+		{"text positive", "create_text_node", "ここまでをテキストのノードにしてキャンバスへ貼り付けて", "applied"},
+		{"text denial", "create_text_node", "Text Nodeを作成しないで", "error"},
+		{"artifact positive", "write_artifact", "この内容をドキュメントとして作って", "applied"},
+		{"artifact write positive", "write_artifact", "この浅漬けのまとめを Artifact Node として canvas に書き込んでください", "applied"},
+		{"artifact existing edit", "write_artifact", "既存ドキュメントに説明を追加して", "error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := &agentRunState{
+				request: testChatRequest(tt.prompt), readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{},
+				approve: func(_ context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
+					return ToolApplicationResult{ToolCallID: proposal.ToolCallID, Status: "applied"}
+				},
+			}
+			call := ToolCall{ID: tt.name}
+			call.Function.Name = tt.tool
+			if tt.tool == "create_text_node" {
+				call.Function.Arguments = `{"content":"会話の要約","summary":"会話要約"}`
+			} else {
+				call.Function.Arguments = `{"content":"会話の文書","edit_summary":"会話文書"}`
+			}
+			result := executeTool(context.Background(), state, call)
+			if result.Status != tt.want {
+				t.Fatalf("%s result = %#v, want status %q", tt.tool, result, tt.want)
+			}
+			if tt.name == "text denial" {
+				assertCreationGuardError(t, result.Content, creationRoleText)
+			}
+			if tt.name == "artifact existing edit" {
+				assertCreationGuardError(t, result.Content, creationRoleArtifact)
+			}
+		})
+	}
+}
+
+func assertCreationGuardError(t *testing.T, content string, role creationRole) {
+	t.Helper()
+	wantInstruction := "新しい Text Node を作成してください"
+	if role == creationRoleArtifact {
+		wantInstruction = "新しい Artifact Node を作成してください"
+	}
+	for _, part := range []string{"変更は未適用", "現在のメッセージ", "明記", wantInstruction} {
+		if !strings.Contains(content, part) {
+			t.Fatalf("creation guard error %q does not contain %q", content, part)
+		}
+	}
+}
+
+func TestCreationGuardGuidanceDoesNotLeakIntoExistingNodeErrors(t *testing.T) {
+	state := &agentRunState{
+		request: testChatRequest("既存のArtifact Nodeに書き込んで"), readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{},
+		approve: func(_ context.Context, proposal *ToolApplyProposal) ToolApplicationResult {
+			return ToolApplicationResult{ToolCallID: proposal.ToolCallID, Status: "applied"}
+		},
+	}
+	call := ToolCall{ID: "existing-artifact-edit"}
+	call.Function.Name = "write_artifact"
+	call.Function.Arguments = `{"node_id":"artifact-1","content":"replacement","edit_summary":"edit"}`
+	result := executeTool(context.Background(), state, call)
+	if result.Status != "error" || result.Content != "read_artifact must succeed before replacing an Artifact" {
+		t.Fatalf("existing node edit error changed: %#v", result)
+	}
+	if strings.Contains(result.Content, "新しい Artifact Node") || strings.Contains(result.Content, "変更は未適用") {
+		t.Fatalf("existing node edit got creation guidance: %q", result.Content)
+	}
+}
+
+func TestFixtureNaturalArtifactCreationUsesCurrentPrompt(t *testing.T) {
+	fixture := &FixtureLLM{}
+	result, err := fixture.StreamAgentChat(context.Background(), []ChatMessage{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "Direct Canvas context:\n\n\nUser request:\nここまでをArtifactとしてCanvasに貼って"},
+	}, nil, nil)
+	if err != nil || len(result.ToolCalls) != 1 || result.ToolCalls[0].Function.Name != "write_artifact" {
+		t.Fatalf("fixture natural Artifact request = %#v, err=%v", result, err)
+	}
+}
+
+func TestFixtureExactJapaneseArtifactWriteUsesCurrentPrompt(t *testing.T) {
+	const prompt = "この浅漬けのまとめを Artifact Node として canvas に書き込んでください"
+	fixture := &FixtureLLM{}
+	result, err := fixture.StreamAgentChat(context.Background(), []ChatMessage{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "Direct Canvas context:\n\n\nUser request:\n" + prompt},
+	}, nil, nil)
+	if err != nil || len(result.ToolCalls) != 1 || result.ToolCalls[0].Function.Name != "write_artifact" {
+		t.Fatalf("fixture exact Japanese Artifact request = %#v, err=%v", result, err)
+	}
+	observations := fixture.AgentRequestObservations()
+	if len(observations) != 1 || len(observations[0].Contents) != 2 {
+		t.Fatalf("fixture exact Japanese Artifact observations = %#v", observations)
+	}
+	const marker = "User request:\n"
+	current := strings.TrimPrefix(observations[0].Contents[1], "Direct Canvas context:\n\n\n"+marker)
+	if current != prompt {
+		t.Fatalf("fixture current prompt = %q, want exact %q", current, prompt)
 	}
 }
 

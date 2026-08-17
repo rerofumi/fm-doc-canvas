@@ -262,6 +262,17 @@ const imageNode = (id: string): AppNode => ({
 }
 
 {
+  const previous = [
+    { id: "u1", role: "user" as const, content: "first turn", createdAt: 1, status: "complete" as const },
+    { id: "a1", role: "assistant" as const, content: "first answer", createdAt: 2, status: "complete" as const },
+  ];
+  const request = buildChatRequest("canvas", "run-history", "session-history", "current turn", null, [], [], undefined, previous);
+  assert(request.prompt === "current turn", "current prompt changed at history boundary");
+  assert(request.history?.map((entry) => entry.content).join("|") === "first turn|first answer", "completed history order was not retained");
+  assert(!request.history?.some((entry) => entry.content === request.prompt), "current prompt was duplicated into history");
+}
+
+{
   const nodes = [textNode("upstream", "context"), artifactNode("target", "body")];
   const edges = [{ id: "edge", source: "upstream", target: "target" }];
   const traversal = traverseContextBackwards("target", nodes, edges);
@@ -302,6 +313,18 @@ const imageNode = (id: string): AppNode => ({
   const created = applyToolProposalToNodes(nodes, { toolCallId: "call-4", operation: "create", filename: "chapter.md", proposed: "new artifact" }, () => "created", () => 13);
   assert(created.status === "applied" && created.createdNodeId === "created", "Artifact was not created");
   assert((created.nodes[3].data as Record<string, unknown>).filename === "chapter-2.md", "Artifact filename collision was not resolved");
+}
+
+{
+  const nodes = [textNode("existing", "existing")];
+  const created = applyToolProposalToNodes(nodes, {
+    toolCallId: "text-create",
+    operation: "create",
+    role: "text",
+    proposed: "conversation summary",
+    lastEditSummary: "Summary",
+  }, () => "created-text", () => 10);
+  assert(created.status === "applied" && created.nodes[1].type === "customNode", "Text role proposal did not create a Text Node");
 }
 
 {

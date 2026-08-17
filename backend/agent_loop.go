@@ -37,6 +37,7 @@ func toolDefinitions() []ToolDefinition {
 		{Type: "function", Function: ToolFunctionDef{Name: "read_artifact", Description: "Read one Artifact node and record its revision.", Parameters: obj(`"node_id":{"type":"string"}`, `"node_id"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "apply_edit", Description: "Replace exactly one matching substring in a Text or Artifact node after reading it.", Parameters: obj(`"node_id":{"type":"string"},"search_text":{"type":"string"},"replacement":{"type":"string"},"edit_summary":{"type":"string"}`, `"node_id","search_text","replacement","edit_summary"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "write_artifact", Description: "Replace a read Artifact or propose a new Artifact only when explicitly requested.", Parameters: obj(`"node_id":{"type":"string"},"filename":{"type":"string"},"content":{"type":"string"},"edit_summary":{"type":"string"}`, `"content","edit_summary"`)}},
+		{Type: "function", Function: ToolFunctionDef{Name: "create_text_node", Description: "Propose a new Text Node only when the current user explicitly asks to create or paste a Text Node. Does not edit existing nodes.", Parameters: obj(`"content":{"type":"string"},"summary":{"type":"string"}`, `"content","summary"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "list_artifacts", Description: "List Artifact nodes without returning their full content.", Parameters: obj(``, ``)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "search_artifact", Description: "Search Artifact contents for a non-empty query.", Parameters: obj(`"query":{"type":"string"},"node_ids":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}`, `"query"`)}},
 		{Type: "function", Function: ToolFunctionDef{Name: "read_canvas_node", Description: "Read any Text, Artifact, or Image node from the request snapshot.", Parameters: obj(`"node_id":{"type":"string"}`, `"node_id"`)}},
@@ -53,6 +54,10 @@ func toolDefinitions() []ToolDefinition {
 func runAgent(ctx context.Context, llm LLMPort, req ChatRequest, emit func(ChatEvent), approve func(context.Context, *ToolApplyProposal) ToolApplicationResult, search WebSearchPort, image ImagePort, assets ImageAssetPort, ids IDGenerator, clock Clock) error {
 	if llm == nil {
 		return fmt.Errorf("agent LLM is unavailable")
+	}
+	history, err := req.normalizedHistory()
+	if err != nil {
+		return err
 	}
 	state := &agentRunState{request: req, readRevs: map[string]int64{}, readNodes: map[string]NodeSnapshot{}, approve: approve, search: search, image: image, assets: assets, ids: ids, clock: clock, emit: emit, llm: llm}
 	system := llm.AgentSystemPrompt()
@@ -100,7 +105,13 @@ func runAgent(ctx context.Context, llm LLMPort, req ChatRequest, emit func(ChatE
 		userContent = parts
 	}
 
-	messages := []ChatMessage{{Role: "system", Content: system}, {Role: "user", Content: userContent}}
+	messages := []ChatMessage{{Role: "system", Content: system}}
+	for _, entry := range history {
+		messages = append(messages, ChatMessage{Role: entry.Role, Content: entry.Content})
+	}
+	// Canvas context and vision payload belong only to the current request. Do
+	// not rewrite or enrich prior transcript entries.
+	messages = append(messages, ChatMessage{Role: "user", Content: userContent})
 	tools := toolDefinitions()
 
 	for round := 0; round < 10; round++ {
@@ -576,13 +587,28 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 			return awaitApproval(ctx, state, proposal)
 		}
 		if !explicitCreation(state.request.Prompt) {
-			return toolResult{Status: "error", Content: "creating a new Artifact requires an explicit user request"}
+			return toolResult{Status: "error", Content: creationGuardError(creationRoleArtifact)}
 		}
 		filename := stringArg("filename")
 		if filename == "" {
 			filename = nextArtifactFilename(state.request.Snapshot)
 		}
 		proposal := &ToolApplyProposal{ToolCallID: call.ID, Operation: "create", Filename: filename, Proposed: content, LastEditSummary: stringArg("edit_summary")}
+		return awaitApproval(ctx, state, proposal)
+
+	case "create_text_node":
+		content := stringArg("content")
+		summary := stringArg("summary")
+		if strings.TrimSpace(content) == "" {
+			return toolResult{Status: "error", Content: "content is required"}
+		}
+		if strings.TrimSpace(summary) == "" {
+			return toolResult{Status: "error", Content: "summary is required"}
+		}
+		if !explicitTextNodeCreation(state.request.Prompt) {
+			return toolResult{Status: "error", Content: creationGuardError(creationRoleText)}
+		}
+		proposal := &ToolApplyProposal{ToolCallID: call.ID, Operation: "create", Role: "text", Proposed: content, LastEditSummary: summary}
 		return awaitApproval(ctx, state, proposal)
 
 	case "generate_image":
@@ -721,7 +747,7 @@ func executeTool(ctx context.Context, state *agentRunState, call ToolCall) toolR
 // through the normal validation path.
 func normalizeMergedToolCall(call ToolCall) ToolCall {
 	known := []string{
-		"read_artifact", "apply_edit", "write_artifact", "list_artifacts",
+		"read_artifact", "apply_edit", "write_artifact", "create_text_node", "list_artifacts",
 		"search_artifact", "read_canvas_node", "list_canvas_nodes",
 		"propose_transform", "propose_relation", "propose_relation_batch",
 		"propose_cluster_view", "web_search", "generate_image",
@@ -864,32 +890,109 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-func explicitCreation(prompt string) bool {
-	lower := strings.ToLower(prompt)
-	englishObjects := []string{"artifact", "document", "chapter", "file"}
-	englishActions := []string{"create", "make", "start", "write", "new"}
-	for _, object := range englishObjects {
-		if strings.Contains(lower, object) {
-			for _, action := range englishActions {
-				if strings.Contains(lower, action) {
-					return true
-				}
-			}
-		}
+
+type creationRole string
+
+const (
+	creationRoleArtifact creationRole = "artifact"
+	creationRoleText     creationRole = "text"
+)
+
+// creationIntent authorizes a new node only from the current user prompt.
+// History is deliberately not consulted here: an acknowledgement such as
+// "それでお願いします" must never inherit an old creation request.
+func creationIntent(prompt string, role creationRole) bool {
+	lower := strings.ToLower(strings.TrimSpace(prompt))
+	if lower == "" {
+		return false
 	}
-	japaneseObjects := []string{"文書", "ドキュメント", "アーティファクト", "artifact", "章", "ファイル"}
-	japaneseActions := []string{"新規", "作成", "新しく", "追加"}
-	for _, object := range japaneseObjects {
-		if strings.Contains(lower, object) {
-			for _, action := range japaneseActions {
-				if strings.Contains(lower, action) {
-					return true
-				}
-			}
+
+	// Denials and cancellation always win over a nearby positive verb.
+	if containsAny(lower, []string{
+		"don't", "do not", "not create", "not make", "without creating", "cancel",
+		"取消", "取り消し", "キャンセル", "作成しない", "作らない", "作らなくていい",
+		"追加しない", "貼らない", "配置しない", "生成しない", "書き込まない", "保存しない",
+		"反映しない", "書き込みしない", "しないで", "しません",
+		"不要",
+	}) {
+		return false
+	}
+
+	var objects []string
+	var actions []string
+	switch role {
+	case creationRoleText:
+		objects = []string{
+			"create_text_node", "text node", "text-node", "textnode", "text ノード",
+			"テキストノード", "テキスト ノード", "テキストのノード", "テキストnode",
+		}
+		actions = []string{
+			"create", "make", "new", "add", "paste", "insert", "put", "作成", "新規",
+			"追加", "生成", "作る", "作って", "貼る", "貼って", "貼り付け", "張る",
+			"張って", "配置", "書き込", "書き込み", "保存", "反映", "にして",
+		}
+	case creationRoleArtifact:
+		objects = []string{"artifact", "アーティファクト", "document", "ドキュメント", "文書", "chapter", "章", "file", "ファイル"}
+		actions = []string{
+			"create", "make", "start", "write", "new", "create", "作成", "新規", "新しい", "新しく",
+			"新たに", "作る", "作って", "追加", "生成", "貼る", "貼って", "貼り付け", "張る",
+			"張って", "配置", "書き込", "書き込み", "保存", "反映", "にして",
+		}
+	default:
+		return false
+	}
+	if !containsAny(lower, objects) || !containsAny(lower, actions) {
+		return false
+	}
+
+	// Existing-node edits are not new-node creation, even when the edit verb
+	// happens to be "add" or "write".
+	if containsAny(lower, []string{
+		"既存", "現在の", "既にある", "existing", "current artifact", "current document",
+		"の内容を説明", "内容を説明", "に説明を追加", "に追記", "を編集", "を更新",
+		"を書き換え", "を置き換え",
+	}) {
+		return false
+	}
+	return true
+}
+
+func containsAny(value string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
 		}
 	}
 	return false
 }
+
+func explicitCreation(prompt string) bool {
+	return creationIntent(prompt, creationRoleArtifact)
+}
+
+func explicitTextNodeCreation(prompt string) bool {
+	return creationIntent(prompt, creationRoleText)
+}
+
+// creationGuardError keeps retry guidance tied to the guarded creation role.
+// It is only used after a new-node creation intent has been rejected; existing
+// node edits and unrelated tool/provider errors keep their original contracts.
+func creationGuardError(role creationRole) string {
+	var instruction string
+	switch role {
+	case creationRoleText:
+		instruction = "新しい Text Node を作成してください"
+	case creationRoleArtifact:
+		instruction = "新しい Artifact Node を作成してください"
+	default:
+		return "新しい Node の明示的な作成要求が必要です。変更は未適用です。現在のメッセージに作成要求を明記して、もう一度送信してください。"
+	}
+	return fmt.Sprintf(
+		"明示的な新規作成要求が必要です。変更は未適用です。現在のメッセージに次の定型文を明記して再送してください: %s",
+		instruction,
+	)
+}
+
 func nextArtifactFilename(snapshot CanvasSnapshot) string {
 	used := map[string]bool{}
 	for _, node := range snapshot.Nodes {

@@ -10,7 +10,8 @@
     "test:domain": "vite build --config vite.domain-test.config.ts && node .test-dist/f2Transform.test.mjs",
     "test:acceptance-gaps": "vite build --config vite.acceptance-test.config.ts && node .test-dist/acceptanceGaps.test.mjs",
     "test:f6": "vite build --config vite.f6-test.config.ts && node .test-dist/f6Orchestration.test.mjs",
-    "test": "npm run test:sprint-c && npm run test:domain && npm run test:acceptance-gaps && npm run test:f6",
+    "test:markdown": "vite build --config vite.markdown-test.config.ts && node .test-dist/markdownLinks.test.mjs",
+    "test": "npm run test:sprint-c && npm run test:domain && npm run test:acceptance-gaps && npm run test:f6 && npm run test:markdown",
     "test:e2e": "node ./e2e/run-e2e.mjs",
     "preview": "vite preview"
   },

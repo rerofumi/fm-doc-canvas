@@ -74,6 +74,20 @@ export namespace backend {
 		    return a;
 		}
 	}
+	export class ChatHistoryMessage {
+	    role: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatHistoryMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = source["role"];
+	        this.content = source["content"];
+	    }
+	}
 	export class ViewContextHintCluster {
 	    clusterId: string;
 	    label: string;
@@ -154,6 +168,7 @@ export namespace backend {
 	    runEpoch?: number;
 	    contextDigest?: string;
 	    imageProvider?: string;
+	    history?: ChatHistoryMessage[];
 	    contextWarning?: ContextWarning;
 	    viewHints?: ViewContextHint[];
 	    snapshot: CanvasSnapshot;
@@ -177,6 +192,7 @@ export namespace backend {
 	        this.runEpoch = source["runEpoch"];
 	        this.contextDigest = source["contextDigest"];
 	        this.imageProvider = source["imageProvider"];
+	        this.history = this.convertValues(source["history"], ChatHistoryMessage);
 	        this.contextWarning = this.convertValues(source["contextWarning"], ContextWarning);
 	        this.viewHints = this.convertValues(source["viewHints"], ViewContextHint);
 	        this.snapshot = this.convertValues(source["snapshot"], CanvasSnapshot);

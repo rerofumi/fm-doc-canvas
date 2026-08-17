@@ -138,6 +138,7 @@ export function createProposalFromLegacyTool(input: {
   runtimeGeneration: string;
   scopeEpoch: number;
   operation: "create" | "replace" | "edit";
+  role?: "text" | "artifact";
   targetNodeId?: string;
   baseRevision?: number;
   proposed: string;
@@ -158,7 +159,8 @@ export function createProposalFromLegacyTool(input: {
       scopeEpoch: input.scopeEpoch,
       operation: {
         kind: "create-text",
-        role: "artifact",
+        // Legacy write_artifact events have no role and remain Artifacts.
+        role: input.role === "text" ? "text" : "artifact",
         content: input.proposed,
         summary: input.lastEditSummary || "proposal",
         filename: input.filename,

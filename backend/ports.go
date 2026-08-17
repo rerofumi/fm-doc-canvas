@@ -438,6 +438,7 @@ func (NoopDialog) OpenFile(context.Context, string, []FileFilter) (string, error
 // tool result content needed by the fake-only regression tests.
 type FixtureAgentRequest struct {
 	Roles                  []string `json:"roles"`
+	Contents               []string `json:"contents"`
 	AssistantToolCallIDs   []string `json:"assistantToolCallIds,omitempty"`
 	AssistantToolCallNames []string `json:"assistantToolCallNames,omitempty"`
 	ToolResultIDs          []string `json:"toolResultIds,omitempty"`
@@ -710,9 +711,14 @@ func (f *FixtureLLM) GenerateChatReply(string, string) (string, error) { return 
 func (f *FixtureLLM) AgentSystemPrompt() string                        { return effectiveAgentSystemPrompt("") }
 
 func fixtureAgentRequest(messages []ChatMessage) FixtureAgentRequest {
-	observation := FixtureAgentRequest{Roles: make([]string, 0, len(messages))}
+	observation := FixtureAgentRequest{Roles: make([]string, 0, len(messages)), Contents: make([]string, 0, len(messages))}
 	for _, message := range messages {
 		observation.Roles = append(observation.Roles, message.Role)
+		if content, ok := message.Content.(string); ok {
+			observation.Contents = append(observation.Contents, content)
+		} else {
+			observation.Contents = append(observation.Contents, fmt.Sprint(message.Content))
+		}
 		for _, call := range message.ToolCalls {
 			observation.AssistantToolCallIDs = append(observation.AssistantToolCallIDs, call.ID)
 			observation.AssistantToolCallNames = append(observation.AssistantToolCallNames, call.Function.Name)
@@ -824,6 +830,37 @@ func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage
 	f.mu.Unlock()
 
 	lower := strings.ToLower(userText)
+	currentPrompt := userText
+	if marker := strings.LastIndex(userText, "User request:\n"); marker >= 0 {
+		currentPrompt = userText[marker+len("User request:\n"):]
+	}
+	if strings.Contains(lower, "fixture:history-first") {
+		content := "I recorded FIRST-TURN-UNIQUE from this turn."
+		if onText != nil {
+			onText(content)
+		}
+		return AgentChatResult{Content: content}, nil
+	}
+	if strings.Contains(lower, "fixture:history-second") {
+		foundPriorTurn := false
+		for _, message := range messages {
+			if message.Role != "user" && message.Role != "assistant" {
+				continue
+			}
+			if content, ok := message.Content.(string); ok && strings.Contains(content, "FIRST-TURN-UNIQUE") {
+				foundPriorTurn = true
+				break
+			}
+		}
+		content := "I could not find the first-turn detail."
+		if foundPriorTurn {
+			content = "I remember FIRST-TURN-UNIQUE from the earlier turn."
+		}
+		if onText != nil {
+			onText(content)
+		}
+		return AgentChatResult{Content: content}, nil
+	}
 	if strings.Contains(lower, "fixture:read_canvas_node") {
 		if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
 			content := "fixture read_canvas_node continuation completed"
@@ -900,6 +937,60 @@ func (f *FixtureLLM) StreamAgentChat(ctx context.Context, messages []ChatMessage
 		encoded, _ := json.Marshal(arguments)
 		call := ToolCall{ID: "fixture-generate-image", Type: "function"}
 		call.Function.Name = "generate_image"
+		call.Function.Arguments = string(encoded)
+		return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
+	}
+	if strings.Contains(lower, "fixture:create_text_node") || strings.Contains(lower, "fixture:text-node") || explicitTextNodeCreation(currentPrompt) {
+		if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
+			content := "fixture Text Node proposal applied"
+			if onText != nil {
+				onText(content)
+			}
+			return AgentChatResult{Content: content}, nil
+		}
+		history := make([]string, 0)
+		for _, message := range messages {
+			if message.Role != "user" && message.Role != "assistant" {
+				continue
+			}
+			if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
+				history = append(history, content)
+			}
+		}
+		proposalContent := "Conversation summary"
+		if len(history) > 1 {
+			proposalContent = "Conversation summary:\n" + history[0]
+		}
+		encoded, _ := json.Marshal(map[string]string{"content": proposalContent, "summary": "Fixture conversation summary"})
+		call := ToolCall{ID: "fixture-create-text-node", Type: "function"}
+		call.Function.Name = "create_text_node"
+		call.Function.Arguments = string(encoded)
+		return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
+	}
+	if strings.Contains(lower, "fixture:create_artifact") || strings.Contains(lower, "fixture:artifact") || explicitCreation(currentPrompt) {
+		if len(messages) > 0 && messages[len(messages)-1].Role == "tool" {
+			content := "fixture Artifact proposal applied"
+			if onText != nil {
+				onText(content)
+			}
+			return AgentChatResult{Content: content}, nil
+		}
+		history := make([]string, 0)
+		for _, message := range messages {
+			if message.Role != "user" && message.Role != "assistant" {
+				continue
+			}
+			if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
+				history = append(history, content)
+			}
+		}
+		proposalContent := "Conversation document"
+		if len(history) > 1 {
+			proposalContent = "Conversation document:\n" + history[0]
+		}
+		encoded, _ := json.Marshal(map[string]string{"content": proposalContent, "edit_summary": "Fixture conversation document"})
+		call := ToolCall{ID: "fixture-create-artifact", Type: "function"}
+		call.Function.Name = "write_artifact"
 		call.Function.Arguments = string(encoded)
 		return AgentChatResult{ToolCalls: []ToolCall{call}}, nil
 	}

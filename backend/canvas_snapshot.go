@@ -28,6 +28,14 @@ type CanvasSnapshot struct {
 	Edges    []EdgeSnapshot `json:"edges"`
 }
 
+// ChatHistoryMessage is the allowlisted provider-facing transcript entry.
+// Only user and assistant messages are accepted; tool/system roles never cross
+// the ChatRequest boundary.
+type ChatHistoryMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // ViewContextHintCluster is the serializable observation for one provisional
 // cluster. It is named so Wails can generate a valid TypeScript binding.
 type ViewContextHintCluster struct {
@@ -44,22 +52,23 @@ type ViewContextHint struct {
 }
 
 type ChatRequest struct {
-	RunID                string            `json:"runId"`
-	SessionID            string            `json:"sessionId"`
-	CanvasID             string            `json:"canvasId"`
-	Prompt               string            `json:"prompt"`
-	TargetNodeID         string            `json:"targetNodeId,omitempty"`
-	DirectContextNodeIDs []string          `json:"directContextNodeIds"`
-	BodyAllowlistNodeIDs []string          `json:"bodyAllowlistNodeIds,omitempty"`
-	WorkspaceID          string            `json:"workspaceId,omitempty"`
-	RuntimeGeneration    string            `json:"runtimeGeneration,omitempty"`
-	ScopeEpoch           int64             `json:"scopeEpoch,omitempty"`
-	RunEpoch             int64             `json:"runEpoch,omitempty"`
-	ContextDigest        string            `json:"contextDigest,omitempty"`
-	ImageProvider        string            `json:"imageProvider,omitempty"`
-	ContextWarning       *ContextWarning   `json:"contextWarning,omitempty"`
-	ViewHints            []ViewContextHint `json:"viewHints,omitempty"`
-	Snapshot             CanvasSnapshot    `json:"snapshot"`
+	RunID                string               `json:"runId"`
+	SessionID            string               `json:"sessionId"`
+	CanvasID             string               `json:"canvasId"`
+	Prompt               string               `json:"prompt"`
+	TargetNodeID         string               `json:"targetNodeId,omitempty"`
+	DirectContextNodeIDs []string             `json:"directContextNodeIds"`
+	BodyAllowlistNodeIDs []string             `json:"bodyAllowlistNodeIds,omitempty"`
+	WorkspaceID          string               `json:"workspaceId,omitempty"`
+	RuntimeGeneration    string               `json:"runtimeGeneration,omitempty"`
+	ScopeEpoch           int64                `json:"scopeEpoch,omitempty"`
+	RunEpoch             int64                `json:"runEpoch,omitempty"`
+	ContextDigest        string               `json:"contextDigest,omitempty"`
+	ImageProvider        string               `json:"imageProvider,omitempty"`
+	History              []ChatHistoryMessage `json:"history,omitempty"`
+	ContextWarning       *ContextWarning      `json:"contextWarning,omitempty"`
+	ViewHints            []ViewContextHint    `json:"viewHints,omitempty"`
+	Snapshot             CanvasSnapshot       `json:"snapshot"`
 }
 
 type ContextWarning struct {
@@ -82,6 +91,9 @@ func (r ChatRequest) validate() error {
 	}
 	if r.ImageProvider != "" && r.ImageProvider != "openrouter" && r.ImageProvider != "openai" && r.ImageProvider != "google" && r.ImageProvider != "xai" {
 		return fmt.Errorf("unsupported image provider %q", r.ImageProvider)
+	}
+	if _, err := r.normalizedHistory(); err != nil {
+		return err
 	}
 	// F-1 scope fields are optional for legacy callers, but once a caller sends
 	// any scope marker the complete correlation envelope must be present.
@@ -162,6 +174,28 @@ func (r ChatRequest) validate() error {
 		}
 	}
 	return nil
+}
+
+// normalizedHistory validates the untrusted history supplied by the frontend.
+// Keeping this boundary defensive prevents direct Wails callers from injecting
+// system/tool roles or an unbounded transcript into provider calls. Content is
+// intentionally copied verbatim: history is a transcript, so normalization
+// must not rewrite a prior user or assistant message.
+func (r ChatRequest) normalizedHistory() ([]ChatHistoryMessage, error) {
+	if len(r.History) > 12 {
+		return nil, fmt.Errorf("history exceeds maximum of 12 messages")
+	}
+	history := make([]ChatHistoryMessage, 0, len(r.History))
+	for index, message := range r.History {
+		if message.Role != "user" && message.Role != "assistant" {
+			return nil, fmt.Errorf("history[%d] has unsupported role %q", index, message.Role)
+		}
+		if strings.TrimSpace(message.Content) == "" {
+			return nil, fmt.Errorf("history[%d] content is required", index)
+		}
+		history = append(history, ChatHistoryMessage{Role: message.Role, Content: message.Content})
+	}
+	return history, nil
 }
 
 func (s CanvasSnapshot) node(id string) (NodeSnapshot, bool) {

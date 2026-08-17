@@ -18,6 +18,27 @@ export function applyToolProposalToNodes(
   now: () => number,
 ): ToolApplicationOutcome {
   if (proposal.operation === "create") {
+    if (proposal.role === "text") {
+      const id = createId();
+      const content = proposal.proposed;
+      const text: AppNode = {
+        id,
+        type: "customNode",
+        position: { x: 120 + nodes.length * 20, y: 120 + nodes.length * 20 },
+        data: {
+          content,
+          summary: proposal.lastEditSummary || content.split(/\r?\n/, 1)[0] || "New Text",
+          revision: 0,
+          charCount: [...content].length,
+          wordCount: content.trim() ? content.trim().split(/\s+/).length : 0,
+          domainKind: "text",
+          domainRole: "text",
+        },
+        width: 250,
+        height: 150,
+      };
+      return { nodes: [...nodes, text], status: "applied", createdNodeId: id };
+    }
     let filename = proposal.filename?.trim() || "artifact.md";
     const used = new Set(nodes.filter((node) => node.type === "artifactNode").map((node) => (node.data as ArtifactNodeData).filename));
     if (used.has(filename)) {
