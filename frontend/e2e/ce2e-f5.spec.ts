@@ -19,7 +19,7 @@ test.describe("F5 Generated Structures core", () => {
     await expect(app.suggestRelations()).resolves.toBeTruthy();
     const card = page.getByTestId("relation-batch-proposal");
     await expect(card).toBeVisible();
-    await expect(card.getByRole("button", { name: "Accept selected (1)" })).toBeVisible();
+    await expect(card.locator('[data-proposal-decision="accept"]')).toBeVisible();
 
     let snap = await app.snapshot();
     expect(snap.relationCount).toBe(0);
@@ -37,7 +37,7 @@ test.describe("F5 Generated Structures core", () => {
           relation.targetNodeId === unrelatedB,
       ),
     ).toBeFalsy();
-    await card.getByRole("button", { name: "Accept selected (1)" }).click();
+    await card.locator('[data-proposal-decision="accept"]').click();
 
     snap = await app.snapshot();
     expect(snap.relationCount).toBe(1);
@@ -57,7 +57,7 @@ test.describe("F5 Generated Structures core", () => {
     const sourceB = await app.addText("Dialogue relation target");
     await app.selectNodes([sourceA!, sourceB!]);
     await app.openChat();
-    const input = page.getByPlaceholder(/メッセージを入力/);
+    const input = page.getByTestId("assistant-prompt");
     await input.fill("fixture:relation-batch");
     await input.press("Control+Enter");
 
@@ -65,7 +65,7 @@ test.describe("F5 Generated Structures core", () => {
     await expect(relationCard).toBeVisible({ timeout: 15_000 });
     await expect(relationCard).toContainText("fixture relation batch");
     await relationCard
-      .getByRole("button", { name: "Accept selected dialogue relations" })
+      .locator('[data-proposal-decision="accept"]')
       .click();
     expect((await app.snapshot()).relationCount).toBe(1);
 
@@ -75,15 +75,15 @@ test.describe("F5 Generated Structures core", () => {
     const clusterC = await app.addText("Dialogue cluster C");
     await app.selectNodes([clusterA!, clusterB!, clusterC!]);
     await app.openChat();
-    await page.getByPlaceholder(/メッセージを入力/).fill("fixture:cluster-view");
-    await page.getByPlaceholder(/メッセージを入力/).press("Control+Enter");
+    await page.getByTestId("assistant-prompt").fill("fixture:cluster-view");
+    await page.getByTestId("assistant-prompt").press("Control+Enter");
 
     const viewCard = page.getByTestId("generated-view-proposal");
     await expect(viewCard).toBeVisible({ timeout: 15_000 });
     await expect(viewCard).toContainText("Fixture View");
     const beforeAccept = await app.snapshot();
     expect(beforeAccept.activeGeneratedView).toBeNull();
-    await page.getByRole("button", { name: "Accept proposal" }).click();
+    await page.locator('[data-testid^="tool-card-"]').filter({ has: viewCard }).locator('[data-tool-decision="accept"]').click();
     const afterAccept = await app.snapshot();
     expect(afterAccept.activeGeneratedView?.label).toBe("Fixture View");
     expect(afterAccept.chat.sessions.length).toBeGreaterThan(0);
@@ -104,7 +104,7 @@ test.describe("F5 Generated Structures core", () => {
     await app.suggestClusters();
     const proposal = page.getByTestId("cluster-view-proposal");
     await expect(proposal).toBeVisible();
-    await proposal.getByRole("button", { name: "Accept cluster view" }).click();
+    await proposal.locator('[data-proposal-decision="accept"]').click();
     await expect(page.getByTestId("generated-view-banner")).toBeVisible();
 
     let snap = await app.snapshot();
@@ -114,11 +114,11 @@ test.describe("F5 Generated Structures core", () => {
     expect(snap.context.viewHints.length).toBeGreaterThan(0);
     expect(snap.json).not.toContain("Fixture View");
 
-    await page.getByRole("button", { name: "Convert Cluster B to SubCanvas" }).click();
+    await page.locator('[data-testid^="convert-cluster-"]').nth(1).click();
     const dialog = page.getByTestId("convert-cluster-dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByLabel("Folder label").fill("Converted evidence");
-    await dialog.getByRole("button", { name: "Confirm convert to SubCanvas" }).click();
+    await dialog.getByTestId("convert-cluster-label").fill("Converted evidence");
+    await dialog.getByTestId("convert-cluster-confirm").click();
 
     snap = await app.snapshot();
     expect(snap.domainNodes.some((node: any) => node.kind === "folder" && node.label === "Converted evidence")).toBeTruthy();
@@ -143,8 +143,9 @@ test.describe("F5 Generated Structures core", () => {
     await expect
       .poll(async () => (await app.snapshot()).lastSuggestReceipt?.status)
       .toBe("pending");
-    await expect(page.getByTestId("suggest-progress")).toContainText(
-      "Relationを解析中",
+    await expect(page.getByTestId("suggest-progress")).toHaveAttribute(
+      "data-operation",
+      "relations",
     );
     await app.newWorkspace();
     await app.releaseDelayedSuggest();
@@ -173,7 +174,7 @@ test.describe("F5 Generated Structures core", () => {
     expect(after.nodeCount).toBe(before.nodeCount);
     expect(after.relationCount).toBe(before.relationCount);
     expect(after.pendingDirectProposal).toBeNull();
-    expect(after.lastError).toContain("suggest-invalid-json");
-    await expect(page.getByText("suggest-invalid-json", { exact: false })).toBeVisible();
+    expect(after.lastError).toBe("operation.directActionFailed");
+    await expect(page.getByTestId("global-error-banner")).toBeVisible();
   });
 });

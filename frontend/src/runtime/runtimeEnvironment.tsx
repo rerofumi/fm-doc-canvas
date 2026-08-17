@@ -5,8 +5,8 @@ export type RuntimeMode = "production" | "e2e";
 export interface AppBackendPort {
   GetConfig(): Promise<unknown>;
   SaveConfig(config: unknown): Promise<void>;
-  SaveCanvasToFile(jsonData: string): Promise<string>;
-  LoadCanvasFromFile(): Promise<string>;
+  SaveCanvasToFile(jsonData: string, locale: "ja" | "en"): Promise<string>;
+  LoadCanvasFromFile(locale: "ja" | "en"): Promise<string>;
   GenerateText(prompt: string, contextData: string): Promise<string>;
   GenerateSummary(text: string): Promise<string>;
   GenerateImage(
@@ -22,9 +22,9 @@ export interface AppBackendPort {
   ): Promise<string>;
   GetImageDataURL(src: string): Promise<string>;
   ImportFile(filePath: string): Promise<{ type: string; content: string; filename?: string }>;
-  ExportMarkdown(content: string): Promise<string>;
-  ExportMarkdownWithFilename(content: string, defaultFilename: string): Promise<string>;
-  ExportImage(src: string): Promise<string>;
+  ExportMarkdown(content: string, locale: "ja" | "en"): Promise<string>;
+  ExportMarkdownWithFilename(content: string, defaultFilename: string, locale: "ja" | "en"): Promise<string>;
+  ExportImage(src: string, locale: "ja" | "en"): Promise<string>;
   GetImageFileURL(src: string): Promise<string>;
   SendChat?(req: unknown): Promise<void>;
   CancelChat?(runId: string): Promise<void>;

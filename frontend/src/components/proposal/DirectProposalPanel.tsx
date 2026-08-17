@@ -4,12 +4,14 @@ import type { RelationBatchItem } from "../../domain/generatedView";
 import type { ClusterViewDraft } from "../../domain/generatedView";
 import RelationBatchProposalCard from "./RelationBatchProposalCard";
 import ClusterViewProposalCard from "./ClusterViewProposalCard";
+import { useTranslation } from "react-i18next";
 
 /**
  * Renders the Direct suggestion proposal (Relation batch or Cluster View) that
  * is awaiting a human decision. Direct suggestions never enter the Dialogue.
  */
 const DirectProposalPanel: React.FC = () => {
+  const { t } = useTranslation();
   const proposal = useAppStore((s) => s.pendingDirectProposal);
   const decideDirectProposal = useAppStore((s) => s.decideDirectProposal);
   const dismissDirectProposal = useAppStore((s) => s.dismissDirectProposal);
@@ -32,7 +34,7 @@ const DirectProposalPanel: React.FC = () => {
     <div
       className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2"
       role="region"
-      aria-label="Direct suggestion proposal"
+      aria-label={t($ => $.proposal.directSuggestion)}
       data-testid="direct-proposal-panel"
     >
       {proposal.operation.kind === "add-relation-batch" ? (
@@ -43,10 +45,10 @@ const DirectProposalPanel: React.FC = () => {
       <button
         type="button"
         className="mt-1 text-[11px] text-amber-700 underline"
-        aria-label="Dismiss direct suggestion"
+        aria-label={t($ => $.proposal.dismissDirect)}
         onClick={dismissDirectProposal}
       >
-        Dismiss
+        {t($ => $.proposal.dismiss)}
       </button>
     </div>
   );

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import CanvasArea from "./components/canvas/CanvasArea";
 import EditorDrawer from "./components/drawer/EditorDrawer";
 import ProjectedContextPanel from "./components/context/ProjectedContextPanel";
@@ -19,8 +20,13 @@ import {
 import { ReactFlowProvider } from "@xyflow/react";
 import { useE2EBridge } from "./runtime/e2eBridge";
 import { isNextActionError } from "./domain/orchestration";
+import { presentUiMessage } from "./i18n/messages";
+import { presentDirectOperation } from "./i18n/presentation";
 
 function App() {
+  // Subscribe to i18next so visible descriptors are re-presented immediately
+  // when the locale changes, even if the underlying store error is unchanged.
+  const { t } = useTranslation();
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const {
     addEmptyNode,
@@ -67,34 +73,37 @@ function App() {
 
         <div className="flex shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap">
           <button
-            onClick={addEmptyNode}
+            data-testid="shell-add-text"
+            onClick={() => addEmptyNode(t(($) => $.shell.defaultTextLabel))}
             className="mr-1 flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
-            title="Add Text"
-            aria-label="Add Text"
+            title={t(($) => $.shell.addText)}
+            aria-label={t(($) => $.shell.addText)}
           >
             <Plus size={14} />
-            <span>Text</span>
+            <span>{t(($) => $.shell.text)}</span>
           </button>
           <button
-            onClick={addArtifactNode}
+            data-testid="shell-add-artifact"
+            onClick={() => addArtifactNode(t(($) => $.shell.defaultArtifactLabel))}
             className="flex items-center gap-1.5 rounded-md bg-purple-600 px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-purple-700"
-            title="Add Artifact"
-            aria-label="Add Artifact"
+            title={t(($) => $.shell.addArtifact)}
+            aria-label={t(($) => $.shell.addArtifact)}
           >
             <Plus size={14} />
-            <span>Artifact</span>
+            <span>{t(($) => $.shell.artifact)}</span>
           </button>
 
           <div className="mx-1 h-4 w-px bg-gray-200" />
 
           <button
+            data-testid="shell-undo"
             onClick={() => undo()}
             className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-100"
-            title="Undo"
-            aria-label="Undo"
+            title={t(($) => $.shell.undo)}
+            aria-label={t(($) => $.shell.undo)}
           >
             <Undo2 size={16} />
-            <span>Undo</span>
+            <span>{t(($) => $.shell.undo)}</span>
           </button>
 
           <div className="mx-1 h-4 w-px bg-gray-200" />
@@ -102,11 +111,12 @@ function App() {
           <ChatToggleButton />
           <div className="mx-1 h-4 w-px bg-gray-200" />
           <button
+            data-testid="shell-settings"
             ref={settingsButtonRef}
             onClick={() => setSettingsOpen(true)}
             className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100"
-            title="Settings"
-            aria-label="Settings"
+            title={t(($) => $.shell.settings)}
+            aria-label={t(($) => $.shell.settings)}
           >
             <Menu size={20} />
           </button>
@@ -117,11 +127,11 @@ function App() {
         <div
           className="flex shrink-0 items-center gap-2 border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-800"
           role="status"
-          aria-label="Web search in progress"
+          aria-label={t(($) => $.shell.webSearchInProgress)}
           data-testid="web-search-progress"
         >
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-          Web検索中…
+          {t(($) => $.shell.webSearchInProgress)}
         </div>
       )}
 
@@ -132,15 +142,16 @@ function App() {
           aria-live="polite"
           aria-label={
             lastSuggestReceipt.operation === "relations"
-              ? "Relation analysis in progress"
-              : "Cluster analysis in progress"
+              ? t(($) => $.shell.relationAnalysisInProgress)
+              : t(($) => $.shell.clusterAnalysisInProgress)
           }
+          data-operation={lastSuggestReceipt.operation}
           data-testid="suggest-progress"
         >
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           {lastSuggestReceipt.operation === "relations"
-            ? "Relationを解析中… 完了すると提案が表示されます。"
-            : "Clusterを解析中… 完了すると提案が表示されます。"}
+            ? t(($) => $.shell.relationAnalysisInProgress)
+            : t(($) => $.shell.clusterAnalysisInProgress)}
         </div>
       )}
 
@@ -148,13 +159,12 @@ function App() {
         <div
           className="border-b border-red-200 bg-red-50 px-4 py-1 text-xs text-red-700"
           role="alert"
-          aria-label="Workspace error"
+          aria-label={t(($) => $.shell.workspaceError)}
           data-testid="global-error-banner"
         >
-          <div>{globalError}</div>
+          <div>{presentUiMessage(globalError)}</div>
           <div className="mt-0.5 text-[10px] text-red-600">
-            次の操作: Undo、修正して再実行、New Workspace、または relation /
-            transform を作り直す。
+            {t(($) => $.shell.recovery)}
           </div>
         </div>
       )}
@@ -168,15 +178,17 @@ function App() {
         <div
           className="border-b border-indigo-200 bg-indigo-50 px-4 py-2 text-xs text-indigo-900"
           role="status"
-          aria-label="Direct Action result"
+          aria-label={t(($) => $.shell.directActionResult)}
           data-testid="direct-action-receipt"
         >
           <div className="font-semibold">
-            {lastDirectReceipt.operation} applied
+            {t(($) => $.shell.operationApplied, {
+              operation: presentDirectOperation(lastDirectReceipt.operation),
+            })}
           </div>
           <div>{lastDirectReceipt.summary}</div>
           {lastDirectReceipt.createdNodeId && (
-            <div>Created derived node: {lastDirectReceipt.createdNodeId}</div>
+            <div>{t(($) => $.shell.createdDerivedNode, { id: lastDirectReceipt.createdNodeId })}</div>
           )}
           {lastDirectReceipt.diff && (
             <div
@@ -184,7 +196,7 @@ function App() {
               data-testid="direct-action-diff"
             >
               <div>
-                <div className="font-semibold">diff.sources</div>
+                <div className="font-semibold">{t(($) => $.shell.diffSources)}</div>
                 {(lastDirectReceipt.diff.sources || []).map((source, index) => {
                   if (typeof source === "string") {
                     return (
@@ -211,7 +223,7 @@ function App() {
                 })}
               </div>
               <div>
-                <div className="font-semibold">diff.output</div>
+                <div className="font-semibold">{t(($) => $.shell.diffOutput)}</div>
                 <div
                   className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-1"
                   data-testid="direct-diff-output"
@@ -225,19 +237,19 @@ function App() {
             <button
               type="button"
               className="rounded bg-indigo-700 px-2 py-1 text-[11px] font-bold text-white"
-              aria-label="Undo Direct Action"
+              aria-label={t(($) => $.shell.undoDirectAction)}
               data-testid="direct-action-undo"
               onClick={undoDirectReceipt}
             >
-              Undo
+              {t(($) => $.shell.undo)}
             </button>
             <button
               type="button"
               className="rounded border border-indigo-300 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-800"
-              aria-label="Dismiss Direct Action receipt"
+              aria-label={t(($) => $.shell.dismissDirectAction)}
               onClick={clearDirectReceipt}
             >
-              Dismiss
+              {t(($) => $.common.action.close)}
             </button>
           </div>
         </div>

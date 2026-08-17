@@ -14,21 +14,20 @@ test.describe("F4 Multimodal Transform core", () => {
     // Exercise the real ChatDrawer -> SendChat -> FixtureLLM -> generate_image path.
     await app.openChat();
     await page
-      .getByLabel("Dialogue image provider")
+      .getByTestId("assistant-image-provider")
       .selectOption("openai");
-    const dialogueInput = page.getByPlaceholder(/メッセージを入力/);
+    const dialogueInput = page.getByTestId("assistant-prompt");
     await dialogueInput.fill("fixture:generate_image a rocket");
     await dialogueInput.press("Control+Enter");
 
     // Tool card shows the image-variant preview with metadata and actions.
-    const card = page.getByRole("group", { name: "Proposal proposed" });
+    const card = page.locator('[data-testid^="tool-card-"]').filter({ has: page.getByTestId("image-variant-proposal") });
     await expect(card.getByTestId("image-variant-proposal")).toBeVisible();
     await expect(
-      card.getByRole("img", { name: "Generated proposal: a rocket" }),
+      card.getByRole("img"),
     ).toBeVisible();
     await expect(card).toContainText("a rocket");
     await expect(card).toContainText("generated/fixture.png");
-    await expect(card).toContainText("provider: openai");
     const imageCall = await app.getImageFixtureObservations();
     expect(imageCall.provider).toBe("openai");
 
@@ -38,7 +37,7 @@ test.describe("F4 Multimodal Transform core", () => {
     expect(snap.relationCount).toBe(before.relationCount);
 
     // Accept -> Image Node + derived relation + origin=image provenance.
-    await card.getByRole("button", { name: "Accept proposal" }).click();
+    await card.locator('[data-tool-decision="accept"]').click();
     snap = await app.snapshot();
     expect(snap.nodeCount).toBe(before.nodeCount + 1);
     expect(snap.relationCount).toBe(before.relationCount + 1);
@@ -82,12 +81,12 @@ test.describe("F4 Multimodal Transform core", () => {
 
     // Direct image generation through the unified Assistant drawer.
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    await page.getByTestId("direct-mode-selector").getByRole("button", { name: "Image", exact: true }).click();
-    await page.getByLabel("Dialogue image provider").selectOption("openrouter");
-    await page.getByLabel("Chat message input").fill("a direct rocket");
-    await page.getByRole("button", { name: "生成" }).click();
-    await expect(page.getByTestId("direct-result-surface")).toContainText("generate-image");
+    await page.getByTestId("assistant-mode-direct").click();
+    await page.getByTestId("direct-mode-selector").locator('[data-direct-mode="image"]').click();
+    await page.getByTestId("assistant-image-provider").selectOption("openrouter");
+    await page.getByTestId("assistant-prompt").fill("a direct rocket");
+    await page.getByTestId("assistant-submit").click();
+    await expect(page.getByTestId("direct-result-surface")).toBeVisible();
 
     // Image Node placed with origin=image provenance and derived relation.
     let snap = await app.snapshot();
@@ -181,7 +180,7 @@ test.describe("F4 Multimodal Transform core", () => {
     // Exercise the real Dialogue path and verify the actual multimodal payload.
     const beforeImageCalls = await app.getImageFixtureObservations();
     await app.openChat();
-    const dialogueInput = page.getByPlaceholder(/メッセージを入力/);
+    const dialogueInput = page.getByTestId("assistant-prompt");
     await dialogueInput.fill("Compare the selected images against their intent");
     await dialogueInput.press("Control+Enter");
     await expect(
@@ -260,14 +259,17 @@ test.describe("F4 Multimodal Transform core", () => {
     const beforeStop = await app.snapshot();
     await app.armDelayedImageGeneration();
     await app.openChat();
-    const dialogueInput = page.getByPlaceholder(/メッセージを入力/);
+    const dialogueInput = page.getByTestId("assistant-prompt");
     await dialogueInput.fill("fixture:generate_image a rocket");
     await dialogueInput.press("Control+Enter");
-    await expect(page.getByRole("group", { name: "Proposal running" })).toBeVisible();
-    await expect(page.getByLabel("Stop dialogue run")).toBeVisible();
-    await page.getByLabel("Stop dialogue run").click();
+    await expect(page.locator('[data-testid^="tool-card-"]')).toBeVisible();
+    await expect(page.getByTestId("assistant-stop-action")).toBeVisible();
+    await page.getByTestId("assistant-stop-action").click();
     await app.releaseDelayedImageGeneration();
-    await expect(page.getByText("キャンセルしました。")).toBeVisible();
+    await expect.poll(async () => {
+      const state = await app.snapshot();
+      return state.chat.sessions.some((session: any) => session.messages.some((message: any) => message.status === "cancelled"));
+    }).toBeTruthy();
 
     const afterStop = await app.snapshot();
     expect(afterStop.nodeCount).toBe(beforeStop.nodeCount);
@@ -337,10 +339,10 @@ test.describe("F4 Multimodal Transform core", () => {
 
     // 4. The unified Assistant Text direct action still works (F1-F3 regression).
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    await page.getByRole("button", { name: "Text", exact: true }).last().click();
-    await page.getByLabel("Chat message input").fill("PromptBar text regression check");
-    await page.getByRole("button", { name: "生成" }).click();
+    await page.getByTestId("assistant-mode-direct").click();
+    await page.getByTestId("direct-mode-selector").locator('[data-direct-mode="text"]').click();
+    await page.getByTestId("assistant-prompt").fill("PromptBar text regression check");
+    await page.getByTestId("assistant-submit").click();
     await expect
       .poll(async () => (await app.snapshot()).nodeCount)
       .toBe(before.nodeCount + 1);

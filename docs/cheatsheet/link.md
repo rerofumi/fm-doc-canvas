@@ -1,5 +1,56 @@
 # Source Links
 
+## i18next TypeScript
+
+- URL: https://www.i18next.com/overview/typescript
+- Source type: Official documentation
+- Confirmation date: 2026-08-17
+- Related local cheatsheet: `ui_i18n.md`
+- Related local files: future `frontend/src/i18n/`
+- Reason: TypeScript 5 support、resource type augmentation、`strictKeyChecks`、selector API、large catalog の compile-time guidance を確認する。
+
+## i18next Configuration
+
+- URL: https://www.i18next.com/overview/configuration-options
+- Source type: Official documentation
+- Confirmation date: 2026-08-17
+- Related local cheatsheet: `ui_i18n.md`
+- Related local files: future `frontend/src/i18n/i18n.ts`
+- Reason: bundled `resources`、`lng`、`fallbackLng`、`supportedLngs`、`cimode` 等の instance configuration を確認する。
+
+## react-i18next Quick Start
+
+- URL: https://react.i18next.com/guides/quick-start
+- Source type: Official documentation
+- Confirmation date: 2026-08-17
+- Related local cheatsheet: `ui_i18n.md`
+- Related local files: future `frontend/src/i18n/i18n.ts`, React components
+- Reason: `i18next` + `react-i18next` initialization、`initReactI18next`、`useTranslation` の React integration を確認する。
+
+## react-i18next useTranslation
+
+- URL: https://react.i18next.com/latest/usetranslation-hook
+- Source type: Official documentation
+- Confirmation date: 2026-08-17
+- Related local cheatsheet: `ui_i18n.md`
+- Reason: hook による `t` / i18n instance access、runtime language change、Suspense behavior を確認する。
+
+## i18next npm package 26.3.6
+
+- URL: https://www.npmjs.com/package/i18next/v/26.3.6
+- Source type: npm package registry metadata
+- Confirmation date: 2026-08-17
+- Related local cheatsheet: `ui_i18n.md`
+- Reason: exact version、license、package metadata と local install target を固定する。
+
+## react-i18next npm package 17.0.11
+
+- URL: https://www.npmjs.com/package/react-i18next/v/17.0.11
+- Source type: npm package registry metadata
+- Confirmation date: 2026-08-17
+- Related local cheatsheet: `ui_i18n.md`
+- Reason: exact version と React / i18next / TypeScript peer compatibility の local verification target を固定する。
+
 ## OpenRouter Image Generation
 
 - URL: https://openrouter.ai/docs/guides/overview/multimodal/image-generation

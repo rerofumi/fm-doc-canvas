@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface ContextMenuProps {
   x: number;
@@ -44,8 +45,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   onSuggestClusters,
   returnFocusTarget,
   fallbackFocusTarget,
-  label = "Item",
+  label,
 }) => {
+  const { t } = useTranslation();
+  const itemLabel = label ?? t(($) => $.contextMenu.item);
   const menuRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | SVGElement | null>(null);
   const [position, setPosition] = useState({ x, y });
@@ -162,14 +165,14 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     <div
       ref={menuRef}
       role="menu"
-      aria-label={`${label} options`}
+      aria-label={t(($) => $.contextMenu.options, { label: itemLabel })}
       className="fixed z-[100] min-w-[180px] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl animate-in fade-in zoom-in duration-100"
       style={{ top: position.y, left: position.x }}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="mb-1 border-b border-gray-50 px-3 py-1.5">
         <span className="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-400">
-          {label} Options
+          {t(($) => $.contextMenu.options, { label: itemLabel })}
         </span>
       </div>
 
@@ -183,9 +186,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-amber-700 hover:bg-amber-50 focus:bg-amber-50 focus:outline-none"
-          aria-label="Create SubCanvas"
+          data-testid="context-menu-create-subcanvas"
+          aria-label={t(($) => $.contextMenu.createSubCanvas)}
         >
-          Create SubCanvas
+          {t(($) => $.contextMenu.createSubCanvas)}
         </button>
       )}
 
@@ -199,9 +203,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-blue-700 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
-          aria-label="Move selected nodes to parent Canvas"
+          data-testid="context-menu-move-to-parent"
+          aria-label={t(($) => $.contextMenu.moveToParentCanvas)}
         >
-          親 Canvas へ移動
+          {t(($) => $.contextMenu.moveToParentCanvas)}
         </button>
       )}
 
@@ -215,9 +220,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className={itemClass}
-          aria-label="Rename SubCanvas"
+          data-testid="context-menu-rename-subcanvas"
+          aria-label={t(($) => $.contextMenu.renameSubCanvas)}
         >
-          Rename SubCanvas
+          {t(($) => $.contextMenu.renameSubCanvas)}
         </button>
       )}
 
@@ -231,16 +237,17 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 focus:bg-red-50 focus:outline-none"
-          aria-label="Delete SubCanvas"
+          data-testid="context-menu-delete-subcanvas"
+          aria-label={t(($) => $.contextMenu.deleteSubCanvas)}
         >
-          Delete SubCanvas
+          {t(($) => $.contextMenu.deleteSubCanvas)}
         </button>
       )}
 
       {onTransform && (
         <>
           <div className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-            Direct Transform
+            {t(($) => $.contextMenu.directTransform)}
           </div>
           {(["summarize", "compare", "counterpoint"] as const).map(
             (operation) => (
@@ -254,13 +261,14 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
                   onClose();
                 }}
                 className="w-full px-3 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50 focus:bg-indigo-50 focus:outline-none"
-                aria-label={`${operation} selected nodes`}
+                data-testid={`context-menu-transform-${operation}`}
+                aria-label={operation === "summarize" ? t(($) => $.contextMenu.summarizeSelected) : operation === "compare" ? t(($) => $.contextMenu.compareSelected) : t(($) => $.contextMenu.counterpointSelected)}
               >
                 {operation === "summarize"
-                  ? "Summarize"
+                  ? t(($) => $.contextMenu.summarize)
                   : operation === "compare"
-                    ? "Compare"
-                    : "Counterpoint"}
+                    ? t(($) => $.contextMenu.compare)
+                    : t(($) => $.contextMenu.counterpoint)}
               </button>
             ),
           )}
@@ -276,9 +284,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-sky-700 hover:bg-sky-50 focus:bg-sky-50 focus:outline-none"
-          aria-label="Search Web"
+          data-testid="context-menu-search-web"
+          aria-label={t(($) => $.contextMenu.searchWeb)}
         >
-          Search Web
+          {t(($) => $.contextMenu.searchWeb)}
         </button>
       )}
       {onAddRelation && (
@@ -291,9 +300,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none"
-          aria-label="Add Relation between selected nodes"
+          data-testid="context-menu-add-relation"
+          aria-label={t(($) => $.contextMenu.addRelation)}
         >
-          Add Relation
+          {t(($) => $.contextMenu.addRelationShort)}
         </button>
       )}
       {onSuggestRelations && (
@@ -306,9 +316,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none"
-          aria-label="Suggest Relations"
+          data-testid="context-menu-suggest-relations"
+          aria-label={t(($) => $.contextMenu.suggestRelations)}
         >
-          Suggest Relations
+          {t(($) => $.contextMenu.suggestRelations)}
         </button>
       )}
       {onSuggestClusters && (
@@ -321,9 +332,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 focus:bg-emerald-50 focus:outline-none"
-          aria-label="Suggest Clusters"
+          data-testid="context-menu-suggest-clusters"
+          aria-label={t(($) => $.contextMenu.suggestClusters)}
         >
-          Suggest Clusters
+          {t(($) => $.contextMenu.suggestClusters)}
         </button>
       )}
       {onEditRelation && (
@@ -336,9 +348,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className={itemClass}
-          aria-label="Edit Relation"
+          data-testid="context-menu-edit-relation"
+          aria-label={t(($) => $.contextMenu.editRelation)}
         >
-          Edit Relation
+          {t(($) => $.contextMenu.editRelation)}
         </button>
       )}
       {onReverseRelation && (
@@ -351,9 +364,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className={itemClass}
-          aria-label="Reverse Relation direction"
+          data-testid="context-menu-reverse-relation"
+          aria-label={t(($) => $.contextMenu.reverseRelation)}
         >
-          Reverse direction
+          {t(($) => $.contextMenu.reverseDirection)}
         </button>
       )}
 
@@ -367,9 +381,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
-          aria-label="Export"
+          data-testid="context-menu-export"
+          aria-label={t(($) => $.contextMenu.export)}
         >
-          Export
+          {t(($) => $.contextMenu.export)}
         </button>
       )}
 
@@ -383,9 +398,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
             onClose();
           }}
           className="w-full px-3 py-2 text-left text-sm font-medium text-purple-600 hover:bg-purple-50 focus:bg-purple-50 focus:outline-none"
-          aria-label="Export as Slides (Marp)"
+          data-testid="context-menu-export-slides"
+          aria-label={t(($) => $.contextMenu.exportSlides)}
         >
-          Export as slides (Marp)
+          {t(($) => $.contextMenu.exportSlides)}
         </button>
       )}
 
@@ -394,9 +410,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         role="menuitem"
         onClick={handleDeleteClick}
         className="w-full px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50 focus:bg-red-50 focus:outline-none"
-        aria-label={`Delete ${label}`}
+        data-testid="context-menu-delete"
+        aria-label={t(($) => $.contextMenu.delete, { label: itemLabel })}
       >
-        Delete {label}
+        {t(($) => $.contextMenu.delete, { label: itemLabel })}
       </button>
 
       <button
@@ -404,9 +421,10 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
         role="menuitem"
         onClick={onClose}
         className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-        aria-label="Close context menu"
+        data-testid="context-menu-close"
+        aria-label={t(($) => $.contextMenu.close)}
       >
-        Cancel
+        {t(($) => $.contextMenu.cancel)}
       </button>
     </div>
   );

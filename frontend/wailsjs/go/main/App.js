@@ -46,16 +46,16 @@ export function DirectTransform(arg1) {
   return window['go']['main']['App']['DirectTransform'](arg1);
 }
 
-export function ExportImage(arg1) {
-  return window['go']['main']['App']['ExportImage'](arg1);
+export function ExportImage(arg1, arg2) {
+  return window['go']['main']['App']['ExportImage'](arg1, arg2);
 }
 
-export function ExportMarkdown(arg1) {
-  return window['go']['main']['App']['ExportMarkdown'](arg1);
+export function ExportMarkdown(arg1, arg2) {
+  return window['go']['main']['App']['ExportMarkdown'](arg1, arg2);
 }
 
-export function ExportMarkdownWithFilename(arg1, arg2) {
-  return window['go']['main']['App']['ExportMarkdownWithFilename'](arg1, arg2);
+export function ExportMarkdownWithFilename(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportMarkdownWithFilename'](arg1, arg2, arg3);
 }
 
 export function GenerateChatReply(arg1, arg2) {
@@ -118,8 +118,8 @@ export function ImportFile(arg1) {
   return window['go']['main']['App']['ImportFile'](arg1);
 }
 
-export function LoadCanvasFromFile() {
-  return window['go']['main']['App']['LoadCanvasFromFile']();
+export function LoadCanvasFromFile(arg1) {
+  return window['go']['main']['App']['LoadCanvasFromFile'](arg1);
 }
 
 export function LoadChatSessions(arg1) {
@@ -158,8 +158,8 @@ export function ResolveToolApplication(arg1) {
   return window['go']['main']['App']['ResolveToolApplication'](arg1);
 }
 
-export function SaveCanvasToFile(arg1) {
-  return window['go']['main']['App']['SaveCanvasToFile'](arg1);
+export function SaveCanvasToFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveCanvasToFile'](arg1, arg2);
 }
 
 export function SaveChatSessions(arg1, arg2) {

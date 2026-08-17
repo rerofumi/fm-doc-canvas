@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { X, Trash2, Save, FolderOpen, Download, Upload } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { AppConfig, OpenAIConfig, GoogleConfig, XAIConfig } from "../../types";
+import { useLocale } from "../../i18n/LocaleProvider";
+import type { LocalePreference } from "../../i18n/catalogTypes";
+import { useTranslation } from "react-i18next";
 
 const ensureImageProviderConfigs = (
   imageGen: AppConfig["imageGen"],
@@ -38,6 +41,8 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
   returnFocusRef,
   fallbackFocusRef,
 }) => {
+  const { t } = useTranslation();
+  const { preference, setPreference } = useLocale();
   const {
     config,
     setConfig,
@@ -117,7 +122,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
       setSettingsOpen(false); // Close the drawer after saving
     } catch (error) {
       console.error("Failed to save config:", error);
-      alert("Failed to save configuration");
+      useAppStore.setState({ lastError: { code: "operation.failed" } });
     }
   };
 
@@ -127,7 +132,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
       setSettingsOpen(false); // Close the drawer after saving
     } catch (error) {
       console.error("Failed to save canvas:", error);
-      alert("Failed to save canvas");
+      useAppStore.setState({ lastError: { code: "canvas.saveFailed" } });
     }
   };
 
@@ -137,7 +142,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
       setSettingsOpen(false); // Close the drawer after loading
     } catch (error) {
       console.error("Failed to load canvas:", error);
-      alert("Failed to load canvas");
+      useAppStore.setState({ lastError: { code: "canvas.loadFailed" } });
     }
   };
 
@@ -180,11 +185,14 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
               <path d="m19 12-6 0m-6 0H5" />
               <path d="M19.8 8.2l-3.5 3.5m-11.6-3.5l3.5 3.5" />
             </svg>
-            Settings
+            {t(($) => $.settings.title)}
           </h2>
           <button
+            data-testid="settings-close"
             onClick={() => setSettingsOpen(false)}
             className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+            aria-label={t(($) => $.settings.close)}
+            title={t(($) => $.settings.close)}
           >
             <X size={20} className="text-gray-500" />
           </button>
@@ -192,28 +200,48 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {/* Language preference is application-local and independent of saved config. */}
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <label htmlFor="settings-language" className="block font-bold text-gray-700 mb-3">
+              {t(($) => $.settings.language.label)}
+            </label>
+            <select
+              id="settings-language"
+              aria-label={t(($) => $.settings.language.label)}
+              value={preference}
+              onChange={(event) => void setPreference(event.target.value as LocalePreference)}
+              className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
+            >
+              <option value="system">{t(($) => $.settings.language.system)}</option>
+              <option value="ja">{t(($) => $.settings.language.ja)}</option>
+              <option value="en">{t(($) => $.settings.language.en)}</option>
+            </select>
+          </div>
+
           {/* File Operations */}
           <div className="bg-gray-50 p-4 rounded-lg">
             <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
               <FolderOpen size={16} />
-              File Operations
+              {t(($) => $.settings.fileOperations)}
             </h3>
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleSaveCanvas}
-                aria-label="Save Canvas"
+                aria-label={t(($) => $.settings.saveCanvas)}
+                data-testid="save-canvas-action"
                 className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <Download size={20} className="text-blue-500 mb-1" />
-                <span className="text-xs font-medium">Save Canvas</span>
+                <span className="text-xs font-medium">{t(($) => $.settings.saveCanvas)}</span>
               </button>
               <button
                 onClick={handleLoadCanvas}
-                aria-label="Load Canvas"
+                aria-label={t(($) => $.settings.loadCanvas)}
+                data-testid="load-canvas-action"
                 className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <Upload size={20} className="text-green-500 mb-1" />
-                <span className="text-xs font-medium">Load Canvas</span>
+                <span className="text-xs font-medium">{t(($) => $.settings.loadCanvas)}</span>
               </button>
             </div>
           </div>
@@ -239,12 +267,12 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <path d="M15 13v2" />
                 <path d="M9 13v2" />
               </svg>
-              LLM Configuration
+              {t(($) => $.settings.llmConfiguration)}
             </h3>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  API Base URL
+                  {t(($) => $.settings.apiBaseUrl)}
                 </label>
                 <input
                   type="text"
@@ -260,7 +288,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  Model
+                  {t(($) => $.settings.model)}
                 </label>
                 <input
                   type="text"
@@ -276,7 +304,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  API Key
+                  {t(($) => $.settings.apiKey)}
                 </label>
                 <input
                   type="password"
@@ -292,7 +320,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  System Prompt
+                  {t(($) => $.settings.systemPrompt)}
                 </label>
                 <textarea
                   value={localConfig.llm.systemPrompt || ""}
@@ -304,7 +332,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   }
                   rows={3}
                   className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300 min-h-[80px]"
-                  placeholder="Instructions that guide the model's behavior..."
+                  placeholder={t(($) => $.settings.systemPromptPlaceholder)}
                 />
               </div>
             </div>
@@ -328,12 +356,12 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <circle cx="9" cy="9" r="2" />
                 <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
               </svg>
-              Image Generation
+              {t(($) => $.settings.imageGeneration)}
             </h3>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  Provider
+                  {t(($) => $.settings.provider)}
                 </label>
                 <select
                   value={localConfig.imageGen.provider}
@@ -358,7 +386,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      API Base URL
+                      {t(($) => $.settings.apiBaseUrl)}
                     </label>
                     <input
                       type="text"
@@ -383,7 +411,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Model
+                      {t(($) => $.settings.model)}
                     </label>
                     <input
                       type="text"
@@ -408,7 +436,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      API Key
+                      {t(($) => $.settings.apiKey)}
                     </label>
                     <input
                       type="password"
@@ -441,7 +469,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Base URL
+                      {t(($) => $.settings.baseUrl)}
                     </label>
                     <input
                       type="text"
@@ -463,7 +491,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Model
+                      {t(($) => $.settings.model)}
                     </label>
                     <input
                       type="text"
@@ -485,7 +513,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      API Key
+                      {t(($) => $.settings.apiKey)}
                     </label>
                     <input
                       type="password"
@@ -513,7 +541,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Model
+                      {t(($) => $.settings.model)}
                     </label>
                     <input
                       type="text"
@@ -535,7 +563,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      API Key
+                      {t(($) => $.settings.apiKey)}
                     </label>
                     <input
                       type="password"
@@ -563,7 +591,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      Model
+                      {t(($) => $.settings.model)}
                     </label>
                     <input
                       type="text"
@@ -586,7 +614,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">
-                      API Key
+                      {t(($) => $.settings.apiKey)}
                     </label>
                     <input
                       type="password"
@@ -614,7 +642,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  Download Path
+                  {t(($) => $.settings.downloadPath)}
                 </label>
                 <input
                   type="text"
@@ -635,12 +663,12 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
           </div>
 
           <div className="bg-gray-50 p-4 rounded-lg">
-            <h3 className="font-bold text-gray-700 mb-3">Web Search</h3>
+            <h3 className="font-bold text-gray-700 mb-3">{t(($) => $.settings.webSearch)}</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Provider</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t(($) => $.settings.provider)}</label>
                 <select
-                  aria-label="Web Search provider"
+                  aria-label={t(($) => $.settings.webSearchProvider)}
                   value={localConfig.webSearch?.provider || "ollama"}
                   onChange={(e) =>
                     setLocalConfig({
@@ -661,10 +689,10 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t(($) => $.settings.apiKey)}</label>
                 <input
                   type="password"
-                  aria-label="Web Search API key"
+                  aria-label={t(($) => $.settings.webSearchApiKey)}
                   value={
                     (localConfig.webSearch?.provider === "kagi"
                       ? localConfig.webSearch?.kagi?.apiKey
@@ -688,7 +716,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                       },
                     });
                   }}
-                  placeholder="search api key"
+              placeholder={t(($) => $.settings.webSearchApiKey)}
                   className="w-full p-2 text-sm border border-gray-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-300"
                 />
               </div>
@@ -712,11 +740,11 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <path d="M12 3v12" />
                 <path d="m8 11 4 4 4-4" />
               </svg>
-              Generation Settings
+              {t(($) => $.settings.generation)}
             </h3>
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">
-                Summary Max Characters
+                {t(($) => $.settings.summaryMaxChars)}
               </label>
               <input
                 type="number"
@@ -753,28 +781,29 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 <path d="M12 8v4" />
                 <path d="M12 16h.01" />
               </svg>
-              Dangerous Zone
+              {t(($) => $.settings.dangerousZone)}
             </h3>
             <button
               ref={clearTriggerRef}
+              data-testid="clear-canvas-action"
               onClick={() => setIsClearDialogOpen(true)}
-              aria-label="Clear Canvas"
+              aria-label={t(($) => $.settings.clearCanvas)}
               className="w-full flex items-center justify-center gap-2 p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
             >
               <Trash2 size={16} />
-              Clear Canvas
+              {t(($) => $.settings.clearCanvas)}
             </button>
             <button
               onClick={handleNewWorkspace}
-              aria-label="New Workspace"
+              aria-label={t(($) => $.settings.newWorkspace)}
+              data-testid="settings-new-workspace"
               className="mt-2 w-full flex items-center justify-center gap-2 p-3 bg-red-100 text-red-800 rounded-lg hover:bg-red-200 transition-colors"
             >
               <Trash2 size={16} />
-              New Workspace
+              {t(($) => $.settings.newWorkspace)}
             </button>
             <p className="text-xs text-red-600 mt-2">
-              Clear Canvas removes the current nodes and edges. New Workspace
-              starts a fresh workspace and clears the current dialogue.
+              {t(($) => $.settings.workspaceActionsDescription)}
             </p>
           </div>
         </div>
@@ -786,7 +815,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
             className="w-full flex items-center justify-center gap-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Save size={16} />
-            Save Settings
+            {t(($) => $.settings.saveSettings)}
           </button>
         </div>
       </div>
@@ -801,6 +830,7 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
           <div
             ref={clearDialogRef}
             role="dialog"
+            data-testid="clear-canvas-dialog"
             aria-modal="true"
             aria-labelledby="clear-canvas-title"
             aria-describedby="clear-canvas-description"
@@ -827,10 +857,10 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
             }}
           >
             <h2 id="clear-canvas-title" className="text-base font-bold text-gray-800">
-              Clear Canvas
+              {t(($) => $.settings.clearCanvasDialogTitle)}
             </h2>
             <p id="clear-canvas-description" className="mt-2 text-sm text-gray-600">
-              現在の Canvas の node と relation を削除します。Undo で復元できます。
+              {t(($) => $.settings.clearCanvasDialogDescription)}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -839,14 +869,14 @@ const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                 onClick={() => closeClearDialog("cancel")}
                 className="rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t(($) => $.common.action.cancel)}
               </button>
               <button
                 type="button"
                 onClick={handleClearCanvas}
                 className="rounded bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700"
               >
-                Clear Canvas
+                {t(($) => $.settings.clearCanvas)}
               </button>
             </div>
           </div>

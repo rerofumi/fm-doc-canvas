@@ -28,7 +28,7 @@ type FileService struct {
 }
 
 // ExportImage opens a save dialog and copies the image from internal storage to the selected path
-func (s *FileService) ExportImage(src string) (string, error) {
+func (s *FileService) ExportImage(src, locale string) (string, error) {
 	if s.ctx == nil {
 		return "", fmt.Errorf("context not initialized")
 	}
@@ -64,12 +64,13 @@ func (s *FileService) ExportImage(src string) (string, error) {
 
 	// 2. Open save dialog
 	ext := filepath.Ext(src)
+	copy := fileDialogCopy(fileDialogExportImage, locale, ext)
 	options := runtime.SaveDialogOptions{
-		Title:           "Export Image",
+		Title:           copy.Title,
 		DefaultFilename: filepath.Base(src),
 		Filters: []runtime.FileFilter{
 			{
-				DisplayName: fmt.Sprintf("Image Files (*%s)", ext),
+				DisplayName: copy.DisplayName,
 				Pattern:     fmt.Sprintf("*%s", ext),
 			},
 		},
@@ -131,7 +132,7 @@ func (s *FileService) ImportFile(filePath string) (ImportFileResult, error) {
 		if err != nil {
 			return result, fmt.Errorf("failed to read text file: %w", err)
 		}
-result.Type = "text"
+		result.Type = "text"
 		result.Content = string(content)
 		result.Filename = filepath.Base(filePath)
 
@@ -178,23 +179,24 @@ result.Type = "text"
 }
 
 // SaveCanvasToFile opens a save dialog and writes the JSON data to the selected path
-func (s *FileService) SaveCanvasToFile(jsonData string) (string, error) {
+func (s *FileService) SaveCanvasToFile(jsonData, locale string) (string, error) {
 	if s.ctx == nil {
 		return "", fmt.Errorf("context not initialized")
 	}
 
+	copy := fileDialogCopy(fileDialogSaveCanvas, locale, "")
 	options := runtime.SaveDialogOptions{
-		Title:           "Save Canvas",
+		Title:           copy.Title,
 		DefaultFilename: "canvas.json",
 		Filters: []runtime.FileFilter{
 			{
-				DisplayName: "JSON Files (*.json)",
+				DisplayName: copy.DisplayName,
 				Pattern:     "*.json",
 			},
 		},
 	}
 
-filePath := s.fixedSavePath
+	filePath := s.fixedSavePath
 	var err error
 	if filePath == "" {
 		filePath, err = runtime.SaveFileDialog(s.ctx, options)
@@ -219,31 +221,32 @@ filePath := s.fixedSavePath
 }
 
 // ExportMarkdown opens a save dialog and writes the markdown content to the selected path
-func (s *FileService) ExportMarkdown(content string) (string, error) {
-	return s.ExportMarkdownWithFilename(content, "export.md")
+func (s *FileService) ExportMarkdown(content, locale string) (string, error) {
+	return s.ExportMarkdownWithFilename(content, "export.md", locale)
 }
 
 // ExportMarkdownWithFilename opens a save dialog using the supplied filename
 // as the default while leaving the destination directory under user control.
-func (s *FileService) ExportMarkdownWithFilename(content string, defaultFilename string) (string, error) {
+func (s *FileService) ExportMarkdownWithFilename(content string, defaultFilename, locale string) (string, error) {
 	if s.ctx == nil {
 		return "", fmt.Errorf("context not initialized")
 	}
 
 	defaultFilename = normalizeMarkdownFilename(defaultFilename)
 
+	copy := fileDialogCopy(fileDialogExportMarkdown, locale, "")
 	options := runtime.SaveDialogOptions{
-		Title:           "Export Markdown",
+		Title:           copy.Title,
 		DefaultFilename: defaultFilename,
 		Filters: []runtime.FileFilter{
 			{
-				DisplayName: "Markdown Files (*.md)",
+				DisplayName: copy.DisplayName,
 				Pattern:     "*.md",
 			},
 		},
 	}
 
-filePath := s.fixedExportPath
+	filePath := s.fixedExportPath
 	var err error
 	if filePath == "" {
 		filePath, err = runtime.SaveFileDialog(s.ctx, options)
@@ -310,22 +313,23 @@ func (s *FileService) GetImageFileURL(src string) (string, error) {
 }
 
 // LoadCanvasFromFile opens an open dialog and reads the content of the selected file
-func (s *FileService) LoadCanvasFromFile() (string, error) {
+func (s *FileService) LoadCanvasFromFile(locale string) (string, error) {
 	if s.ctx == nil {
 		return "", fmt.Errorf("context not initialized")
 	}
 
+	copy := fileDialogCopy(fileDialogOpenCanvas, locale, "")
 	options := runtime.OpenDialogOptions{
-		Title: "Open Canvas",
+		Title: copy.Title,
 		Filters: []runtime.FileFilter{
 			{
-				DisplayName: "JSON Files (*.json)",
+				DisplayName: copy.DisplayName,
 				Pattern:     "*.json",
 			},
 		},
 	}
 
-filePath := s.fixedOpenPath
+	filePath := s.fixedOpenPath
 	var err error
 	if filePath == "" {
 		filePath, err = runtime.OpenFileDialog(s.ctx, options)

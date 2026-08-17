@@ -30,10 +30,10 @@ test("CE2E-03b cross-canvas relation boundary aggregates", async ({ page }) => {
   const upCount = snap.boundaryAggregates
     .filter((x: any) => x.kind === "up-boundary")
     .reduce((sum: number, x: any) => sum + x.count, 0);
-  await expect(
-    page.getByRole("navigation", { name: "Canvas breadcrumb" })
-      .getByRole("status", { name: `${upCount} up-boundary relations` }),
-  ).toBeVisible();
+  const boundaryStatus = page.getByTestId("canvas-breadcrumb").getByRole("status");
+  await expect(boundaryStatus).toHaveCount(1);
+  await expect(boundaryStatus).toBeVisible();
+  await expect(boundaryStatus).toContainText(String(upCount));
 });
 
 test("CE2E-04b proposal reject and stale after navigate", async ({ page }) => {
@@ -47,10 +47,10 @@ test("CE2E-04b proposal reject and stale after navigate", async ({ page }) => {
     filename: "proposal.md",
   });
   const card = page.getByTestId("tool-card-ui-modify-1");
-  await card.getByRole("button", { name: "Modify proposal" }).click();
-  await page.getByLabel("Modified proposal content").fill("modified proposal");
-  await card.getByRole("button", { name: "Apply modified" }).click();
-  await expect(card).toContainText("modified and applied");
+  await card.getByTestId("tool-decision-modify").click();
+  await card.locator("textarea").fill("modified proposal");
+  await card.getByTestId("tool-decision-apply-modified").click();
+  await expect(card).toContainText(/modified proposal was applied/i);
   let snap = await api.snapshot();
   expect(snap.domainNodes.some((n: any) => n.content === "modified proposal")).toBeTruthy();
 
@@ -61,16 +61,16 @@ test("CE2E-04b proposal reject and stale after navigate", async ({ page }) => {
     filename: "rejected.md",
   });
   const rejectCard = page.getByTestId("tool-card-ui-reject-1");
-  await rejectCard.getByRole("button", { name: "Reject proposal" }).click();
-  await expect(rejectCard).toContainText("拒否");
+  await rejectCard.getByTestId("tool-decision-reject").click();
+  await expect(rejectCard).toContainText(/rejected/i);
   snap = await api.snapshot();
   expect(snap.domainNodes.some((n: any) => n.content === "rejected proposal")).toBeFalsy();
 
   await api.openChat();
-  await expect(page.getByLabel("Dialogue messages")).toBeVisible();
-  await expect(page.getByLabel("Stop dialogue run")).toBeVisible();
-  await page.getByLabel("Stop dialogue run").click();
-  await expect(page.getByRole("button", { name: "送信" })).toBeVisible();
+  await expect(page.getByTestId("assistant-messages")).toBeVisible();
+  await expect(page.getByTestId("assistant-stop-action")).toBeVisible();
+  await page.getByTestId("assistant-stop-action").click();
+  await expect(page.getByTestId("assistant-submit")).toBeVisible();
 
   // Stale: navigate to new workspace generation then apply old revision edit
   const snap1 = await api.snapshot();
@@ -105,23 +105,21 @@ test("CE2E-05b undo fault keeps revision and surfaces error", async ({ page }) =
 test("CE2E keyboard role switch and undo accessible", async ({ page }) => {
   const api = await e2e(page);
   await api.newWorkspace();
-  await page.getByRole("button", { name: "Add Text" }).click();
+  await page.getByTestId("shell-add-text").click();
   // open editor by double-click is hard; use bridge + UI labels
   const snap = await api.snapshot();
   const id = snap.domainNodes[0].id;
   await api.selectNodes([id]);
   // role switch via bridge still validates a11y labels exist
-  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
-  await page.getByRole("button", { name: "Undo" }).focus();
+  await expect(page.getByTestId("shell-undo")).toBeVisible();
+  await page.getByTestId("shell-undo").focus();
   await page.keyboard.press("Enter");
   const after = await api.snapshot();
   expect(after.nodeCount).toBe(0);
-  const breadcrumb = page.getByRole("navigation", { name: "Canvas breadcrumb" });
+  const breadcrumb = page.getByTestId("canvas-breadcrumb");
   await expect(breadcrumb).toBeVisible();
-  await expect(
-    breadcrumb.getByRole("button", { name: "Use this Canvas as context" }),
-  ).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Go to parent canvas" })).toBeVisible();
+  await expect(page.getByTestId("breadcrumb-parent")).toBeVisible();
+  await expect(page.getByTestId("breadcrumb-parent")).toBeDisabled();
 });
 
 test("CE2E parent button climbs hierarchy without consuming edit history", async ({ page }) => {
@@ -146,8 +144,8 @@ test("CE2E parent button climbs hierarchy without consuming edit history", async
   snap = await api.snapshot();
   const historyAfterEdit = snap.historyLength;
 
-  const breadcrumb = page.getByRole("navigation", { name: "Canvas breadcrumb" });
-  await breadcrumb.getByRole("button", { name: "Level 1" }).click();
+  const breadcrumb = page.getByTestId("canvas-breadcrumb");
+  await page.getByTestId(`breadcrumb-canvas-${level1.childCanvasId}`).click();
   snap = await api.snapshot();
   expect(snap.currentCanvasId).toBe(level1.childCanvasId);
   expect(snap.historyLength).toBe(historyAfterEdit);
@@ -155,9 +153,9 @@ test("CE2E parent button climbs hierarchy without consuming edit history", async
     "edited inside level 2",
   );
 
-  await page.getByRole("button", { name: "Go to parent canvas" }).click();
+  await page.getByTestId("breadcrumb-parent").click();
   snap = await api.snapshot();
   expect(snap.currentCanvasId).toBe(snap.rootCanvasId);
   expect(snap.historyLength).toBe(historyAfterEdit);
-  await expect(page.getByRole("button", { name: "Go to parent canvas" })).toBeDisabled();
+  await expect(page.getByTestId("breadcrumb-parent")).toBeDisabled();
 });

@@ -14,7 +14,7 @@ test("F2-01 Direct Action, post-apply diff, and Undo UI", async ({ page }) => {
   const sourceB = await app.addText("Beta claim");
   await app.moveNode(sourceA!, 40, 80);
   await app.moveNode(sourceB!, 600, 80);
-  await page.getByRole("button", { name: "Fit View" }).click();
+  await page.locator(".react-flow__controls-fitview").click();
 
   // Exercise the real React Flow multi-select path. Do not inject domain
   // selection through the E2E bridge: that previously masked a click handler
@@ -31,7 +31,7 @@ test("F2-01 Direct Action, post-apply diff, and Undo UI", async ({ page }) => {
   await expect(page.locator(".react-flow__node.selected")).toHaveCount(2);
 
   await sourceBNode.click({ button: "right" });
-  const compareItem = page.getByRole("menuitem", { name: /compare selected nodes/i });
+  const compareItem = page.getByTestId("context-menu-transform-compare");
   await expect(compareItem).toBeVisible();
   await compareItem.click();
 
@@ -88,9 +88,9 @@ test("F2-02 Transform Proposal preview Accept Modify Reject Stop stale and atomi
   await expect(rejectCard.getByTestId("transform-comparison")).toBeVisible();
   await expect(rejectCard.getByTestId(`source-preview-${sourceA}`)).toContainText("Proposal Alpha");
   await expect(rejectCard).toContainText("Proposal ID:");
-  await expect(rejectCard).toContainText("base revisions:");
-  await rejectCard.getByRole("button", { name: "Reject proposal" }).click();
-  await expect(rejectCard).toContainText("拒否");
+  await expect(rejectCard).toContainText(/base revisions:/i);
+  await rejectCard.getByTestId("tool-decision-reject").click();
+  await expect(rejectCard).toContainText(/rejected/i);
   let snap = await app.snapshot();
   expect(snap.nodeCount).toBe(2);
   expect(snap.relationCount).toBe(0);
@@ -119,8 +119,8 @@ test("F2-02 Transform Proposal preview Accept Modify Reject Stop stale and atomi
     },
   });
   const acceptCard = page.getByTestId("tool-card-f2-tf-accept");
-  await acceptCard.getByRole("button", { name: "Accept proposal" }).click();
-  await expect(acceptCard).toContainText("適用済み");
+  await acceptCard.getByTestId("tool-decision-accept").click();
+  await expect(acceptCard).toContainText(/applied/i);
   snap = await app.snapshot();
   expect(snap.nodeCount).toBe(3);
   expect(snap.domainNodes.some((n: any) => n.content === "accepted derived body")).toBeTruthy();
@@ -143,17 +143,17 @@ test("F2-02 Transform Proposal preview Accept Modify Reject Stop stale and atomi
     },
   });
   const modifyCard = page.getByTestId("tool-card-f2-tf-modify");
-  await modifyCard.getByRole("button", { name: "Modify proposal" }).click();
-  await page.getByLabel("Modified proposal content").fill("human modified derived");
-  await page.getByLabel("Modified transform reason").fill("human reason");
-  await modifyCard.getByRole("button", { name: "Apply modified" }).click();
-  await expect(modifyCard).toContainText("modified and applied");
+  await modifyCard.getByTestId("tool-decision-modify").click();
+  await modifyCard.locator('textarea').fill("human modified derived");
+  await modifyCard.locator('input').first().fill("human reason");
+  await modifyCard.getByTestId("tool-decision-apply-modified").click();
+  await expect(modifyCard).toContainText(/modified proposal was applied/i);
   snap = await app.snapshot();
   expect(snap.domainNodes.some((n: any) => n.content === "human modified derived")).toBeTruthy();
 
   // Stop control is available while Dialogue is open.
-  await expect(page.getByLabel("Stop dialogue run")).toBeVisible();
-  await page.getByLabel("Stop dialogue run").click();
+  await expect(page.getByTestId("assistant-stop-action")).toBeVisible();
+  await page.getByTestId("assistant-stop-action").click();
 
   // Stale: New Workspace then apply old proposal correlation.
   const stalePayload = {
@@ -222,7 +222,7 @@ test("F2-03 Relation create edit reverse remove and AI proposal reject via UI", 
   const sourceB = await app.addText("Conclusion with another deliberately long node label for native select sizing regression coverage");
   await app.moveNode(sourceA!, 80, 80);
   await app.moveNode(sourceB!, 600, 80);
-  await page.getByRole("button", { name: "Fit View" }).click();
+  await page.locator(".react-flow__controls-fitview").click();
 
   const sourceANode = page.locator(`.react-flow__node[data-id="${sourceA}"]`);
   const sourceBNode = page.locator(`.react-flow__node[data-id="${sourceB}"]`);
@@ -234,8 +234,8 @@ test("F2-03 Relation create edit reverse remove and AI proposal reject via UI", 
   // Open the real node context menu after real UI multi-selection.
   await sourceBNode.click({ button: "right" });
   await expect(page.getByRole("menu", { name: /Node options/i })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Add Relation between selected nodes" }).click();
-  const relationDialog = page.getByRole("dialog", { name: "Add Relation" });
+  await page.getByTestId("context-menu-add-relation").click();
+  const relationDialog = page.getByTestId("relation-editor-dialog");
   await expect(relationDialog).toBeVisible();
   const dialogBox = await relationDialog.boundingBox();
   expect(dialogBox).not.toBeNull();
@@ -246,14 +246,14 @@ test("F2-03 Relation create edit reverse remove and AI proposal reject via UI", 
     "Relation direction",
     "Relation reason",
   ]) {
-    const fieldBox = await page.getByLabel(fieldName).boundingBox();
+    const fieldBox = await relationDialog.getByTestId(fieldName === "Relation source node" ? "relation-source" : fieldName === "Relation target node" ? "relation-target" : fieldName === "Relation kind" ? "relation-kind" : fieldName === "Relation direction" ? "relation-direction" : "relation-reason").boundingBox();
     expect(fieldBox).not.toBeNull();
     expect(fieldBox!.x).toBeGreaterThanOrEqual(dialogBox!.x);
     expect(fieldBox!.x + fieldBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width);
   }
-  await page.getByLabel("Relation kind").selectOption("opposes");
-  await page.getByLabel("Relation reason").fill("counter evidence");
-  await page.getByLabel("Save relation").click();
+  await relationDialog.getByTestId("relation-kind").selectOption("opposes");
+  await relationDialog.getByTestId("relation-reason").fill("counter evidence");
+  await relationDialog.getByTestId("relation-save").click();
 
   let snap = await app.snapshot();
   expect(snap.relationCount).toBe(1);
@@ -264,29 +264,29 @@ test("F2-03 Relation create edit reverse remove and AI proposal reject via UI", 
 
   // Edit via edge context menu form.
   await app.openContextMenu({ type: "edge", id: relationId! });
-  await page.getByRole("menuitem", { name: "Edit Relation" }).click();
-  const editDialog = page.getByRole("dialog", { name: "Edit Relation" });
+  await page.getByTestId("context-menu-edit-relation").click();
+  const editDialog = page.getByTestId("relation-editor-dialog");
   await expect(editDialog).toBeVisible();
   const editDialogBox = await editDialog.boundingBox();
   expect(editDialogBox).not.toBeNull();
   for (const fieldName of ["Relation source node", "Relation target node"]) {
-    const fieldBox = await page.getByLabel(fieldName).boundingBox();
+    const fieldBox = await editDialog.getByTestId(fieldName === "Relation source node" ? "relation-source" : "relation-target").boundingBox();
     expect(fieldBox).not.toBeNull();
     expect(fieldBox!.x).toBeGreaterThanOrEqual(editDialogBox!.x);
     expect(fieldBox!.x + fieldBox!.width).toBeLessThanOrEqual(
       editDialogBox!.x + editDialogBox!.width,
     );
   }
-  await page.getByLabel("Relation kind").selectOption("supports");
-  await page.getByLabel("Relation reason").fill("supporting evidence");
-  await page.getByLabel("Save relation").click();
+  await editDialog.getByTestId("relation-kind").selectOption("supports");
+  await editDialog.getByTestId("relation-reason").fill("supporting evidence");
+  await editDialog.getByTestId("relation-save").click();
   snap = await app.snapshot();
   expect(snap.json).toContain("supporting evidence");
   expect(snap.json).toContain("supports");
 
   // Reverse direction from menu.
   await app.openContextMenu({ type: "edge", id: relationId! });
-  await page.getByRole("menuitem", { name: "Reverse Relation direction" }).click();
+  await page.getByTestId("context-menu-reverse-relation").click();
   snap = await app.snapshot();
   expect(snap.edges[0].source).toBe(sourceB);
   expect(snap.edges[0].target).toBe(sourceA);
@@ -306,15 +306,15 @@ test("F2-03 Relation create edit reverse remove and AI proposal reject via UI", 
   });
   const relCard = page.getByTestId("tool-card-f2-rel-reject");
   await expect(relCard.getByTestId("relation-proposal")).toBeVisible();
-  await relCard.getByRole("button", { name: "Reject proposal" }).click();
-  await expect(relCard).toContainText("拒否");
+  await relCard.getByTestId("tool-decision-reject").click();
+  await expect(relCard).toContainText(/rejected/i);
   snap = await app.snapshot();
   expect(snap.relationCount).toBe(1);
   expect(snap.context.relationHints.some((hint: any) => hint.reason === "unaccepted candidate")).toBeFalsy();
 
   // Remove relation.
   await app.openContextMenu({ type: "edge", id: relationId! });
-  await page.getByRole("menuitem", { name: /Delete Edge/i }).click();
+  await page.getByTestId("context-menu-delete").click();
   snap = await app.snapshot();
   expect(snap.relationCount).toBe(0);
 });

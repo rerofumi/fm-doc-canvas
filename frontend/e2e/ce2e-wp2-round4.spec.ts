@@ -21,6 +21,26 @@ test("late chat stream and tool events stay inert after mutation cancel and Undo
   await api.undo();
   const beforeLateEvents = await api.snapshot();
   expect(beforeLateEvents.asyncRuns[injected.runId].status).toBe("cancelled");
+  const cancelledMessage = beforeLateEvents.chat.sessions
+    .flatMap((session: any) => session.messages)
+    .find((message: any) => message.runId === injected.runId);
+  expect(cancelledMessage).toMatchObject({
+    content: "",
+    messageDescriptor: { code: "chat.cancelled" },
+    status: "cancelled",
+  });
+  expect(cancelledMessage.content).not.toContain("キャンセルしました");
+  await expect(page.getByText("Cancelled.", { exact: false })).toBeVisible();
+
+  // Domain cancellation stores only the locale-neutral descriptor. MessageBubble
+  // must re-present that same message when the application locale changes.
+  await page.getByTestId("assistant-close").click();
+  await page.getByTestId("shell-settings").click();
+  const settings = page.getByTestId("settings-drawer");
+  await settings.locator("#settings-language").selectOption("ja");
+  await settings.locator("button").first().click();
+  await page.getByTestId("shell-chat-toggle").click();
+  await expect(page.getByText("キャンセルしました。", { exact: false })).toBeVisible();
 
   for (const event of [
     {

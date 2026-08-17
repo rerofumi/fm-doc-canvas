@@ -38,7 +38,8 @@ export interface SuggestedPacketRelation {
 
 export interface ContextPacketError {
   code: string;
-  message: string;
+  /** Optional diagnostic retained for logs/fixtures; never used as primary UI copy. */
+  message?: string;
 }
 
 export interface ContextPacket {
@@ -276,7 +277,7 @@ export function normalizeContextPacket(
     followups: packet.followups ?? [],
     error:
       status === "failed"
-        ? packet.error ?? { code: "web-search-empty", message: "No usable sources" }
+        ? packet.error ?? { code: "web-search-empty" }
         : packet.error,
   };
 }

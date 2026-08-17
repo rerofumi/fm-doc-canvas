@@ -15,27 +15,27 @@ test.describe("WP-4 context badge and resolver contract", () => {
     await expect(badge).toHaveCount(1);
     await expect(badge).toHaveAttribute("data-context-mode", "dialogue");
     await expect(badge).toHaveAttribute("data-context-operation", "read");
-    await expect(badge).toContainText("Text 1");
-    await expect(badge).toContainText("Image 1");
-    await expect(badge).toHaveAttribute("aria-label", "Context payload: Text 1, Image 1");
+    await expect(badge).toContainText("1 text");
+    await expect(badge).toContainText("1 image");
+    await expect(badge).toHaveAttribute("aria-label", "Context payload: 1 text, 1 image");
     expect((await app.snapshot()).context.payloadItems.filter((item: any) => item.kind === "text")).toHaveLength(1);
     expect((await app.snapshot()).context.payloadItems.filter((item: any) => item.kind.startsWith("image"))).toHaveLength(1);
     await expect(badge.getByRole("button")).toHaveCount(0);
     await expect(badge.locator("input[type=checkbox]")).toHaveCount(0);
 
-    await page.getByRole("tab", { name: "Direct" }).click();
+    await page.getByTestId("assistant-mode-direct").click();
     await expect(badge).toHaveAttribute("data-context-mode", "direct");
     await expect(badge).toHaveAttribute("data-context-operation", "generate-text");
-    await expect(badge).toContainText("Text 1");
-    await expect(badge).toContainText("Image 1");
+    await expect(badge).toContainText("1 text");
+    await expect(badge).toContainText("1 image");
     let direct = await app.snapshot();
     expect(direct.directContext.payloadItems.filter((item: any) => item.kind === "text")).toHaveLength(1);
     expect(direct.directContext.payloadItems.filter((item: any) => item.kind.startsWith("image"))).toHaveLength(1);
 
-    await page.getByTestId("direct-mode-selector").getByRole("button", { name: "Image", exact: true }).click();
+    await page.getByTestId("direct-mode-image").click();
     await expect(badge).toHaveAttribute("data-context-operation", "generate-image");
-    await expect(badge).toContainText("Text 1");
-    await expect(badge).toContainText("Image 1");
+    await expect(badge).toContainText("1 text");
+    await expect(badge).toContainText("1 image");
     direct = await app.snapshot();
     expect(direct.directImageContext.payloadItems.filter((item: any) => item.kind === "text")).toHaveLength(1);
     expect(direct.directImageContext.payloadItems.filter((item: any) => item.kind.startsWith("image"))).toHaveLength(1);
@@ -49,7 +49,7 @@ test.describe("WP-4 context badge and resolver contract", () => {
 
     const directSelector = page.getByTestId("direct-mode-selector");
     await expect(directSelector).toHaveCount(0);
-    await page.getByRole("tab", { name: "Direct" }).click();
+    await page.getByTestId("assistant-mode-direct").click();
     await expect(directSelector).toBeVisible();
     await expect(page.getByTestId("assistant-action-row")).toBeVisible();
 
@@ -81,17 +81,17 @@ test.describe("WP-4 context badge and resolver contract", () => {
     await app.openChat();
 
     const badge = page.getByTestId("context-preview");
-    await expect(badge).toContainText("Text 1");
+    await expect(badge).toContainText("1 text");
     let snapshot = await app.snapshot();
     expect(snapshot.context.payloadItems.some((item: any) => item.kind === "text" && item.nodeId === first)).toBeTruthy();
 
     await app.selectNodes([second!]);
-    await expect(badge).toContainText("Text 1");
+    await expect(badge).toContainText("1 text");
     snapshot = await app.snapshot();
     expect(snapshot.context.payloadItems.some((item: any) => item.kind === "text" && item.nodeId === second)).toBeTruthy();
 
     await app.selectNodes([first!, second!]);
-    await expect(badge).toContainText("Text 2");
+    await expect(badge).toContainText("2 texts");
     snapshot = await app.snapshot();
     expect(snapshot.context.payloadItems.filter((item: any) => item.kind === "text")).toHaveLength(2);
     expect(snapshot.context.payloadItems.some((item: any) => item.nodeId === first)).toBeTruthy();

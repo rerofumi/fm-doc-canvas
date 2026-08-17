@@ -31,7 +31,7 @@ test.describe("WP-1 Markdown external links", () => {
     ]);
 
     await node.dblclick({ position: { x: 8, y: 8 } });
-    await page.getByRole("button", { name: "Preview", exact: true }).click();
+    await page.getByTestId("editor-preview").click();
     const editorLink = page.getByRole("link", { name: "external" }).last();
     await expect(editorLink).toBeVisible();
     const editorURL = page.url();

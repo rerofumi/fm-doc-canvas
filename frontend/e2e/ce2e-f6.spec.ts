@@ -10,8 +10,8 @@ function fixture(kind: string, targets: string[] = [], extra: Record<string, str
 async function openProposal(page: import("@playwright/test").Page, app: Awaited<ReturnType<typeof e2e>>, raw: string): Promise<void> {
   await app.setNextActionsFixture(raw);
   await app.openChat();
-  await page.getByRole("button", { name: "次の一手を提案" }).click();
-  await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
+  await page.getByTestId("assistant-next-action").click();
+  await expect(page.getByTestId("next-action-panel")).toBeVisible();
 }
 
 test.describe("F6 Collaboration Orchestration core", () => {
@@ -23,13 +23,14 @@ test.describe("F6 Collaboration Orchestration core", () => {
     const b = await app.addText("Option B");
     await app.selectNodes([a!, b!]);
     await openProposal(page, app, fixture("compare", [a!, b!]));
-    await expect(page.getByText("比較者", { exact: false })).toBeVisible();
+    await expect(page.getByText(/comparer/i)).toBeVisible();
     await expect(page.getByText("fixture reason", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: "F6 compareを拒否" }).click();
+    const actionId = (await app.orchestrationSnapshot()).proposal!.actions[0].id;
+    await page.getByTestId(`next-action-reject-${actionId}`).click();
     expect((await app.orchestrationSnapshot()).proposal).toBeNull();
-    await page.getByRole("button", { name: "次の一手を提案" }).click();
-    await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
-    await page.getByRole("button", { name: "次の一手の提案を閉じる" }).click();
+    await page.getByTestId("assistant-next-action").click();
+    await expect(page.getByTestId("next-action-panel")).toBeVisible();
+    await page.getByTestId("next-action-panel").getByRole("button").last().click();
   });
 
   test("F6-01 long proposal remains vertically scrollable", async ({ page }) => {
@@ -49,7 +50,7 @@ test.describe("F6 Collaboration Orchestration core", () => {
       ],
     }));
 
-    const panel = page.locator('section[aria-label="Next action proposals"]');
+    const panel = page.getByTestId("next-action-panel");
     await expect(panel).toBeVisible();
     const dimensions = await panel.evaluate((element) => ({
       clientHeight: element.clientHeight,
@@ -60,7 +61,7 @@ test.describe("F6 Collaboration Orchestration core", () => {
     expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
     await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await expect.poll(() => panel.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    await expect(page.getByLabel("Chat message input")).toBeVisible();
+    await expect(page.getByTestId("assistant-prompt")).toBeVisible();
   });
 
   test("F6-02 exact-target transform, single dispatch, stale no-op", async ({ page }) => {
@@ -78,17 +79,16 @@ test.describe("F6 Collaboration Orchestration core", () => {
     expect(await app.dispatchNextAction(proposal.proposal.actions[0].id, { targetNodeIds: [a!, b!] })).toBeFalsy();
     expect((await app.orchestrationSnapshot()).status).toBe("stale");
     await app.setNextActionsFixture(fixture("compare", [a!, b!]));
-    await page.getByRole("button", { name: "次の一手を再提案" }).click();
-    await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
+    await page.getByTestId("next-action-panel").getByRole("button").first().click();
+    await expect(page.getByTestId("next-action-panel")).toBeVisible();
     await app.armDelayedDirectTransform();
-    await page.getByRole("button", { name: "F6 compareを実行" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "実行しています" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "次の一手を再提案" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "次の一手の提案を閉じる" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "F6 compareを拒否" })).toBeDisabled();
+    const actionId = (await app.orchestrationSnapshot()).proposal!.actions[0].id;
+    await page.getByTestId(`next-action-execute-${actionId}`).click();
+    await expect(page.getByRole("status").filter({ hasText: /executing/i })).toBeVisible();
+    await expect(page.getByTestId("next-action-panel").getByRole("button").first()).toBeDisabled();
     await expect(page.locator('input[type="checkbox"]').first()).toBeDisabled();
     await app.releaseDelayedDirectTransform();
-    await expect(page.getByRole("status").filter({ hasText: "実行しました" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /executed/i })).toBeVisible();
     const after = await app.snapshot();
     expect(after.lastDirectReceipt.operation).toBe("compare");
     expect(after.domainNodes.some((node: { id: string }) => node.id === c)).toBeTruthy();
@@ -118,10 +118,10 @@ test.describe("F6 Collaboration Orchestration core", () => {
     const callCountBefore = await app.nextActionsCallCount();
     await openProposal(page, app, fixture("web_search", [], { query: "initial query" }));
     expect(await app.nextActionsCallCount()).toBe(callCountBefore + 1);
-    const query = page.getByRole("textbox", { name: /検索 query/ });
+    const query = page.getByTestId("next-action-panel").locator("article").first().locator("input");
     await query.fill("edited query");
-    await page.getByRole("button", { name: "F6 web_searchを実行" }).click();
-    await expect(page.getByRole("region", { name: "Projected Context" })).toBeVisible();
+    await page.getByTestId("next-action-panel").locator("article").first().getByRole("button").first().click();
+    await expect(page.getByTestId("projected-context-panel")).toBeVisible();
     const after = await app.snapshot();
     expect(after.nodeCount).toBe(before.nodeCount);
     expect(after.lastSearchReceipt?.packet.query).toBe("edited query");
@@ -135,18 +135,22 @@ test.describe("F6 Collaboration Orchestration core", () => {
     const b = await app.addText("Structure B");
     await app.selectNodes([a!, b!]);
     await openProposal(page, app, fixture("suggest_relations", [a!, b!]));
-    await page.getByRole("button", { name: "F6 suggest_relationsを実行" }).click();
+    const relationsAction = (await app.orchestrationSnapshot()).proposal!.actions[0].id;
+    await page.getByTestId(`next-action-execute-${relationsAction}`).click();
     await expect.poll(async () => (await app.snapshot()).pendingDirectProposal?.operation.relations).toBeTruthy();
     const snapshot = await app.snapshot();
     expect(snapshot.relationCount).toBe(0);
     expect(snapshot.pendingDirectProposal?.operation.relations).toBeTruthy();
-    await expect(page.getByRole("button", { name: "実行結果を閉じる" })).toBeVisible();
+    const nextActionResult = page.getByTestId("next-action-result-status");
+    await expect(nextActionResult).toBeVisible();
+    await expect(nextActionResult).toHaveAttribute("data-result-surface", "relation-proposal");
     await app.newWorkspace();
     const clusterA = await app.addText("Cluster A");
     const clusterB = await app.addText("Cluster B");
     await app.selectNodes([clusterA!, clusterB!]);
     await openProposal(page, app, fixture("suggest_clusters", [clusterA!, clusterB!]));
-    await page.getByRole("button", { name: "F6 suggest_clustersを実行" }).click();
+    const clustersAction = (await app.orchestrationSnapshot()).proposal!.actions[0].id;
+    await page.getByTestId(`next-action-execute-${clustersAction}`).click();
     await expect.poll(async () => (await app.snapshot()).lastSuggestReceipt?.status).toBe("done");
     const clusterSnapshot = await app.snapshot();
     expect(clusterSnapshot.lastSuggestReceipt?.operation).toBe("clusters");
@@ -164,10 +168,10 @@ test.describe("F6 Collaboration Orchestration core", () => {
     const initial = await app.snapshot();
     expect(initial.chat.sessions[0]?.messages ?? []).toHaveLength(0);
     await expect(page.getByText(question, { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "F6 clarifyを実行" }).click();
+    await page.getByTestId("next-action-panel").locator("article").first().getByRole("button").first().click();
     await expect(page.getByText(question, { exact: true })).toBeVisible();
-    await expect(page.locator('[aria-label="Dialogue messages"]').getByText(question, { exact: true })).toHaveCount(1);
-    await expect(page.getByLabel("Chat message input")).toBeVisible();
+    await expect(page.getByTestId("assistant-messages").getByText(question, { exact: true })).toHaveCount(1);
+    await expect(page.getByTestId("assistant-prompt")).toBeVisible();
 
     const lateNode = await app.addText("Late context");
     await app.selectNodes([lateNode!]);
@@ -176,7 +180,7 @@ test.describe("F6 Collaboration Orchestration core", () => {
     const pending = app.nextActions();
     await new Promise((resolve) => setTimeout(resolve, 250));
     await app.cancelNextActions();
-    await expect(page.getByRole("status").filter({ hasText: "キャンセル" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /cancel/i })).toBeVisible();
     await app.releaseDelayedNextActions();
     await expect(pending).resolves.toBeFalsy();
     expect((await app.orchestrationSnapshot()).proposal).toBeNull();
@@ -198,8 +202,8 @@ test.describe("F6 Collaboration Orchestration core", () => {
     await app.armNextActionsFault("invalid-json");
     await app.nextActions();
     expect((await app.orchestrationSnapshot()).status).toBe("error");
-    await expect(page.locator('section[aria-label="Next action proposals"] div[role="alert"]')).toBeVisible();
-    await expect(page.getByRole("button", { name: "次の一手を再提案" })).toBeVisible();
+    await expect(page.getByTestId("next-action-panel").locator('[role="alert"]')).toBeVisible();
+    await expect(page.getByTestId("next-action-panel").getByRole("button").first()).toBeVisible();
   });
 
   test("F6-06 real-canvas bounded fallback repeats safely across scopes", async ({ page }) => {
@@ -225,8 +229,8 @@ test.describe("F6 Collaboration Orchestration core", () => {
     await app.startDialogue("比較 query: 日本語の根拠を再確認 https://example.net/query-a と https://example.net/query-b");
     await app.selectNodes([]);
     await app.setNextActionsFixture(fixture("web_search", [], { query: "日本語の本文" }));
-    await page.getByRole("button", { name: "次の一手を提案" }).click();
-    await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
+    await page.getByTestId("assistant-next-action").click();
+    await expect(page.getByTestId("next-action-panel")).toBeVisible();
     const fallback = await app.orchestrationSnapshot();
     expect(fallback.request?.selectedNodeIds ?? []).toEqual([]);
     expect(fallback.request?.nodeHints.length ?? 0).toBeGreaterThanOrEqual(9);
@@ -239,31 +243,31 @@ test.describe("F6 Collaboration Orchestration core", () => {
 
     // Re-propose repeatedly in the same workspace/scope while changing only
     // the explicit selection. Each fixture is valid for its current scope.
-    await page.getByRole("button", { name: "次の一手を再提案" }).last().click();
-    await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
+    await page.getByTestId("next-action-panel").getByRole("button").first().click();
+    await expect(page.getByTestId("next-action-panel")).toBeVisible();
 
     await app.selectNodes([a]);
     await app.setNextActionsFixture(fixture("counterpoint", [a]));
-    await page.getByRole("button", { name: "次の一手を再提案" }).last().click();
-    await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
+    await page.getByTestId("next-action-panel").getByRole("button").first().click();
+    await expect(page.getByTestId("next-action-panel")).toBeVisible();
     expect((await app.orchestrationSnapshot()).proposal?.actions[0].targetNodeIds).toEqual([a]);
 
     await app.selectNodes([a, b]);
     await app.setNextActionsFixture(fixture("compare", [a, b]));
-    await page.getByRole("button", { name: "次の一手を再提案" }).last().click();
-    await expect(page.getByRole("region", { name: "Next action proposals" }).last()).toBeVisible();
+    await page.getByTestId("next-action-panel").getByRole("button").first().click();
+    await expect(page.getByTestId("next-action-panel")).toBeVisible();
     expect((await app.orchestrationSnapshot()).proposal?.actions[0].targetNodeIds).toEqual([a, b]);
 
     await app.armNextActionsFault("invalid-json");
-    await page.getByRole("button", { name: "次の一手を再提案" }).last().click();
-    const recovery = page.locator('section[aria-label="Next action proposals"] div[role="alert"]');
-    await expect(recovery).toContainText("再提案、対象を変更、または通常Chatで相談できます。");
+    await page.getByTestId("next-action-panel").getByRole("button").first().click();
+    const recovery = page.getByTestId("next-action-panel").locator('[role="alert"]');
+    await expect(recovery).toContainText(/suggest again, change the targets, or continue in Chat/i);
     await expect(page.getByTestId("global-error-banner")).toHaveCount(0);
     await expect(recovery).not.toContainText(/Undo|New Workspace|relation|transform/i);
 
     await app.armNextActionsFault("provider-error");
-    await page.getByRole("button", { name: "次の一手を再提案" }).last().click();
-    await expect(recovery).toContainText("再提案、対象を変更、または通常Chatで相談できます。");
+    await page.getByTestId("next-action-panel").getByRole("button").first().click();
+    await expect(recovery).toContainText(/suggest again, change the targets, or continue in Chat/i);
     await expect(page.getByTestId("global-error-banner")).toHaveCount(0);
     await expect(recovery).not.toContainText(/Undo|New Workspace|relation|transform/i);
   });
@@ -275,7 +279,7 @@ test.describe("F6 Collaboration Orchestration core", () => {
     const node = await app.addText("Node opinion target");
     await app.selectNodes([node!]);
     await app.openChat();
-    const input = page.getByLabel("Chat message input");
+    const input = page.getByTestId("assistant-prompt");
     await input.fill("fixture:read_canvas_node このNodeについて意見をください");
     await input.press("Control+Enter");
     await expect(page.locator('[aria-label="Dialogue messages"]')).toContainText("fixture read_canvas_node continuation completed");
@@ -297,3 +301,4 @@ test.describe("F6 Collaboration Orchestration core", () => {
     expect(requests[1].thoughtSignatures).toEqual(["fixture-thought-signature"]);
   });
 });
+

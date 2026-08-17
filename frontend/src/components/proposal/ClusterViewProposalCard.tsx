@@ -1,6 +1,7 @@
 import type React from "react";
 import { useAppStore } from "../../store/useAppStore";
 import type { ProposalRecord } from "../../domain/proposal";
+import { useTranslation } from "react-i18next";
 
 /**
  * Cluster View proposal card: previews the view label, each cluster's label /
@@ -11,6 +12,7 @@ const ClusterViewProposalCard: React.FC<{
   proposal: ProposalRecord;
   onDecide: (decision: "accept" | "reject") => void;
 }> = ({ proposal, onDecide }) => {
+  const { t } = useTranslation();
   const workspace = useAppStore((s) => s.workspace);
   const operation = proposal.operation;
   const view =
@@ -26,10 +28,10 @@ const ClusterViewProposalCard: React.FC<{
     <div
       className="my-1 rounded border border-gray-200 bg-white/80 p-2 text-xs text-gray-700"
       role="group"
-      aria-label="Cluster view proposal"
+      aria-label={t($ => $.proposal.clusterView)}
       data-testid="cluster-view-proposal"
     >
-      <div className="font-semibold">Cluster View proposal · {view.label}</div>
+      <div className="font-semibold">{t($ => $.proposal.clusterView)} · {view.label}</div>
       <div className="mt-1 space-y-1">
         {view.clusters.map((cluster) => (
           <div key={cluster.id} className="rounded border border-gray-100 p-1">
@@ -55,7 +57,7 @@ const ClusterViewProposalCard: React.FC<{
         ))}
         {view.ungroupedNodeIds.length > 0 && (
           <div className="text-gray-500">
-            ungrouped: {view.ungroupedNodeIds.map(nodeLabel).join(", ")}
+            {t($ => $.proposal.ungroupedValue, { nodes: view.ungroupedNodeIds.map(nodeLabel).join(", ") })}
           </div>
         )}
       </div>
@@ -63,26 +65,27 @@ const ClusterViewProposalCard: React.FC<{
         <button
           type="button"
           className="rounded bg-green-600 px-2 py-1 text-[11px] font-bold text-white"
-          aria-label="Accept cluster view"
+          aria-label={t($ => $.proposal.acceptClusterAria)}
+          data-proposal-decision="accept"
           onClick={() => onDecide("accept")}
         >
-          Accept
+          {t($ => $.proposal.accept)}
         </button>
         <button
           type="button"
           className="rounded bg-gray-600 px-2 py-1 text-[11px] font-bold text-white"
-          aria-label="Reject cluster view"
+          aria-label={t($ => $.proposal.rejectClusterAria)}
           onClick={() => onDecide("reject")}
         >
-          Reject
+          {t($ => $.proposal.reject)}
         </button>
         <button
           type="button"
           className="rounded bg-slate-600 px-2 py-1 text-[11px] font-bold text-white"
-          aria-label="Stop cluster view"
+          aria-label={t($ => $.proposal.stopClusterAria)}
           onClick={() => onDecide("reject")}
         >
-          Stop
+          {t($ => $.proposal.stop)}
         </button>
       </div>
     </div>

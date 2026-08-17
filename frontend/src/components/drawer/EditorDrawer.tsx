@@ -3,6 +3,7 @@ import { X, Edit3, Eye, Zap, Loader2, GripVertical } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import { ArtifactNodeData } from "../../types";
 import MarkdownContent from "../markdown/MarkdownContent";
+import { useTranslation } from "react-i18next";
 
 const EditorDrawer: React.FC = () => {
 const {
@@ -23,6 +24,7 @@ const {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [drawerWidth, setDrawerWidth] = useState(450);
   const [isResizing, setIsResizing] = useState(false);
+  const { t } = useTranslation();
 
   const drawerRef = useRef<HTMLDivElement>(null);
 
@@ -49,9 +51,7 @@ const {
       }
     } catch (error: any) {
       console.error("Failed to regenerate summary:", error);
-      alert(
-        `Failed to regenerate summary: ${error.message || "Unknown error"}`,
-      );
+      useAppStore.setState({ lastError: { code: "editor.summaryFailed" } });
     } finally {
       setIsSummarizing(false);
     }
@@ -125,13 +125,13 @@ const {
       <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50 shrink-0">
         <h2 className="font-bold text-gray-700 flex items-center gap-2">
           <Edit3 size={18} />
-          {isArtifact ? "Artifact Editor" : "Node Editor"}
+          {isArtifact ? t(($) => $.editor.artifactEditor) : t(($) => $.editor.nodeEditor)}
         </h2>
         {artifactData && (
           <div className="mx-3 min-w-0 flex-1">
             <input
               type="text"
-              aria-label="Artifact filename"
+              aria-label={t(($) => $.editor.artifactFilename)}
               value={artifactData.filename}
               spellCheck={false}
               onChange={(event) =>
@@ -152,13 +152,15 @@ const {
               placeholder="chapter.md"
             />
             <div className="text-[10px] text-gray-400">
-              {artifactData.charCount.toLocaleString()} chars
+              {t(($) => $.editor.chars, { count: artifactData.charCount })}
             </div>
           </div>
         )}
         <button
           onClick={handleClose}
           className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+          aria-label={t(($) => $.editor.close)}
+          title={t(($) => $.editor.close)}
         >
           <X size={20} className="text-gray-500" />
         </button>
@@ -175,9 +177,10 @@ const {
           }`}
         >
           <Edit3 size={16} />
-          Edit
+          {t(($) => $.editor.edit)}
         </button>
         <button
+          data-testid="editor-preview"
           onClick={() => setIsEditMode(false)}
           className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded text-sm font-medium transition-colors ${
             !isEditMode
@@ -186,7 +189,7 @@ const {
           }`}
         >
           <Eye size={16} />
-          Preview
+          {t(($) => $.editor.preview)}
         </button>
         {activeNodeId && (activeNode?.type === "customNode" || activeNode?.type === "artifactNode") && (
           <button
@@ -195,9 +198,9 @@ const {
               switchTextRole(activeNodeId, isArtifact ? "text" : "artifact")
             }
             className="flex-1 rounded py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-50"
-            aria-label={isArtifact ? "Switch to Text role" : "Switch to Artifact role"}
+          aria-label={isArtifact ? t(($) => $.editor.switchToText) : t(($) => $.editor.switchToArtifact)}
           >
-            {isArtifact ? "As Text" : "As Artifact"}
+            {isArtifact ? t(($) => $.editor.asText) : t(($) => $.editor.asArtifact)}
           </button>
         )}
       </div>
@@ -207,7 +210,7 @@ const {
         {isEditMode ? (
           <textarea
             className="flex-1 p-4 resize-none focus:outline-none text-gray-800 font-mono text-sm leading-relaxed"
-            placeholder="Write your markdown here..."
+          placeholder={t(($) => $.editor.markdownPlaceholder)}
             value={(activeNode as any)?.data.content || ""}
             onChange={(e) =>
               activeNodeId &&
@@ -219,7 +222,7 @@ const {
         ) : (
           <div className="flex-1 p-6 overflow-y-auto prose prose-sm max-w-none prose-blue">
             <MarkdownContent>
-              {(activeNode as any)?.data.content || "*No content to preview*"}
+              {(activeNode as any)?.data.content || `*${t(($) => $.editor.noContent)}*`}
             </MarkdownContent>
           </div>
         )}
@@ -229,7 +232,7 @@ const {
       <div className="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-            Summary
+            {t(($) => $.editor.summary)}
           </label>
           <button
             onClick={handleRegenerateSummary}
@@ -245,17 +248,17 @@ const {
             ) : (
               <Zap size={12} />
             )}
-            {isSummarizing ? "Generating..." : "Regenerate"}
+            {isSummarizing ? t(($) => $.editor.generating) : t(($) => $.editor.regenerate)}
           </button>
         </div>
         {artifactData && (
           <div className="mb-2 text-right text-[10px] text-gray-400">
-            {artifactData.charCount.toLocaleString()} characters · {artifactData.wordCount.toLocaleString()} words
+            {t(($) => $.editor.characters, { count: artifactData.charCount })} · {t(($) => $.editor.words, { count: artifactData.wordCount })}
           </div>
         )}
         <textarea
           className="w-full p-2 text-sm border border-gray-200 rounded bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-300 resize-none h-20"
-          placeholder="Summary will appear here..."
+          placeholder={t(($) => $.editor.summaryPlaceholder)}
           value={(activeNode as any)?.data.summary || ""}
           onChange={(e) =>
             activeNodeId && updateNodeSummary(activeNodeId, e.target.value)

@@ -3,6 +3,7 @@ import { Handle, NodeProps, NodeResizer, Position } from "@xyflow/react";
 import { AppNode, ArtifactNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
 import MarkdownContent from "../markdown/MarkdownContent";
+import { useTranslation } from "react-i18next";
 
 const PREVIEW_LIMIT = 1800;
 
@@ -16,6 +17,7 @@ const ArtifactNode = ({
   const { updateNodeDimensions } = useAppStore();
   const artifact = data as ArtifactNodeData;
   const preview = artifact.content.slice(0, PREVIEW_LIMIT);
+  const { t } = useTranslation();
 
   return (
     <div
@@ -61,16 +63,16 @@ const ArtifactNode = ({
           </div>
         </div>
         <div className="mb-2 flex shrink-0 gap-2 text-[10px] text-gray-400">
-          <span>{artifact.charCount.toLocaleString()} chars</span>
+          <span>{t(($) => $.canvas.chars, { count: artifact.charCount })}</span>
           <span>·</span>
-          <span>{artifact.wordCount.toLocaleString()} words</span>
+          <span>{t(($) => $.canvas.words, { count: artifact.wordCount })}</span>
         </div>
         <div className="prose prose-sm min-h-0 max-w-none flex-1 overflow-y-auto pr-1 text-gray-700 custom-scrollbar">
           <MarkdownContent>
-            {preview || "*No content*"}
+            {preview || `*${t(($) => $.canvas.noContent)}*`}
           </MarkdownContent>
           {artifact.content.length > PREVIEW_LIMIT && (
-            <div className="mt-2 text-[10px] italic text-gray-400">Preview truncated…</div>
+            <div className="mt-2 text-[10px] italic text-gray-400">{t(($) => $.canvas.previewTruncated)}…</div>
           )}
         </div>
       </div>
@@ -78,7 +80,7 @@ const ArtifactNode = ({
       {artifact.summary && (
         <div className="shrink-0 border-t border-purple-100 bg-purple-50/70 px-3 py-2">
           <div className="mb-0.5 text-[9px] font-bold uppercase tracking-wider text-purple-400">
-            Summary
+            {t(($) => $.canvas.summary)}
           </div>
           <div
             className="overflow-hidden text-[10px] leading-4 text-purple-900"

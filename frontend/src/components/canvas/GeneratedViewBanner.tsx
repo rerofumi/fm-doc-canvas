@@ -1,8 +1,9 @@
 import type React from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAppStore } from "../../store/useAppStore";
 import { renameCluster, removeCluster } from "../../domain/generatedView";
 import ConvertClusterDialog from "./ConvertClusterDialog";
+import { useTranslation } from "react-i18next";
 
 export const CLUSTER_PALETTE = [
   "#6366f1",
@@ -35,6 +36,8 @@ const GeneratedViewBanner: React.FC = () => {
   const [convertingClusterId, setConvertingClusterId] = useState<string | null>(
     null,
   );
+  const convertTriggerRef = useRef<HTMLElement | null>(null);
+  const { t } = useTranslation();
 
   if (!activeGeneratedView) return null;
   const view = activeGeneratedView;
@@ -60,11 +63,11 @@ const GeneratedViewBanner: React.FC = () => {
     <div
       className="flex shrink-0 items-center gap-2 border-b border-indigo-200 bg-indigo-50 px-4 py-2 text-xs"
       role="region"
-      aria-label={`Active Generated View: ${view.label}`}
+      aria-label={t(($) => $.generatedView.active, { label: view.label })}
       data-testid="generated-view-banner"
     >
-      <span className="font-bold text-indigo-900">View: {view.label}</span>
-      <span className="text-indigo-500">（一時的な見方）</span>
+      <span className="font-bold text-indigo-900">{t(($) => $.generatedView.view, { label: view.label })}</span>
+      <span className="text-indigo-500">{t(($) => $.generatedView.temporary)}</span>
       <div className="flex flex-wrap items-center gap-1">
         {view.clusters.map((cluster) => (
           <span
@@ -77,7 +80,7 @@ const GeneratedViewBanner: React.FC = () => {
           >
             {editingClusterId === cluster.id ? (
               <input
-                aria-label={`Rename cluster ${cluster.label}`}
+                aria-label={t(($) => $.generatedView.renameCluster, { label: cluster.label })}
                 className="w-24 rounded border border-indigo-300 px-1 text-[11px]"
                 value={editingLabel}
                 onChange={(e) => setEditingLabel(e.target.value)}
@@ -89,7 +92,7 @@ const GeneratedViewBanner: React.FC = () => {
               <button
                 type="button"
                 className="font-semibold"
-                aria-label={`Rename cluster ${cluster.label}`}
+                aria-label={t(($) => $.generatedView.renameCluster, { label: cluster.label })}
                 onClick={() => beginRename(cluster.id, cluster.label)}
               >
                 {cluster.label}
@@ -101,7 +104,7 @@ const GeneratedViewBanner: React.FC = () => {
             <button
               type="button"
               className="font-bold opacity-70 hover:opacity-100"
-              aria-label={`Delete cluster ${cluster.label}`}
+              aria-label={t(($) => $.generatedView.deleteCluster, { label: cluster.label })}
               onClick={() => deleteCluster(cluster.id)}
             >
               ×
@@ -109,10 +112,14 @@ const GeneratedViewBanner: React.FC = () => {
             <button
               type="button"
               className="underline"
-              aria-label={`Convert ${cluster.label} to SubCanvas`}
-              onClick={() => setConvertingClusterId(cluster.id)}
+            aria-label={t(($) => $.generatedView.convertCluster, { label: cluster.label })}
+            data-testid={`convert-cluster-${cluster.id}`}
+              onClick={(event) => {
+                convertTriggerRef.current = event.currentTarget;
+                setConvertingClusterId(cluster.id);
+              }}
             >
-              Convert to SubCanvas
+              {t(($) => $.generatedView.convert)}
             </button>
           </span>
         ))}
@@ -120,16 +127,17 @@ const GeneratedViewBanner: React.FC = () => {
       <button
         type="button"
         className="ml-auto rounded border border-indigo-300 bg-white px-2 py-1 font-bold text-indigo-800"
-        aria-label="Close Generated View"
+        aria-label={t(($) => $.generatedView.close)}
         onClick={closeGeneratedView}
       >
-        Close view
+        {t(($) => $.generatedView.closeView)}
       </button>
 
       {convertingClusterId && (
         <ConvertClusterDialog
           cluster={view.clusters.find((c) => c.id === convertingClusterId)!}
           onCancel={() => setConvertingClusterId(null)}
+          returnFocusTarget={convertTriggerRef.current}
           onConfirm={(label) => {
             useAppStore
               .getState()

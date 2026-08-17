@@ -40,7 +40,7 @@ import {
   workspaceToPrettyJSON,
 } from "../domain/workspacePersistence";
 import { resolveContext } from "../domain/contextResolver";
-import { buildNextActionRequest, NEXT_ACTION_MAPPINGS, normalizeNextActionError, normalizeNextActionProposal, revalidateNextActionScope, validateEditedAction, type NextActionProposalSet, type NextActionRequest } from "../domain/orchestration";
+import { buildNextActionRequest, NEXT_ACTION_MAPPINGS, normalizeNextActionError, normalizeNextActionProposal, revalidateNextActionScope, validateEditedAction, type NextActionProposalSet, type NextActionRequest, type OrchestrationReceipt } from "../domain/orchestration";
 import {
   createProposalFromLegacyTool,
   createTransformProposal,
@@ -86,6 +86,8 @@ import {
 import * as GeneratedBackend from "../../wailsjs/go/main/App";
 import { useChatStore } from "./useChatStore";
 import type { AssistantScopeSnapshot } from "./useChatStore";
+import { toUiMessageDescriptor, type UiMessageDescriptor } from "../i18n/messages";
+import { getEffectiveLocale } from "../i18n/i18n";
 
 const initialConfig: AppConfig = {
   llm: {
@@ -156,7 +158,7 @@ export function configureAppRuntime(env: RuntimeEnvironment) {
 interface StoreExtras {
   workspace: WorkspaceState;
   history: HistoryState;
-  lastError: string | null;
+  lastError: UiMessageDescriptor | null;
   boundaryAggregates: ReturnType<
     typeof projectCurrentCanvas
   >["boundaryAggregates"];
@@ -195,7 +197,7 @@ interface StoreExtras {
   orchestrationStatus: "idle" | "pending" | "ready" | "cancelled" | "stale" | "error" | "dispatching" | "dispatched";
   orchestrationRequest: NextActionRequest | null;
   nextActionProposal: NextActionProposalSet | null;
-  orchestrationReceipt: { kind: string; targetNodeIds: string[]; resultSurface: string } | null;
+  orchestrationReceipt: OrchestrationReceipt | null;
   requestNextActions: (messages?: ChatMessage[]) => Promise<boolean>;
   cancelNextActionRequest: () => void;
   dismissNextActions: () => void;
@@ -662,7 +664,7 @@ function createToolProposalDecider(
     }
     return {
       status: "error" as const,
-      error: result.error || get().lastError || "failed",
+      error: result.error || get().lastError?.code || "failed",
     };
   };
 }
@@ -845,7 +847,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
     const { workspace, history } = get();
     const result = applyCommand(workspace, command, services(), history);
     if (!result.ok) {
-      set({ lastError: result.error || "command failed" });
+      set({ lastError: toUiMessageDescriptor(result.error, "operation.commandFailed") });
       return false;
     }
     projectInto(set, result.state, result.history || history, {
@@ -882,7 +884,8 @@ export const useAppStore = create<FullAppState>((set, get) => {
       for (const [sessionId, active] of Object.entries(chat.activeRuns)) {
         if (active.runId !== runId) continue;
         chat.replaceMessage(sessionId, active.assistantMessageId, {
-          content: "キャンセルしました。",
+          content: "",
+          messageDescriptor: { code: "chat.cancelled" },
           status: "cancelled",
         });
         chat.cancelRun(sessionId);
@@ -930,6 +933,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
 
     newWorkspace: () => {
       dispatch({ type: "newWorkspace" });
+      useChatStore.getState().resetWorkspace();
       set({
         isEditorOpen: false,
         activePacket: null,
@@ -946,6 +950,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
     },
     discardWorkspace: () => {
       dispatch({ type: "discardWorkspace" });
+      useChatStore.getState().resetWorkspace();
       set({
         isEditorOpen: false,
         activePacket: null,
@@ -969,7 +974,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
     renameSubCanvas: (canvasId, label) => {
       const normalized = label.trim();
       if (!normalized) {
-        set({ lastError: "SubCanvas name cannot be empty" });
+        set({ lastError: { code: "operation.subcanvasEmptyName" } });
         return false;
       }
       return dispatch({ type: "renameSubCanvas", canvasId, label: normalized });
@@ -981,7 +986,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         state.workspace.runtime.currentCanvasId
       ];
       if (!currentCanvas?.parentCanvasId || !currentCanvas.folderNodeId) {
-        set({ lastError: "Current Canvas has no parent" });
+        set({ lastError: { code: "operation.subcanvasNoParent" } });
         return false;
       }
       const uniqueIds = [...new Set(nodeIds)].filter((id) => {
@@ -989,12 +994,12 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return node?.parentCanvasId === currentCanvas.id;
       });
       if (!uniqueIds.length) {
-        set({ lastError: "No nodes to move" });
+        set({ lastError: { code: "operation.subcanvasNoNodes" } });
         return false;
       }
       const anchor = state.workspace.document.nodes[currentCanvas.folderNodeId];
       if (!anchor || anchor.kind !== "folder") {
-        set({ lastError: "Parent FolderNode is missing" });
+        set({ lastError: { code: "operation.subcanvasParentMissing" } });
         return false;
       }
       const members = uniqueIds
@@ -1049,7 +1054,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         },
       }, services(), get().history);
       if (!result.ok) {
-        set({ lastError: result.error || "direct-text failed" });
+        set({ lastError: toUiMessageDescriptor(result.error, "operation.directActionFailed") });
         return { ok: false, error: result.error || "direct-text failed" };
       }
       projectInto(set, result.state, result.history || get().history, { lastError: null });
@@ -1137,7 +1142,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       });
       const error = validateTransformSelection(current, operation, sourceNodeIds);
       if (error) {
-        set({ lastError: error });
+        set({ lastError: toUiMessageDescriptor(error, "operation.directTransformFailed") });
         return false;
       }
       const request = buildTransformRequest(
@@ -1167,7 +1172,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         const latest = get().workspace;
         const guard = revalidateDirectTransform(request, latest);
         if (guard) {
-          set({ lastError: guard.error });
+          set({ lastError: toUiMessageDescriptor(guard.error, "operation.proposalStale") });
           return false;
         }
         // Echoed correlation from backend response is also checked when present.
@@ -1180,7 +1185,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
               request.scopeEpoch)
         ) {
           set({
-            lastError: "direct-transform-stale: response correlation mismatch",
+            lastError: { code: "operation.proposalStale" },
           });
           return false;
         }
@@ -1202,7 +1207,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           get().history,
         );
         if (result.status !== "applied" || !result.history) {
-          set({ lastError: result.error || "direct transform failed" });
+          set({ lastError: toUiMessageDescriptor(result.error, "operation.directTransformFailed") });
           return false;
         }
         const outputNode =
@@ -1228,10 +1233,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return true;
       } catch (caught) {
         set({
-          lastError:
-            caught instanceof Error
-              ? caught.message
-              : "direct transform failed",
+          lastError: toUiMessageDescriptor(caught, "operation.directTransformFailed"),
         });
         return false;
       }
@@ -1242,7 +1244,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       const requestId = services().ids.next("next-action");
       const envelope = resolveContext({ document: state.workspace.document, runtime: state.workspace.runtime, mode: "direct", operation: "orchestrate", generatedView: state.activeGeneratedView });
       let request: NextActionRequest;
-      try { request = buildNextActionRequest(state.workspace, envelope, messages, requestId); } catch (error) { set({ orchestrationStatus: "error", lastError: error instanceof Error ? error.message : "orchestration-context-error" }); return false; }
+      try { request = buildNextActionRequest(state.workspace, envelope, messages, requestId); } catch (error) { set({ orchestrationStatus: "error", lastError: toUiMessageDescriptor(error, "nextAction.failed") }); return false; }
       set({ orchestrationStatus: "pending", orchestrationRequest: request, nextActionProposal: null, lastError: null });
       try {
         const result = await (backend() as any).SuggestNextActions(request);
@@ -1253,7 +1255,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         if (get().orchestrationRequest?.requestId !== requestId || !revalidateNextActionScope(request, latest, scope)) { set({ orchestrationStatus: "stale", nextActionProposal: null }); return false; }
         const normalized = normalizeNextActionProposal(result, request);
         set({ orchestrationStatus: "ready", nextActionProposal: normalized, orchestrationReceipt: null }); return true;
-      } catch (error) { if (get().orchestrationRequest?.requestId !== requestId) return false; set({ orchestrationStatus: "error", lastError: normalizeNextActionError(error) }); return false; }
+      } catch (error) { if (get().orchestrationRequest?.requestId !== requestId) return false; set({ orchestrationStatus: "error", lastError: toUiMessageDescriptor(error, "nextAction.failed") }); return false; }
     },
     cancelNextActionRequest: () => {
       if (get().orchestrationStatus !== "pending") return;
@@ -1274,7 +1276,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       if (!item || !state.orchestrationRequest || !revalidateNextActionScope(state.orchestrationRequest, state.workspace, scope)) { set({ orchestrationStatus: "stale", nextActionProposal: null }); return false; }
       if (get().orchestrationStatus === "dispatching") return false;
       const targets = edits?.targetNodeIds ?? item.targetNodeIds ?? []; const query = edits?.query ?? item.query;
-      if (!validateEditedAction(item, targets, query, state.orchestrationRequest) || targets.some((id) => !state.orchestrationRequest?.selectedNodeIds.includes(id))) { set({ orchestrationStatus: "error", lastError: "next-action-edit-invalid" }); return false; }
+      if (!validateEditedAction(item, targets, query, state.orchestrationRequest) || targets.some((id) => !state.orchestrationRequest?.selectedNodeIds.includes(id))) { set({ orchestrationStatus: "error", lastError: { code: "nextAction.invalid" } }); return false; }
       set({ orchestrationStatus: "dispatching" }); let ok = false;
       try {
         if (item.kind === "compare" || item.kind === "counterpoint") ok = await get().runDirectTransform(item.kind, targets);
@@ -1291,7 +1293,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           ok = true;
         } else ok = false;
       } catch { ok = false; }
-      set(ok ? { orchestrationStatus: "dispatched", nextActionProposal: null, orchestrationReceipt: { kind: item.kind, targetNodeIds: targets, resultSurface: NEXT_ACTION_MAPPINGS[item.kind].resultSurface } } : { orchestrationStatus: "error", lastError: get().lastError || "next-action-dispatch-failed" });
+      set(ok ? { orchestrationStatus: "dispatched", nextActionProposal: null, orchestrationReceipt: { kind: item.kind, targetNodeIds: targets, resultSurface: NEXT_ACTION_MAPPINGS[item.kind].resultSurface } } : { orchestrationStatus: "error", lastError: get().lastError || { code: "nextAction.failed" } });
       return ok;
     },
     applyDirectImageVariant: (input) => {
@@ -1317,17 +1319,18 @@ export const useAppStore = create<FullAppState>((set, get) => {
         history,
       );
       if (!result.ok) {
-        set({ lastError: result.error || "image variant failed" });
+        set({ lastError: toUiMessageDescriptor(result.error, "operation.directActionFailed") });
         return false;
       }
       projectInto(set, result.state, result.history || history, {
         lastError: null,
-        lastDirectReceipt: {
-          operation: "generate-image",
-          sourceNodeIds: input.sourceNodeIds,
-          createdNodeId: result.createdNodeId,
-          createdRelationIds: result.createdRelationIds,
-          summary: input.prompt,
+          lastDirectReceipt: {
+            operation: "generate-image",
+            sourceNodeIds: input.sourceNodeIds,
+            createdNodeId: result.createdNodeId,
+            createdRelationIds: result.createdRelationIds,
+            summaryDescriptor: { code: "operation.directImageGenerated" },
+            summary: input.prompt,
         },
       });
       return true;
@@ -1351,7 +1354,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           : undefined,
       );
       if (rejection) {
-        set({ lastError: rejection });
+        set({ lastError: toUiMessageDescriptor(rejection, "operation.searchFailed") });
         return false;
       }
       set({
@@ -1360,10 +1363,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           entryRoute === "direct-action"
             ? { entryRoute, packet }
             : get().lastSearchReceipt,
-        lastError:
-          packet.status === "failed"
-            ? packet.error?.code || "web-search-provider-error"
-            : null,
+        lastError: packet.status === "failed" ? { code: "operation.searchFailed" } : null,
       });
       return true;
     },
@@ -1400,7 +1400,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       };
       set({ lastSearchRequest: request });
       if (!request.query) {
-        set({ lastError: "web-search-invalid-query" });
+        set({ lastError: { code: "operation.searchInvalidQuery" } });
         return false;
       }
       set({ isWebSearchPending: true, lastError: null });
@@ -1463,10 +1463,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         }
         set({
           isWebSearchPending: false,
-          lastError:
-            caught instanceof Error
-              ? caught.message
-              : "web-search-provider-error",
+          lastError: toUiMessageDescriptor(caught, "operation.searchFailed"),
         });
         return false;
       }
@@ -1475,7 +1472,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       const packet = get().activePacket;
       const workspace = get().workspace;
       if (!packet) {
-        set({ lastError: "promote-stale" });
+        set({ lastError: { code: "operation.proposalStale" } });
         return false;
       }
       const applied = dispatch({
@@ -1512,8 +1509,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return true;
       } catch (caught) {
         set({
-          lastError:
-            caught instanceof Error ? caught.message : "web-search-invalid-url",
+          lastError: toUiMessageDescriptor(caught, "operation.searchFailed"),
         });
         return false;
       }
@@ -1545,7 +1541,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       const current = get().workspace;
       const built = buildDirectSuggestSource(current, "relate", sourceNodeIds);
       if ("error" in built) {
-        set({ lastError: built.error });
+        set({ lastError: toUiMessageDescriptor(built.error, "operation.invalidInput") });
         return false;
       }
       const requestCorrelation = {
@@ -1570,7 +1566,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         const guard = revalidateDirectSuggestion(requestCorrelation, latest);
         if (guard) {
           set({
-            lastError: guard.error,
+            lastError: toUiMessageDescriptor(guard.error, "operation.proposalStale"),
             lastSuggestReceipt: {
               operation: "relations",
               status: "error",
@@ -1602,7 +1598,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         );
         if (!normalized.ok) {
           set({
-            lastError: normalized.error,
+            lastError: toUiMessageDescriptor(normalized.error, "operation.invalidInput"),
             lastSuggestReceipt: {
               operation: "relations",
               status: "error",
@@ -1640,7 +1636,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
               ? caught
               : "suggest-relations-failed";
         set({
-          lastError: message,
+          lastError: toUiMessageDescriptor(message, "operation.directActionFailed"),
           lastSuggestReceipt: {
             operation: "relations",
             status: "error",
@@ -1655,7 +1651,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       const current = get().workspace;
       const built = buildDirectSuggestSource(current, "group", sourceNodeIds);
       if ("error" in built) {
-        set({ lastError: built.error });
+        set({ lastError: toUiMessageDescriptor(built.error, "operation.invalidInput") });
         return false;
       }
       const requestCorrelation = {
@@ -1680,7 +1676,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         const guard = revalidateDirectSuggestion(requestCorrelation, latest);
         if (guard) {
           set({
-            lastError: guard.error,
+            lastError: toUiMessageDescriptor(guard.error, "operation.proposalStale"),
             lastSuggestReceipt: {
               operation: "clusters",
               status: "error",
@@ -1707,7 +1703,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         );
         if (!normalized.ok) {
           set({
-            lastError: normalized.error,
+            lastError: toUiMessageDescriptor(normalized.error, "operation.invalidInput"),
             lastSuggestReceipt: {
               operation: "clusters",
               status: "error",
@@ -1741,7 +1737,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
               ? caught
               : "suggest-clusters-failed";
         set({
-          lastError: message,
+          lastError: toUiMessageDescriptor(message, "operation.directActionFailed"),
           lastSuggestReceipt: {
             operation: "clusters",
             status: "error",
@@ -1789,10 +1785,10 @@ export const useAppStore = create<FullAppState>((set, get) => {
         return { status: "rejected" as const };
       }
       if (result.status === "conflict") {
-        set({ lastError: result.error || "conflict" });
+        set({ lastError: toUiMessageDescriptor(result.error, "operation.proposalConflict") });
         return { status: "conflict" as const };
       }
-      set({ lastError: result.error || result.status });
+      set({ lastError: toUiMessageDescriptor(result.error, "operation.failed") });
       return { status: "error" as const, error: result.error || result.status };
     },
     convertClusterToSubCanvas: (clusterId, label) => {
@@ -1800,11 +1796,11 @@ export const useAppStore = create<FullAppState>((set, get) => {
       if (!view) return false;
       const cluster = view.clusters.find((c) => c.id === clusterId);
       if (!cluster) {
-        set({ lastError: "cluster not found" });
+        set({ lastError: { code: "operation.clusterNotFound" } });
         return false;
       }
       if (cluster.nodeIds.length < 2) {
-        set({ lastError: "cluster has fewer than 2 members" });
+        set({ lastError: { code: "operation.clusterTooSmall" } });
         return false;
       }
       const viewBefore = view;
@@ -1816,7 +1812,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         history,
       );
       if (!result.ok) {
-        set({ lastError: result.error || "createSubCanvas failed" });
+        set({ lastError: toUiMessageDescriptor(result.error, "operation.commandFailed") });
         return false;
       }
       const viewAfter = removeCluster(view, clusterId);
@@ -1880,20 +1876,20 @@ export const useAppStore = create<FullAppState>((set, get) => {
       });
     },
 
-    addEmptyNode: () => {
-      dispatch({ type: "createText", role: "text", input: {} });
+    addEmptyNode: (defaultLabel: string) => {
+      dispatch({ type: "createText", role: "text", input: { summary: defaultLabel } });
       set({ isEditorOpen: true });
     },
 
-    addArtifactNode: () => {
-      dispatch({ type: "createText", role: "artifact", input: {} });
+    addArtifactNode: (defaultLabel: string) => {
+      dispatch({ type: "createText", role: "artifact", input: { summary: defaultLabel } });
       set({ isEditorOpen: true });
     },
 
     deleteNode: (id: string) => {
       const node = get().workspace.document.nodes[id];
       if (node && isFolder(node)) {
-        set({ lastError: "Use Dissolve SubCanvas for folder nodes" });
+        set({ lastError: { code: "operation.folderDeleteDisabled" } });
         return;
       }
       dispatch({ type: "deleteNodes", nodeIds: [id] });
@@ -2037,20 +2033,27 @@ export const useAppStore = create<FullAppState>((set, get) => {
         services().clock.nowISO(),
       );
       try {
-        return await backend().SaveCanvasToFile(json);
+        const locale = getEffectiveLocale();
+        return await backend().SaveCanvasToFile(json, locale);
       } catch (error) {
         console.error("Failed to save canvas:", error);
+        // Keep provider/binding diagnostics out of application state while
+        // exposing a stable descriptor that can be re-presented after a
+        // locale switch. The workspace JSON was already produced locally and
+        // is never mutated by a failed dialog/write operation.
+        set({ lastError: toUiMessageDescriptor(error, "canvas.saveFailed") });
         throw error;
       }
     },
 
     loadCanvas: async () => {
       try {
-        const jsonString = await backend().LoadCanvasFromFile();
+        const locale = getEffectiveLocale();
+        const jsonString = await backend().LoadCanvasFromFile(locale);
         if (!jsonString) return;
         const loaded = loadWorkspaceJSON(jsonString, services());
         if (!loaded.ok) {
-          set({ lastError: loaded.error });
+          set({ lastError: toUiMessageDescriptor(loaded.error, "canvas.loadFailed") });
           throw new Error(loaded.error);
         }
         dispatch({
@@ -2069,6 +2072,9 @@ export const useAppStore = create<FullAppState>((set, get) => {
         });
       } catch (error) {
         console.error("Failed to load canvas:", error);
+        // A dialog/binding failure must use the same semantic boundary as a
+        // validation failure; do not retain the raw provider message.
+        set({ lastError: toUiMessageDescriptor(error, "canvas.loadFailed") });
         throw error;
       }
     },
@@ -2096,7 +2102,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
       return result;
     },
 
-    exportMarkdown: async (content) => backend().ExportMarkdown(content),
+    exportMarkdown: async (content) => backend().ExportMarkdown(content, getEffectiveLocale()),
 
     exportNode: async (nodeId) => {
       const node = get().workspace.document.nodes[nodeId];
@@ -2106,16 +2112,17 @@ export const useAppStore = create<FullAppState>((set, get) => {
           return backend().ExportMarkdownWithFilename(
             node.content,
             node.filename || "untitled.md",
+            getEffectiveLocale(),
           );
         }
         const name = node.filename || `${node.summary || "text"}.md`;
-        return backend().ExportMarkdownWithFilename(node.content, name);
+        return backend().ExportMarkdownWithFilename(node.content, name, getEffectiveLocale());
       }
-      if (node.kind === "image") return backend().ExportImage(node.src);
+      if (node.kind === "image") return backend().ExportImage(node.src, getEffectiveLocale());
       throw new Error("Unsupported node type for export");
     },
 
-    exportImage: async (src) => backend().ExportImage(src),
+    exportImage: async (src) => backend().ExportImage(src, getEffectiveLocale()),
 
     exportNodesAsMarp: async (nodeIds) => {
       const slides = ["---", "marp: true", "theme: default", "---", ""];
@@ -2125,7 +2132,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
           slides.push(node.content, "", "---", "");
         }
       }
-      return backend().ExportMarkdown(slides.join("\n"));
+      return backend().ExportMarkdown(slides.join("\n"), getEffectiveLocale());
     },
 
     onNodesChange: (changes: NodeChange<AppNode>[]) => {
@@ -2196,7 +2203,7 @@ export const useAppStore = create<FullAppState>((set, get) => {
         if (normals.length) dispatch({ type: "deleteNodes", nodeIds: normals });
         if (folders.length) {
           set({
-            lastError: "Folder delete is disabled; use Dissolve SubCanvas",
+            lastError: { code: "operation.folderDeleteDisabled" },
           });
         }
         const view = get().activeGeneratedView;

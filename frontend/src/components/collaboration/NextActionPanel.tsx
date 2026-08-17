@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { NEXT_ACTION_MAPPINGS } from "../../domain/orchestration";
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "../../store/useAppStore";
 import type { ChatMessage } from "../../types/chat";
+import { presentAction, presentNextActionKind, presentResultSurface, presentUiMessage } from "../../i18n";
 
 export default function NextActionPanel({
   messages,
@@ -20,6 +21,7 @@ export default function NextActionPanel({
   onDispatch?: (actionId: string, edits?: { targetNodeIds?: string[]; query?: string }) => void;
   onCancel?: () => void;
 }) {
+  const { t } = useTranslation();
   const status = useAppStore((state) => state.orchestrationStatus);
   const proposal = useAppStore((state) => state.nextActionProposal);
   const request = useAppStore((state) => state.requestNextActions);
@@ -48,18 +50,20 @@ export default function NextActionPanel({
 
   return (
     <section
-      aria-label="Next action proposals"
+      aria-label={t($ => $.nextAction.regionAria)}
+      data-testid="next-action-panel"
       className="max-h-[50vh] shrink-0 overflow-y-auto overscroll-contain border-b border-gray-200 bg-slate-50 p-3"
     >
       {status === "idle" && showTrigger && (
         <button
           type="button"
-          aria-label="次の一手を提案"
+          aria-label={t($ => $.nextAction.triggerAria)}
+          data-testid="next-action-trigger"
           className="rounded border px-3 py-1 text-sm"
           onClick={retry}
           disabled={controlsDisabled || triggerDisabled}
         >
-          次の一手
+          {t($ => $.nextAction.trigger)}
         </button>
       )}
       {status === "pending" && (
@@ -68,14 +72,15 @@ export default function NextActionPanel({
           aria-live="polite"
           className="flex items-center justify-between text-sm"
         >
-          <span>提案を考えています…</span>
+          <span>{t($ => $.nextAction.thinking)}</span>
           <button
             type="button"
-            aria-label="次の一手の提案をキャンセル"
+            data-testid="next-action-cancel"
+            aria-label={t($ => $.nextAction.cancelAria)}
             className="rounded border px-2 py-1"
             onClick={cancel}
           >
-            キャンセル
+            {t($ => $.nextAction.cancel)}
           </button>
         </div>
       )}
@@ -87,27 +92,27 @@ export default function NextActionPanel({
         >
           <span>
             {status === "cancelled"
-              ? "提案をキャンセルしました。"
-              : "提案は古くなりました。"}
+              ? t($ => $.nextAction.cancelled)
+              : t($ => $.nextAction.stale)}
           </span>
           <span className="flex gap-2">
             <button
               type="button"
-              aria-label="次の一手を再提案"
+              aria-label={t($ => $.nextAction.retryAria)}
               className="underline"
               onClick={retry}
               disabled={controlsDisabled}
             >
-              再提案
+              {t($ => $.nextAction.retry)}
             </button>
             <button
               type="button"
-              aria-label="次の一手の提案を閉じる"
+              aria-label={t($ => $.nextAction.dismissAria)}
               className="underline"
               onClick={dismiss}
               disabled={controlsDisabled}
             >
-              閉じる
+              {t($ => $.nextAction.dismiss)}
             </button>
           </span>
         </div>
@@ -119,29 +124,29 @@ export default function NextActionPanel({
           className="flex items-center justify-between text-sm text-red-700"
         >
           <span>
-            {error || "次の一手を提案できませんでした。"}
+            {error ? presentUiMessage(error) : presentUiMessage({ code: "nextAction.failed" })}
             <span className="ml-2 text-xs text-red-600">
-              再提案、対象を変更、または通常Chatで相談できます。
+              {t($ => $.nextAction.recovery)}
             </span>
           </span>
           <span className="flex gap-2">
             <button
               type="button"
-              aria-label="次の一手を再提案"
+              aria-label={t($ => $.nextAction.retryAria)}
               className="underline"
               onClick={retry}
               disabled={controlsDisabled}
             >
-              再提案
+              {t($ => $.nextAction.retry)}
             </button>
             <button
               type="button"
-              aria-label="次の一手の提案を閉じる"
+              aria-label={t($ => $.nextAction.dismissAria)}
               className="underline"
               onClick={dismiss}
               disabled={controlsDisabled}
             >
-              閉じる
+              {t($ => $.nextAction.dismiss)}
             </button>
           </span>
         </div>
@@ -150,55 +155,57 @@ export default function NextActionPanel({
         <div
           role="status"
           aria-live="polite"
+          data-testid="next-action-result-status"
+          data-result-surface={receipt.resultSurface}
           className="flex items-center justify-between text-sm"
         >
           <span>
-            実行しました: {receipt.kind}（{receipt.resultSurface}）
+            {t($ => $.nextAction.executed, { kind: presentNextActionKind(receipt.kind), surface: presentResultSurface(receipt.resultSurface) })}
             {receipt.targetNodeIds.length
-              ? ` / 対象 ${receipt.targetNodeIds.join(", ")}`
+              ? t($ => $.nextAction.target, { targets: receipt.targetNodeIds.join(", ") })
               : ""}
           </span>
           <button
             type="button"
-            aria-label="実行結果を閉じる"
+            aria-label={t($ => $.nextAction.resultDismissAria)}
             className="underline"
             onClick={dismiss}
           >
-            閉じる
+            {t($ => $.nextAction.dismiss)}
           </button>
         </div>
       )}
       {status === "dispatching" && (
         <div role="status" aria-live="polite" className="text-sm">
-          提案を実行しています…
+          {t($ => $.nextAction.dispatching)}
         </div>
       )}
       {(status === "ready" || status === "dispatching") && (
-        <div role="region" aria-label="Next action proposals">
+        <div role="region" aria-label={t($ => $.nextAction.regionAria)}>
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">次の一手</h2>
+            <h2 className="text-sm font-semibold">{t($ => $.nextAction.title)}</h2>
             <div className="flex gap-2">
               <button
                 type="button"
-                aria-label="次の一手を再提案"
+                aria-label={t($ => $.nextAction.retryAria)}
                 onClick={retry}
                 disabled={controlsDisabled}
               >
-                もう一度考える
+                {t($ => $.nextAction.rethink)}
               </button>
               <button
                 type="button"
-                aria-label="次の一手の提案を閉じる"
+                aria-label={t($ => $.nextAction.dismissAria)}
                 onClick={dismiss}
                 disabled={controlsDisabled}
               >
-                閉じる
+                {t($ => $.nextAction.dismiss)}
               </button>
             </div>
           </div>
           {actions.map((action) => {
             const currentTargets = targets[action.id] || action.targetNodeIds;
-            const presentation = NEXT_ACTION_MAPPINGS[action.kind];
+            const presentation = presentAction(action.kind);
             const updateTargets = (id: string, checked: boolean) => {
               setTargets((previous) => ({
                 ...previous,
@@ -219,6 +226,7 @@ export default function NextActionPanel({
                 key={action.id}
                 className="mb-2 rounded border bg-white p-2"
                 aria-labelledby={`next-action-${action.id}`}
+                data-testid={`next-action-${action.id}`}
               >
                 <h3
                   id={`next-action-${action.id}`}
@@ -227,25 +235,25 @@ export default function NextActionPanel({
                   {action.title}
                 </h3>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-2 text-xs text-gray-700">
-                  <dt>役割</dt>
+                  <dt>{t($ => $.nextAction.role)}</dt>
                   <dd>{presentation.roleLabel}</dd>
-                  <dt>権限</dt>
+                  <dt>{t($ => $.nextAction.authority)}</dt>
                   <dd>{presentation.actionLevelLabel}</dd>
-                  <dt>導線</dt>
+                  <dt>{t($ => $.nextAction.route)}</dt>
                   <dd>{presentation.routeLabel}</dd>
-                  <dt>文書への影響</dt>
-                  <dd>{action.documentEffect}</dd>
-                  <dt>操作</dt>
-                  <dd>{action.control}</dd>
+                  <dt>{t($ => $.nextAction.documentEffect)}</dt>
+                  <dd>{presentation.documentEffectLabel}</dd>
+                  <dt>{t($ => $.nextAction.control)}</dt>
+                  <dd>{presentation.controlLabel}</dd>
                 </dl>
                 {action.kind !== "clarify" && action.kind !== "web_search" && (
                   <fieldset className="mt-1">
-                    <legend className="text-xs">対象を選択</legend>
+                    <legend className="text-xs">{t($ => $.nextAction.selectTarget)}</legend>
                     {action.targetNodeIds.map((id) => (
                       <label key={id} className="mr-2 text-xs">
                         <input
                           type="checkbox"
-                          aria-label={`対象 ${targetLabel(id)}`}
+                          aria-label={t($ => $.nextAction.targetAria, { label: targetLabel(id) })}
                           checked={currentTargets.includes(id)}
                           disabled={controlsDisabled}
                           onChange={(event) =>
@@ -261,9 +269,10 @@ export default function NextActionPanel({
                 )}
                 {action.kind === "web_search" && (
                   <label className="mt-1 block text-xs">
-                    検索 query
+                    {t($ => $.nextAction.searchQuery)}
                     <input
-                      aria-label={`${action.title} の検索 query`}
+                      aria-label={t($ => $.nextAction.searchQueryAria, { title: action.title })}
+                      data-testid={"next-action-search-query-" + action.id}
                       className="mt-1 w-full rounded border px-2 py-1"
                       value={query || action.query || ""}
                       disabled={controlsDisabled}
@@ -277,30 +286,32 @@ export default function NextActionPanel({
                   </p>
                 )}
                 <p className="mt-1 text-xs">
-                  <span className="font-medium">なぜ今:</span> {action.reason}
+                  <span className="font-medium">{t($ => $.nextAction.whyNow)}</span> {action.reason}
                 </p>
                 <p className="text-xs">
-                  <span className="font-medium">得られるもの:</span>{" "}
+                  <span className="font-medium">{t($ => $.nextAction.outcome)}</span>{" "}
                   {action.expectedResult}
                 </p>
                 <div className="mt-2 flex gap-2">
                   <button
                     type="button"
-                    aria-label={`${action.title}を実行`}
+                    aria-label={t($ => $.nextAction.executeAria, { title: action.title })}
+                    data-testid={`next-action-execute-${action.id}`}
                     disabled={status === "dispatching"}
                     className="rounded bg-blue-600 px-2 py-1 text-xs text-white"
                     onClick={() => onDispatch ? onDispatch(action.id, edits) : void dispatch(action.id, edits)}
                   >
-                    {action.kind === "clarify" ? "この質問に答える" : "実行"}
+                    {action.kind === "clarify" ? t($ => $.nextAction.answer) : t($ => $.nextAction.execute)}
                   </button>
                   <button
                     type="button"
-                    aria-label={`${action.title}を拒否`}
+                    aria-label={t($ => $.nextAction.rejectAria, { title: action.title })}
+                    data-testid={`next-action-reject-${action.id}`}
                     disabled={status === "dispatching"}
                     className="rounded border px-2 py-1 text-xs"
                     onClick={() => reject(action.id)}
                   >
-                    拒否
+                    {t($ => $.nextAction.reject)}
                   </button>
                 </div>
               </article>

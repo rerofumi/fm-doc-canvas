@@ -7,10 +7,10 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    const input = page.getByLabel("Chat message input");
+    const input = page.getByTestId("assistant-prompt");
 
     await input.fill("root draft");
-    await page.getByRole("tab", { name: "Direct" }).click();
+    await page.getByTestId("assistant-mode-direct").click();
     await expect(input).toHaveValue("root draft");
 
     const root = await app.snapshot();
@@ -25,10 +25,10 @@ test.describe("WP-3 unified Assistant contract", () => {
     await app.navigate(child.childCanvasId);
     await expect(input).toHaveValue("child draft");
 
-    await page.getByLabel("Close assistant").click();
+    await page.getByTestId("assistant-close").click();
     await expect(page.locator("aside.fixed")).toHaveClass(/translate-x-full/);
     await app.openChat();
-    await expect(page.getByLabel("Chat message input")).toHaveValue("child draft");
+    await expect(page.getByTestId("assistant-prompt")).toHaveValue("child draft");
   });
 
   test("textarea keyboard contract is newline versus explicit submit", async ({ page }) => {
@@ -36,7 +36,7 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    const input = page.getByLabel("Chat message input");
+    const input = page.getByTestId("assistant-prompt");
 
     await input.fill("line one");
     await input.press("Enter");
@@ -59,18 +59,18 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    const input = page.getByLabel("Chat message input");
+    const input = page.getByTestId("assistant-prompt");
 
     await input.fill("dialogue route query");
-    await page.getByRole("button", { name: "Web検索" }).click();
+    await page.getByTestId("assistant-web-search").click();
     await expect.poll(async () => (await app.snapshot()).lastSearchRequest?.entryRoute).toBe("dialogue-agent");
     let snapshot = await app.snapshot();
     const chatSession = snapshot.chat.sessions.find((session: any) => session.id === snapshot.chat.activeSessionId);
     expect(chatSession?.messages.some((message: any) => message.role === "user" && message.content === "dialogue route query")).toBeTruthy();
 
-    await page.getByRole("tab", { name: "Direct" }).click();
+    await page.getByTestId("assistant-mode-direct").click();
     await input.fill("direct route query");
-    await page.getByRole("button", { name: "Web検索" }).click();
+    await page.getByTestId("assistant-web-search").click();
     await expect.poll(async () => (await app.snapshot()).lastSearchReceipt?.entryRoute).toBe("direct-action");
     snapshot = await app.snapshot();
     expect(snapshot.lastSearchReceipt?.packet.query).toContain("direct route query");
@@ -84,7 +84,7 @@ test.describe("WP-3 unified Assistant contract", () => {
     const targetNode = await app.addText("Target-derived");
     await app.setChatTarget(targetNode!);
     await app.openChat();
-    await page.getByRole("button", { name: "New", exact: true }).click();
+    await page.getByTestId("assistant-new-session").click();
     const defaultSnapshot = await app.snapshot();
     const defaultSession = defaultSnapshot.chat.sessions.find((session: any) => session.id === defaultSnapshot.chat.activeSessionId);
     expect(defaultSession?.title).toBe("Target-derived について");
@@ -108,7 +108,7 @@ test.describe("WP-3 unified Assistant contract", () => {
     expect(reloadedPersisted?.title).toBe("Target-derived について");
     expect(reloadedPersisted?.isDefaultTitle).toBe(true);
 
-    const input = page.getByLabel("Chat message input");
+    const input = page.getByTestId("assistant-prompt");
     const message = "  初回   Unicode 😀 title with more than twenty-four characters  ";
     const expectedTitle = Array.from(message.trim().replace(/\s+/g, " ")).slice(0, 24).join("");
     await input.fill(message);
@@ -139,14 +139,14 @@ test.describe("WP-3 unified Assistant contract", () => {
     await app.navigate(child.childCanvasId);
     await app.selectNodes([sourceA!]);
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    await page.getByTestId("direct-mode-selector").getByRole("button", { name: "Image", exact: true }).click();
-    const input = page.getByLabel("Chat message input");
+    await page.getByTestId("assistant-mode-direct").click();
+    await page.getByTestId("direct-mode-image").click();
+    const input = page.getByTestId("assistant-prompt");
     await input.fill("delayed direct image");
     const before = await app.snapshot();
     await app.armDelayedImageGeneration();
-    await page.getByRole("button", { name: "生成" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "処理中" })).toBeVisible();
+    await page.getByTestId("assistant-submit").click();
+    await expect(page.getByRole("status").filter({ hasText: "Working" })).toBeVisible();
     await app.navigate(root.currentCanvasId);
     await app.releaseDelayedImageGeneration();
     await app.navigate(child.childCanvasId);
@@ -161,11 +161,11 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    const input = page.getByLabel("Chat message input");
+    await page.getByTestId("assistant-mode-direct").click();
+    const input = page.getByTestId("assistant-prompt");
     const before = await app.snapshot();
     await input.fill("create direct text");
-    await page.getByRole("button", { name: "生成" }).click();
+    await page.getByTestId("assistant-submit").click();
     await expect(page.getByTestId("direct-result-surface")).toContainText("Direct Text", { timeout: 15_000 });
     const after = await app.snapshot();
     expect(after.nodeCount).toBe(before.nodeCount + 1);
@@ -188,13 +188,13 @@ test.describe("WP-3 unified Assistant contract", () => {
     await app.navigate(child.childCanvasId);
     await app.selectNodes([source!]);
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    const input = page.getByLabel("Chat message input");
+    await page.getByTestId("assistant-mode-direct").click();
+    const input = page.getByTestId("assistant-prompt");
     await input.fill("delayed direct text");
     const before = await app.snapshot();
     await app.armDelayedTextGeneration();
-    await page.getByRole("button", { name: "生成" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "処理中" })).toBeVisible();
+    await page.getByTestId("assistant-submit").click();
+    await expect(page.getByRole("status").filter({ hasText: "Working" })).toBeVisible();
     await app.navigate(root.currentCanvasId);
     await app.releaseDelayedTextGeneration();
     await app.navigate(child.childCanvasId);
@@ -209,26 +209,26 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    await page.getByTestId("direct-mode-selector").getByRole("button", { name: "Image", exact: true }).click();
-    const input = page.getByLabel("Chat message input");
+    await page.getByTestId("assistant-mode-direct").click();
+    await page.getByTestId("direct-mode-image").click();
+    const input = page.getByTestId("assistant-prompt");
     await input.fill("operation guard image");
     await app.armDelayedImageGeneration();
-    const submit = page.getByRole("button", { name: "生成" });
+    const submit = page.getByTestId("assistant-submit");
     await submit.click();
     await expect.poll(async () => (await app.snapshot()).chat.activeOperation?.kind).toBe("direct-image");
     await expect(submit).toBeDisabled();
-    await expect(page.getByRole("tab", { name: "Chat" })).toBeDisabled();
-    await expect(page.getByRole("tab", { name: "Direct" })).toBeDisabled();
-    await expect(page.getByLabel("Dialogue image provider")).toBeDisabled();
-    await expect(page.getByTestId("direct-mode-selector").getByRole("button", { name: "Text", exact: true })).toBeDisabled();
-    await expect(page.getByTestId("direct-mode-selector").getByRole("button", { name: "Image", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Web検索" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "次の一手を提案" })).toBeDisabled();
-    await page.getByLabel("Close assistant").click();
+    await expect(page.getByTestId("assistant-mode-chat")).toBeDisabled();
+    await expect(page.getByTestId("assistant-mode-direct")).toBeDisabled();
+    await expect(page.getByTestId("assistant-image-provider")).toBeDisabled();
+    await expect(page.getByTestId("direct-mode-text")).toBeDisabled();
+    await expect(page.getByTestId("direct-mode-image")).toBeDisabled();
+    await expect(page.getByTestId("assistant-web-search")).toBeDisabled();
+    await expect(page.getByTestId("assistant-next-action")).toBeDisabled();
+    await page.getByTestId("assistant-close").click();
     await expect(page.locator("aside.fixed")).toHaveClass(/translate-x-full/);
     await app.openChat();
-    await expect(page.getByRole("status").filter({ hasText: "処理中" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Working" })).toBeVisible();
     await app.releaseDelayedImageGeneration();
     await expect.poll(async () => (await app.snapshot()).chat.activeOperation).toBeNull();
   });
@@ -238,17 +238,17 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    await page.getByLabel("Chat message input").fill("pending chat search");
+    await page.getByTestId("assistant-prompt").fill("pending chat search");
     await app.armDelayedSearchWeb();
-    await page.getByRole("button", { name: "Web検索" }).click();
+    await page.getByTestId("assistant-web-search").click();
     await expect.poll(async () => (await app.snapshot()).chat.activeOperation?.kind).toBe("web-search");
-    await expect(page.getByRole("tab", { name: "Chat" })).toBeDisabled();
-    await expect(page.getByRole("tab", { name: "Direct" })).toBeDisabled();
-    await expect(page.getByLabel("Chat session")).toBeDisabled();
-    await expect(page.getByRole("button", { name: "New", exact: true })).toBeDisabled();
-    await expect(page.getByLabel("Dialogue image provider")).toBeDisabled();
-    await expect(page.getByRole("button", { name: "次の一手を提案" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Web検索" })).toBeDisabled();
+    await expect(page.getByTestId("assistant-mode-chat")).toBeDisabled();
+    await expect(page.getByTestId("assistant-mode-direct")).toBeDisabled();
+    await expect(page.getByTestId("assistant-session")).toBeDisabled();
+    await expect(page.getByTestId("assistant-new-session")).toBeDisabled();
+    await expect(page.getByTestId("assistant-image-provider")).toBeDisabled();
+    await expect(page.getByTestId("assistant-next-action")).toBeDisabled();
+    await expect(page.getByTestId("assistant-web-search")).toBeDisabled();
     await app.releaseDelayedSearchWeb();
     await expect.poll(async () => (await app.snapshot()).chat.activeOperation).toBeNull();
   });
@@ -259,9 +259,9 @@ test.describe("WP-3 unified Assistant contract", () => {
     await app.newWorkspace();
     await app.openChat();
     await app.armDelayedNextActions();
-    await page.getByRole("button", { name: "次の一手を提案" }).click();
+    await page.getByTestId("assistant-next-action").click();
     await expect.poll(async () => (await app.snapshot()).chat.activeOperation?.kind).toBe("next-actions");
-    await page.getByRole("button", { name: "次の一手の提案をキャンセル" }).click();
+    await page.getByTestId("next-action-cancel").click();
     await expect.poll(async () => (await app.snapshot()).chat.activeOperation).toBeNull();
     await expect.poll(async () => (await app.orchestrationSnapshot()).status).toBe("cancelled");
     await app.releaseDelayedNextActions();
@@ -292,15 +292,15 @@ test.describe("WP-3 unified Assistant contract", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    const directTab = page.getByRole("tab", { name: "Direct" });
+    const directTab = page.getByTestId("assistant-mode-direct");
     await directTab.focus();
     expect(await page.evaluate(() => document.activeElement?.getAttribute("role"))).toBe("tab");
     await page.keyboard.press("Tab");
-    await expect(page.getByLabel("Chat session")).toBeFocused();
+    await expect(page.getByTestId("assistant-session")).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "New", exact: true })).toBeFocused();
-    await page.getByLabel("Chat message input").focus();
+    await expect(page.getByTestId("assistant-new-session")).toBeFocused();
+    await page.getByTestId("assistant-prompt").focus();
     await page.keyboard.press("Tab");
-    await expect(page.getByTestId("assistant-action-row").getByRole("button", { name: "次の一手を提案" })).toBeFocused();
+    await expect(page.getByTestId("assistant-next-action")).toBeFocused();
   });
 });

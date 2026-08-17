@@ -1,8 +1,9 @@
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useAppStore } from "../../store/useAppStore";
 import { isTextBearing } from "../../domain/workspace";
 import type { ClusterViewClusterDraft } from "../../domain/generatedView";
+import { useTranslation } from "react-i18next";
 
 /**
  * Preview + confirm dialog for converting a single cluster to a SubCanvas.
@@ -13,13 +14,49 @@ const ConvertClusterDialog: React.FC<{
   cluster: ClusterViewClusterDraft;
   onCancel: () => void;
   onConfirm: (label: string) => void;
-}> = ({ cluster, onCancel, onConfirm }) => {
+  returnFocusTarget?: HTMLElement | null;
+}> = ({ cluster, onCancel, onConfirm, returnFocusTarget }) => {
   const workspace = useAppStore((s) => s.workspace);
   const [label, setLabel] = useState(cluster.label);
+  const { t } = useTranslation();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const labelRef = useRef<HTMLInputElement>(null);
+  const onCancelRef = useRef(onCancel);
+  const titleId = useId();
+  onCancelRef.current = onCancel;
 
   useEffect(() => {
     setLabel(cluster.label);
   }, [cluster.label]);
+
+  useEffect(() => {
+    labelRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCancelRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (!focusable.length) return;
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      const next = event.shiftKey
+        ? (index - 1 + focusable.length) % focusable.length
+        : (index + 1) % focusable.length;
+      event.preventDefault();
+      focusable[next]?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      if (returnFocusTarget?.isConnected) returnFocusTarget.focus();
+    };
+  }, [returnFocusTarget]);
 
   const members = cluster.nodeIds
     .map((id) => workspace.document.nodes[id])
@@ -30,14 +67,15 @@ const ConvertClusterDialog: React.FC<{
       className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30"
       role="dialog"
       aria-modal="true"
-      aria-label={`Convert ${cluster.label} to SubCanvas`}
+      aria-label={t(($) => $.generatedView.convertCluster, { label: cluster.label })}
+      aria-labelledby={titleId}
+      ref={dialogRef}
       data-testid="convert-cluster-dialog"
     >
       <div className="w-96 rounded-lg border border-gray-200 bg-white p-4 shadow-xl">
-        <div className="text-sm font-bold">Convert cluster to SubCanvas</div>
+        <div id={titleId} className="text-sm font-bold">{t(($) => $.generatedView.convertTitle)}</div>
         <div className="mt-2 text-xs text-gray-500">
-          Move {members.length} member{members.length === 1 ? "" : "s"} into a
-          new SubCanvas (Folder) on the Current Canvas.
+          {t(($) => $.generatedView.moveMembers, { count: members.length })}
         </div>
         <div className="mt-2 max-h-40 overflow-auto rounded border border-gray-100 bg-gray-50 p-2">
           {members.map((node) => (
@@ -50,36 +88,38 @@ const ConvertClusterDialog: React.FC<{
           ))}
         </div>
         <label className="mt-3 block text-xs font-semibold text-gray-700">
-          Folder label
+          {t(($) => $.generatedView.folderLabel)}
           <input
-            aria-label="Folder label"
+            ref={labelRef}
+            aria-label={t(($) => $.generatedView.folderLabel)}
+            data-testid="convert-cluster-label"
             className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-xs"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
         </label>
         <div className="mt-2 text-[10px] text-gray-400">
-          Boundary Relations to nodes outside this cluster are kept via the
-          existing boundary aggregate. Undo restores both the document and the
-          pre-conversion view.
+          {t(($) => $.generatedView.boundaryRelations)}
         </div>
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
             className="rounded border border-gray-300 px-3 py-1 text-xs font-semibold"
-            aria-label="Cancel convert"
+            aria-label={t(($) => $.generatedView.cancelConvert)}
+            data-testid="convert-cluster-cancel"
             onClick={onCancel}
           >
-            Cancel
+            {t(($) => $.common.action.cancel)}
           </button>
           <button
             type="button"
             className="rounded bg-indigo-700 px-3 py-1 text-xs font-bold text-white"
-            aria-label="Confirm convert to SubCanvas"
+            aria-label={t(($) => $.generatedView.confirmConvert)}
+            data-testid="convert-cluster-confirm"
             disabled={!label.trim()}
             onClick={() => onConfirm(label.trim() || cluster.label)}
           >
-            Confirm
+            {t(($) => $.common.action.save)}
           </button>
         </div>
       </div>

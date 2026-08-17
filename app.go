@@ -320,13 +320,13 @@ func (a *App) SaveConfig(cfg backend.Config) error {
 }
 
 // SaveCanvasToFile opens a dialog and saves the canvas JSON
-func (a *App) SaveCanvasToFile(jsonData string) (string, error) {
-	return a.fileService.SaveCanvasToFile(jsonData)
+func (a *App) SaveCanvasToFile(jsonData, locale string) (string, error) {
+	return a.fileService.SaveCanvasToFile(jsonData, locale)
 }
 
 // LoadCanvasFromFile opens a dialog and reads a canvas JSON
-func (a *App) LoadCanvasFromFile() (string, error) {
-	return a.fileService.LoadCanvasFromFile()
+func (a *App) LoadCanvasFromFile(locale string) (string, error) {
+	return a.fileService.LoadCanvasFromFile(locale)
 }
 
 // GenerateText calls the LLM service to generate content based on prompt and context
@@ -822,18 +822,18 @@ func (a *App) GenerateTextWithImages(prompt string, contextData string, imageDat
 }
 
 // ExportMarkdown opens a dialog and saves the markdown content
-func (a *App) ExportMarkdown(content string) (string, error) {
-	return a.fileService.ExportMarkdown(content)
+func (a *App) ExportMarkdown(content, locale string) (string, error) {
+	return a.fileService.ExportMarkdown(content, locale)
 }
 
 // ExportMarkdownWithFilename opens a Markdown save dialog with a suggested filename.
-func (a *App) ExportMarkdownWithFilename(content string, defaultFilename string) (string, error) {
-	return a.fileService.ExportMarkdownWithFilename(content, defaultFilename)
+func (a *App) ExportMarkdownWithFilename(content, defaultFilename, locale string) (string, error) {
+	return a.fileService.ExportMarkdownWithFilename(content, defaultFilename, locale)
 }
 
 // ExportImage opens a dialog and copies the image to the selected path
-func (a *App) ExportImage(src string) (string, error) {
-	return a.fileService.ExportImage(src)
+func (a *App) ExportImage(src, locale string) (string, error) {
+	return a.fileService.ExportImage(src, locale)
 }
 
 // GetImageFileURL converts a relative image path to an absolute file URL

@@ -49,7 +49,7 @@ test("Wails binding Greet is reachable from browser", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Add Text" })).toBeVisible({
     timeout: 20_000,
   });
-  await page.locator("header").getByRole("button", { name: "Settings" }).click();
+  await page.getByTestId("shell-settings").click();
   await expect(
     page.getByTestId("settings-drawer").getByRole("button", { name: "New Workspace" }),
   ).toBeVisible();

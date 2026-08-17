@@ -21,12 +21,12 @@ test.describe("F3 Web Context core", () => {
     expect(after.lastSearchRequest.query).toBe("alpha topic");
     expect(after.lastSearchRequest.hintNodeIds).toEqual([a]);
     expect(JSON.stringify(after.lastSearchRequest)).not.toContain("Unselected other note");
-    await expect(page.getByRole("region", { name: "Projected Context" })).toBeVisible();
-    const panel = page.getByRole("region", { name: "Projected Context" });
+    await expect(page.getByTestId("projected-context-panel")).toBeVisible();
+    const panel = page.getByTestId("projected-context-panel");
     await expect(panel).toHaveCSS("overflow-y", "auto");
-    await expect(panel.getByRole("button", { name: "Promote selected context" })).toBeVisible();
-    const firstSource = panel.getByRole("checkbox", { name: "Select source Alpha Paper" });
-    const secondSource = panel.getByRole("checkbox", { name: "Select source Beta Note" });
+    await expect(panel.getByTestId("projected-context-promote")).toBeVisible();
+    const firstSource = panel.getByTestId(`projected-source-${after.activePacket.sources[0].sourceId}`);
+    const secondSource = panel.getByTestId(`projected-source-${after.activePacket.sources[1].sourceId}`);
     await firstSource.check();
     await expect(firstSource).toBeChecked();
     await expect(secondSource).not.toBeChecked();
@@ -70,16 +70,16 @@ test.describe("F3 Web Context core", () => {
     await app.selectNodes([desk!]);
     await app.searchWeb("first topic", { entryRoute: "direct-action" });
 
-    let panel = page.getByRole("region", { name: "Projected Context" });
-    await panel.getByRole("checkbox", { name: "Select source Alpha Paper" }).check();
-    await expect(panel.getByText("1 / 5 selected")).toBeVisible();
-    await panel.getByRole("button", { name: "Promote selected context" }).click();
+    let panel = page.getByTestId("projected-context-panel");
+    await panel.getByTestId(`projected-source-${(await app.snapshot()).activePacket.sources[0].sourceId}`).check();
+    await expect(panel.getByText("1 / 5 item selected")).toBeVisible();
+    await panel.getByTestId("projected-context-promote").click();
     await expect(panel).toBeHidden();
 
     await app.searchWeb("second topic", { entryRoute: "direct-action" });
-    panel = page.getByRole("region", { name: "Projected Context" });
-    await expect(panel.getByText("0 / 5 selected")).toBeVisible();
-    await expect(panel.getByRole("button", { name: "Promote selected context" })).toBeDisabled();
+    panel = page.getByTestId("projected-context-panel");
+    await expect(panel.getByText("0 / 5 items selected")).toBeVisible();
+    await expect(panel.getByTestId("projected-context-promote")).toBeDisabled();
     for (const checkbox of await panel.getByRole("checkbox").all()) {
       await expect(checkbox).not.toBeChecked();
     }
@@ -123,7 +123,7 @@ test.describe("F3 Web Context core", () => {
     expect(await app.searchWeb("   ", { entryRoute: "dialogue-agent" })).toBeFalsy();
     const afterBlank = await app.snapshot();
     expect(Object.values(afterBlank.asyncRuns || {}).some((run: any) => run.status === "active")).toBeFalsy();
-    expect(String(afterBlank.lastError || "")).toContain("web-search-invalid-query");
+    expect(String(afterBlank.lastError || "")).toContain("operation.searchInvalidQuery");
     await app.newWorkspace();
     const stale = await app.promotePacket({
       selectedClaimIds: afterDirect.activePacket?.claims?.[0]?.claimId ? [afterDirect.activePacket.claims[0].claimId] : ["missing"],
@@ -157,7 +157,7 @@ test.describe("F3 Web Context core", () => {
     const group = await app.createSubCanvas([n1!, n2!], "Child");
     await app.armDelayedSearchWeb();
     const pendingNav = app.searchWeb("nav stale", { entryRoute: "direct-action" });
-    await expect(page.getByRole("status", { name: "Web search in progress" })).toBeVisible();
+    await expect(page.getByTestId("web-search-progress")).toBeVisible();
     await expect.poll(async () => Boolean((await app.snapshot()).lastSearchRequest)).toBeTruthy();
     await app.navigate(group.childCanvasId);
     await app.releaseDelayedSearchWeb();
@@ -193,9 +193,9 @@ test.describe("F3 Web Context core", () => {
       const after = await app.snapshot();
       expect(after.nodeCount).toBe(before.nodeCount);
       expect(after.relationCount).toBe(before.relationCount);
-      expect(String(after.lastError || after.activePacket?.error?.code || "")).toContain(code);
-      await expect(page.getByRole("alert", { name: "Workspace error" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Open Settings" })).toBeVisible();
+      expect(String(after.lastError || after.activePacket?.error?.code || "")).toContain("operation.searchFailed");
+      await expect(page.getByTestId("global-error-banner")).toBeVisible();
+      await expect(page.getByTestId("projected-context-open-settings")).toBeVisible();
       await app.armSearchFault("");
     }
   });

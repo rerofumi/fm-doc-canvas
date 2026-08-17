@@ -298,7 +298,9 @@ function makeTextNode(
   const summary =
     input.summary ||
     content.split(/\r?\n/, 1)[0] ||
-    (role === "artifact" ? "New Artifact" : "New Text");
+    // Production UI actions supply the locale-resolved default explicitly.
+    // Domain commands retain a stable technical fallback for legacy callers.
+    role;
   const node: TextBearingNode = {
     id: services.ids.next("node"),
     kind: "text",

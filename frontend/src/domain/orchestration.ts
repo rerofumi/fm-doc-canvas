@@ -3,13 +3,17 @@ import type { ContextEnvelope } from "./contextResolver";
 import { boundedDialogueHistory } from "./runScope";
 import { isFolder, isTextBearing, type WorkspaceState } from "./workspace";
 
-export type NextActionKind =
-  | "clarify"
-  | "compare"
-  | "counterpoint"
-  | "web_search"
-  | "suggest_relations"
-  | "suggest_clusters";
+export const NEXT_ACTION_KINDS = [
+  "clarify",
+  "compare",
+  "counterpoint",
+  "web_search",
+  "suggest_relations",
+  "suggest_clusters",
+] as const;
+export type NextActionKind = (typeof NEXT_ACTION_KINDS)[number];
+export const isNextActionKind = (value: unknown): value is NextActionKind =>
+  typeof value === "string" && (NEXT_ACTION_KINDS as readonly string[]).includes(value);
 export type PlannerNodeType = "text" | "artifact" | "image";
 
 export interface NextActionNodeHint {
@@ -93,12 +97,16 @@ export interface NextActionPresentation {
   role: string;
   actionLevel: string;
   route: string;
-  documentEffect: string;
-  control: string;
-  roleLabel: string;
-  actionLevelLabel: string;
-  routeLabel: string;
-  resultSurface: string;
+  /** Semantic codes are translated only by the presentation adapter. */
+  documentEffect: "dialogue" | "transform" | "web-search" | "proposal";
+  control: "answer-dismiss" | "undo" | "dismiss-promote" | "modify-accept-reject" | "modify-accept-reject-close";
+  resultSurface: "dialogue" | "direct-transform" | "context-packet" | "relation-proposal" | "cluster-proposal";
+}
+
+export interface OrchestrationReceipt {
+  kind: NextActionKind;
+  targetNodeIds: string[];
+  resultSurface: NextActionPresentation["resultSurface"];
 }
 
 export const NEXT_ACTION_MAPPINGS: Record<
@@ -109,67 +117,49 @@ export const NEXT_ACTION_MAPPINGS: Record<
     role: "questioner",
     actionLevel: "AL-0",
     route: "dialogue",
-    documentEffect: "変更なし。質問をDialogueへ置く",
-    control: "回答または拒否",
-    roleLabel: "質問者",
-    actionLevelLabel: "AL-0（Ask）",
-    routeLabel: "Dialogue",
-    resultSurface: "Dialogue",
+    documentEffect: "dialogue",
+    control: "answer-dismiss",
+    resultSurface: "dialogue",
   },
   compare: {
     role: "comparer",
     actionLevel: "AL-2",
     route: "direct-transform",
-    documentEffect: "可逆な派生Text。single undo",
-    control: "取消/undo",
-    roleLabel: "比較者",
-    actionLevelLabel: "AL-2（Execute）",
-    routeLabel: "可逆なDirect Transform",
-    resultSurface: "Direct Transform",
+    documentEffect: "transform",
+    control: "undo",
+    resultSurface: "direct-transform",
   },
   counterpoint: {
     role: "critic",
     actionLevel: "AL-2",
     route: "direct-transform",
-    documentEffect: "可逆な派生Text。single undo",
-    control: "取消/undo",
-    roleLabel: "反対意見の検討者",
-    actionLevelLabel: "AL-2（Execute）",
-    routeLabel: "可逆なDirect Transform",
-    resultSurface: "Direct Transform",
+    documentEffect: "transform",
+    control: "undo",
+    resultSurface: "direct-transform",
   },
   web_search: {
     role: "researcher",
     actionLevel: "AL-2",
     route: "direct-web-search",
-    documentEffect: "Context Packet候補。文書変更なし",
-    control: "dismiss / Promote",
-    roleLabel: "調査者",
-    actionLevelLabel: "AL-2（Execute）",
-    routeLabel: "既存Web検索",
-    resultSurface: "Context Packet",
+    documentEffect: "web-search",
+    control: "dismiss-promote",
+    resultSurface: "context-packet",
   },
   suggest_relations: {
     role: "organizer",
     actionLevel: "AL-1",
     route: "direct-relation-suggestion",
-    documentEffect: "Proposalのみ。文書変更なし",
-    control: "Modify / Accept / Reject",
-    roleLabel: "関係整理者",
-    actionLevelLabel: "AL-1（Suggest）",
-    routeLabel: "Relation Proposal",
-    resultSurface: "Relation Proposal",
+    documentEffect: "proposal",
+    control: "modify-accept-reject",
+    resultSurface: "relation-proposal",
   },
   suggest_clusters: {
     role: "organizer",
     actionLevel: "AL-1",
     route: "direct-cluster-suggestion",
-    documentEffect: "Proposalのみ。文書変更なし",
-    control: "Modify / Accept / Reject / Close",
-    roleLabel: "クラスタ整理者",
-    actionLevelLabel: "AL-1（Suggest）",
-    routeLabel: "Cluster View Proposal",
-    resultSurface: "Cluster View Proposal",
+    documentEffect: "proposal",
+    control: "modify-accept-reject-close",
+    resultSurface: "cluster-proposal",
   },
 };
 
@@ -335,9 +325,13 @@ export function normalizeNextActionError(error: unknown): string {
   return "next-actions-failed";
 }
 
-export function isNextActionError(error: string | null | undefined): boolean {
-  const value = (error || "").trim().toLowerCase();
-  return value.startsWith("next-actions-") || value.startsWith("orchestration-") || value.startsWith("orchestration:");
+export function isNextActionError(error: unknown): boolean {
+  const value = typeof error === "string"
+    ? error.trim().toLowerCase()
+    : error && typeof error === "object" && "code" in error
+      ? String((error as { code: unknown }).code).trim().toLowerCase()
+      : "";
+  return value.startsWith("next-actions-") || value.startsWith("nextaction.") || value.startsWith("orchestration-") || value.startsWith("orchestration:");
 }
 
 export interface NextActionScopeEnvelope {
@@ -391,6 +385,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+// Accept the pre-WP-2 wire prose while reading old provider fixtures. New
+// requests/proposals use the semantic codes above; legacy values are normalized
+// at this boundary and never need to be rendered by the domain layer.
+function matchesSemanticOrLegacy(kind: NextActionKind, field: "documentEffect" | "control", value: unknown): boolean {
+  const expected = NEXT_ACTION_MAPPINGS[kind][field];
+  if (value === expected) return true;
+  const legacy: Record<NextActionKind, Record<"documentEffect" | "control", string>> = {
+    clarify: { documentEffect: "変更なし。質問をDialogueへ置く", control: "回答または拒否" },
+    compare: { documentEffect: "可逆な派生Text。single undo", control: "取消/undo" },
+    counterpoint: { documentEffect: "可逆な派生Text。single undo", control: "取消/undo" },
+    web_search: { documentEffect: "Context Packet候補。文書変更なし", control: "dismiss / Promote" },
+    suggest_relations: { documentEffect: "Proposalのみ。文書変更なし", control: "Modify / Accept / Reject" },
+    suggest_clusters: { documentEffect: "Proposalのみ。文書変更なし", control: "Modify / Accept / Reject / Close" },
+  };
+  return value === legacy[kind][field];
 }
 
 function targetIsAllowed(
@@ -473,8 +484,7 @@ export function normalizeNextActionProposal(
     }
     seen.add(raw.id);
     if (
-      typeof raw.kind !== "string" ||
-      !(raw.kind in NEXT_ACTION_MAPPINGS) ||
+      !isNextActionKind(raw.kind) ||
       typeof raw.title !== "string" ||
       typeof raw.reason !== "string" ||
       typeof raw.expectedResult !== "string" ||
@@ -482,14 +492,14 @@ export function normalizeNextActionProposal(
     ) {
       throw new Error("next-actions-item-invalid");
     }
-    const kind = raw.kind as NextActionKind;
+    const kind = raw.kind;
     const mapping = NEXT_ACTION_MAPPINGS[kind];
     if (
       raw.role !== mapping.role ||
       raw.actionLevel !== mapping.actionLevel ||
       raw.route !== mapping.route ||
-      raw.documentEffect !== mapping.documentEffect ||
-      raw.control !== mapping.control
+      !matchesSemanticOrLegacy(kind, "documentEffect", raw.documentEffect) ||
+      !matchesSemanticOrLegacy(kind, "control", raw.control)
     ) {
       throw new Error("next-actions-mapping-invalid");
     }

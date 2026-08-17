@@ -27,7 +27,7 @@ export function applyToolProposalToNodes(
         position: { x: 120 + nodes.length * 20, y: 120 + nodes.length * 20 },
         data: {
           content,
-          summary: proposal.lastEditSummary || content.split(/\r?\n/, 1)[0] || "New Text",
+          summary: proposal.lastEditSummary || content.split(/\r?\n/, 1)[0] || "text",
           revision: 0,
           charCount: [...content].length,
           wordCount: content.trim() ? content.trim().split(/\s+/).length : 0,

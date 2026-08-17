@@ -2,6 +2,7 @@ import React, { memo } from "react";
 import { Handle, Position, NodeProps, NodeResizer } from "@xyflow/react";
 import { AppNode, TextNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
+import { useTranslation } from "react-i18next";
 
 const CustomNode = ({
   id,
@@ -11,6 +12,7 @@ const CustomNode = ({
   height,
 }: NodeProps<AppNode>) => {
   const { updateNodeDimensions } = useAppStore();
+  const { t } = useTranslation();
 
   return (
     <div
@@ -53,21 +55,21 @@ const CustomNode = ({
 
       <div className="flex flex-col h-full overflow-hidden p-3">
         <div className="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider flex-shrink-0">
-          Summary
+          {t(($) => $.canvas.summary)}
         </div>
         <div className="text-sm text-gray-700 flex-grow overflow-y-auto custom-scrollbar whitespace-pre-wrap pr-1">
           {(data as TextNodeData).summary ||
             ((data as TextNodeData).content
               ? (data as TextNodeData).content.substring(0, 100) +
                 ((data as TextNodeData).content.length > 100 ? "..." : "")
-              : "No content")}
+              : t(($) => $.canvas.noContent))}
         </div>
         {(data as TextNodeData).originalPrompt && (
           <>
             <div className="border-t border-gray-100 my-2 flex-shrink-0" />
             <div className="flex-shrink-0">
               <div className="text-[10px] font-bold text-gray-400 mb-0.5 uppercase tracking-wider">
-                Prompt
+                {t(($) => $.canvas.prompt)}
               </div>
               <div
                 className="text-[10px] text-gray-500 overflow-hidden break-words"

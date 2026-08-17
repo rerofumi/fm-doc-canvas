@@ -11,26 +11,26 @@ test.describe("WP-1 canvas-first layout", () => {
     await app.newWorkspace();
 
     const appHeader = page.locator("header").filter({ hasText: "FM Doc Canvas" });
-    await expect(appHeader.getByRole("button", { name: "Undo" })).toBeVisible();
-    await expect(appHeader.getByRole("button", { name: /Auto Layout/ })).toBeVisible();
-    await expect(appHeader.getByRole("button", { name: "AI Assistant" })).toBeVisible();
+    await expect(page.getByTestId("shell-undo")).toBeVisible();
+    await expect(page.getByTestId("shell-auto-layout")).toBeVisible();
+    await expect(page.getByTestId("shell-chat-toggle")).toBeVisible();
     await expect(appHeader.getByRole("button", { name: /New Workspace/i })).toHaveCount(0);
-    await expect(appHeader.getByRole("button", { name: /Save Workspace|Save Canvas/i })).toHaveCount(0);
-    await expect(appHeader.getByRole("button", { name: /Load Workspace|Load Canvas/i })).toHaveCount(0);
+    await expect(appHeader.getByTestId("save-canvas-action")).toHaveCount(0);
+    await expect(appHeader.getByTestId("load-canvas-action")).toHaveCount(0);
 
-    await appHeader.getByRole("button", { name: "AI Assistant" }).click();
-    await expect(page.getByLabel("Close assistant")).toBeVisible();
-    await page.getByLabel("Close assistant").click();
+    await page.getByTestId("shell-chat-toggle").click();
+    await expect(page.getByTestId("assistant-close")).toBeVisible();
+    await page.getByTestId("assistant-close").click();
 
-    await appHeader.getByRole("button", { name: "Settings" }).click();
+    await page.getByTestId("shell-settings").click();
     const settings = page.getByTestId("settings-drawer");
     await expect(settings).toHaveClass(/translate-x-0/);
     await expect(settings.getByText("File Operations")).toBeVisible();
-    await expect(settings.getByRole("button", { name: "Save Canvas" })).toBeVisible();
-    await expect(settings.getByRole("button", { name: "Load Canvas" })).toBeVisible();
-    await expect(settings.getByRole("button", { name: "New Workspace" })).toBeVisible();
+    await expect(settings.getByTestId("save-canvas-action")).toBeVisible();
+    await expect(settings.getByTestId("load-canvas-action")).toBeVisible();
+    await expect(settings.getByTestId("settings-new-workspace")).toBeVisible();
     await app.addText("Settings action target");
-    await settings.getByRole("button", { name: "New Workspace" }).click();
+    await settings.getByTestId("settings-new-workspace").click();
     await expect.poll(async () => (await app.snapshot()).nodeCount).toBe(0);
   });
 
@@ -71,10 +71,10 @@ test.describe("WP-1 canvas-first layout", () => {
     const app = await e2e(page);
     await app.newWorkspace();
     await app.openChat();
-    await page.getByRole("tab", { name: "Direct" }).click();
-    const input = page.getByLabel("Chat message input");
+    await page.getByTestId("assistant-mode-direct").click();
+    const input = page.getByTestId("assistant-prompt");
     await input.fill("WP-1 direct submit");
-    await page.getByRole("button", { name: "生成" }).click();
+    await page.getByTestId("assistant-submit").click();
     await expect(page.getByTestId("direct-result-surface")).toContainText("Direct Text", { timeout: 15_000 });
   });
 
@@ -89,46 +89,44 @@ test.describe("WP-1 canvas-first layout", () => {
     expect(before.nodeCount).toBe(2);
     expect(before.relationCount).toBe(1);
 
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByTestId("shell-settings").click();
     const settings = page.getByTestId("settings-drawer");
-    await settings.getByRole("button", { name: "Clear Canvas" }).click();
-    const dialog = page.getByRole("dialog", { name: "Clear Canvas" });
+    await settings.getByTestId("clear-canvas-action").click();
+    const dialog = page.getByTestId("clear-canvas-dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await expect(dialog.locator("button").first()).toBeFocused();
     await page.keyboard.press("Shift+Tab");
-    await expect(dialog.getByRole("button", { name: "Clear Canvas" })).toBeFocused();
+    await expect(dialog.locator("button").last()).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await expect(dialog.locator("button").first()).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
     await expect(settings).toHaveClass(/translate-x-0/);
-    await expect(settings.getByRole("button", { name: "Clear Canvas" })).toBeFocused();
+    await expect(settings.getByTestId("clear-canvas-action")).toBeFocused();
     expect((await app.snapshot()).nodeCount).toBe(2);
 
-    await settings.getByRole("button", { name: "Clear Canvas" }).click();
-    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await settings.getByTestId("clear-canvas-action").click();
+    await dialog.locator("button").first().click();
     await expect(dialog).toBeHidden();
     await expect(settings).toHaveClass(/translate-x-0/);
-    await expect(settings.getByRole("button", { name: "Clear Canvas" })).toBeFocused();
+    await expect(settings.getByTestId("clear-canvas-action")).toBeFocused();
 
-    await settings.getByRole("button", { name: "Clear Canvas" }).click();
+    await settings.getByTestId("clear-canvas-action").click();
     const overlay = page.locator('[role="presentation"]');
     await overlay.click({ position: { x: 4, y: 4 } });
     await expect(dialog).toBeHidden();
     await expect(settings).toHaveClass(/translate-x-0/);
-    await expect(settings.getByRole("button", { name: "Clear Canvas" })).toBeFocused();
+    await expect(settings.getByTestId("clear-canvas-action")).toBeFocused();
 
-    await settings.getByRole("button", { name: "Clear Canvas" }).click();
-    await page.getByRole("dialog", { name: "Clear Canvas" })
-      .getByRole("button", { name: "Clear Canvas" })
-      .click();
+    await settings.getByTestId("clear-canvas-action").click();
+    await page.getByTestId("clear-canvas-dialog").locator("button").last().click();
     await expect.poll(async () => (await app.snapshot()).nodeCount).toBe(0);
     await expect(dialog).toBeHidden();
     await expect(settings).toHaveClass(/translate-x-full/);
-    await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
+    await expect(page.getByTestId("shell-settings")).toBeFocused();
     expect((await app.snapshot()).relationCount).toBe(0);
 
-    await page.getByRole("button", { name: "Undo" }).click();
+    await page.getByTestId("shell-undo").click();
     await expect.poll(async () => (await app.snapshot()).nodeCount).toBe(2);
     expect((await app.snapshot()).relationCount).toBe(1);
   });
@@ -144,7 +142,7 @@ test.describe("WP-1 canvas-first layout", () => {
     const before = await app.snapshot();
     const beforePositions = new Map(before.nodes.map((node: any) => [node.id, `${node.position.x},${node.position.y}`]));
 
-    await page.getByRole("button", { name: /Auto Layout/ }).click();
+    await page.getByTestId("shell-auto-layout").click();
     await expect.poll(async () => {
       const snapshot = await app.snapshot();
       return snapshot.nodes.some((node: any) => beforePositions.get(node.id) !== `${node.position.x},${node.position.y}`);
@@ -153,9 +151,9 @@ test.describe("WP-1 canvas-first layout", () => {
     expect(laidOut.json).toContain("Layout A");
     expect(laidOut.historyLength).toBeGreaterThan(before.historyLength);
 
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByTestId("shell-settings").click();
     let settings = page.getByTestId("settings-drawer");
-    await settings.getByRole("button", { name: "Save Canvas" }).click();
+    await settings.getByTestId("save-canvas-action").click();
     const savedPath = path.join(tempRoot(), "save", "workspace.json");
     expect(fs.existsSync(savedPath)).toBeTruthy();
     const savedJson = fs.readFileSync(savedPath, "utf8");
@@ -167,9 +165,9 @@ test.describe("WP-1 canvas-first layout", () => {
     const openPath = path.join(tempRoot(), "fixtures", "workspace.json");
     fs.mkdirSync(path.dirname(openPath), { recursive: true });
     fs.writeFileSync(openPath, savedJson, "utf8");
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByTestId("shell-settings").click();
     settings = page.getByTestId("settings-drawer");
-    await settings.getByRole("button", { name: "Load Canvas" }).click();
+    await settings.getByTestId("load-canvas-action").click();
     // Load resets domain history after the validated replacement; wait for
     // that terminal signal instead of matching the pre-load snapshot content.
     await expect.poll(async () => (await app.snapshot()).historyLength).toBe(0);

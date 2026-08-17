@@ -106,6 +106,7 @@ export type E2EBridge = {
   armSuggestFault: (code: string) => Promise<void>;
   armUndoFault: () => Promise<void>;
   armTransformFault: () => Promise<void>;
+  armCanvasFileFault: (kind: "save" | "load") => Promise<void>;
   armDelayedDirectTransform: () => Promise<void>;
   releaseDelayedDirectTransform: () => Promise<void>;
   armDelayedDirectImage: () => Promise<void>;
@@ -165,9 +166,36 @@ export async function installNetworkGuard(page: Page) {
   });
 }
 
-export async function openApp(page: Page) {
+export type LocalePreference = "system" | "ja" | "en";
+
+export async function setLocaleBeforeLoad(
+  page: Page,
+  preference: LocalePreference,
+  navigatorLanguages: string[] = preference === "ja" ? ["ja-JP", "en-US"] : ["en-US", "ja-JP"],
+) {
+  await page.addInitScript(
+    ({ key, preference: value, languages }) => {
+      if (value !== "system" && !localStorage.getItem(key)) localStorage.setItem(key, value);
+      Object.defineProperty(navigator, "languages", { configurable: true, get: () => languages });
+      Object.defineProperty(navigator, "language", { configurable: true, get: () => languages[0] });
+    },
+    { key: "fm-doc-canvas.locale", preference, languages: navigatorLanguages },
+  );
+}
+
+export async function expectEffectiveLocale(page: Page, locale: "ja" | "en") {
+  await expect(page.locator("html")).toHaveAttribute("lang", locale);
+}
+
+export async function switchLocale(page: Page, preference: LocalePreference) {
+  await page.locator("#settings-language").selectOption(preference);
+  await expect(page.locator("html")).toHaveAttribute("lang", preference === "ja" ? "ja" : "en");
+}
+
+export async function openApp(page: Page, options: { locale?: LocalePreference; navigatorLanguages?: string[] } = {}) {
   const baseURL = process.env.FM_E2E_BASE_URL;
   test.skip(!baseURL, "FM_E2E_BASE_URL required");
+  await setLocaleBeforeLoad(page, options.locale ?? "en", options.navigatorLanguages);
   await installNetworkGuard(page);
   await page.goto(baseURL!, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
@@ -185,7 +213,7 @@ export async function openApp(page: Page) {
       timeout: 30_000,
     },
   );
-  await expect(page.getByRole("button", { name: "Add Text" })).toBeVisible({
+  await expect(page.getByTestId("shell-add-text")).toBeVisible({
     timeout: 20_000,
   });
 }
@@ -402,6 +430,8 @@ export async function e2e(page: Page): Promise<E2EBridge> {
           page.evaluate(() => (window as any).__E2E__.armUndoFault()),
         armTransformFault: () =>
           page.evaluate(() => (window as any).__E2E__.armTransformFault()),
+        armCanvasFileFault: (kind) =>
+          page.evaluate((value) => (window as any).__E2E__.armCanvasFileFault(value), kind),
         armDelayedDirectTransform: () =>
           page.evaluate(() =>
             (window as any).__E2E__.armDelayedDirectTransform(),

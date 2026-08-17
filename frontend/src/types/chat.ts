@@ -1,4 +1,5 @@
 export type ChatRole = "user" | "assistant";
+import type { UiMessageDescriptor } from "../i18n/messages";
 export type ImageProvider = "openrouter" | "openai" | "google" | "xai";
 export type ChatMessageStatus =
   | "streaming"
@@ -22,7 +23,9 @@ export interface ChatToolEvent {
   name: string;
   status: ToolCardStatus;
   summary?: string;
+  summaryDescriptor?: UiMessageDescriptor;
   error?: string;
+  errorDescriptor?: UiMessageDescriptor;
   proposal?: ChatToolProposal;
   packet?: import("../domain/contextPacket").ContextPacket;
 }
@@ -128,6 +131,8 @@ export interface ChatMessage {
   targetNodeId?: string;
   targetRevision?: number;
   status?: ChatMessageStatus;
+  /** App-owned operation message; never persisted as translated prose. */
+  messageDescriptor?: UiMessageDescriptor;
   toolEvents?: ChatToolEvent[];
 }
 
@@ -162,7 +167,7 @@ export interface ChatRequest {
   contextDigest?: string;
   imageProvider?: ImageProvider;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
-  contextWarning?: { kind: "branch" | "loop"; message: string };
+  contextWarning?: { kind: "branch" | "loop" };
   viewHints?: Array<{
     viewId: string;
     kind: "cluster";
@@ -204,6 +209,7 @@ export interface DirectTransformReceipt {
   createdNodeId?: string;
   createdRelationIds?: string[];
   summary: string;
+  summaryDescriptor?: UiMessageDescriptor;
   diff?: {
     sources: Array<
       { nodeId: string; content: string; revision: number } | string

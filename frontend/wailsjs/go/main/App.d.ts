@@ -24,11 +24,11 @@ export function CancelChat(arg1:string):Promise<void>;
 
 export function DirectTransform(arg1:backend.DirectTransformRequest):Promise<backend.TransformProposal>;
 
-export function ExportImage(arg1:string):Promise<string>;
+export function ExportImage(arg1:string,arg2:string):Promise<string>;
 
-export function ExportMarkdown(arg1:string):Promise<string>;
+export function ExportMarkdown(arg1:string,arg2:string):Promise<string>;
 
-export function ExportMarkdownWithFilename(arg1:string,arg2:string):Promise<string>;
+export function ExportMarkdownWithFilename(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function GenerateChatReply(arg1:string,arg2:string):Promise<string>;
 
@@ -60,7 +60,7 @@ export function Greet(arg1:string):Promise<string>;
 
 export function ImportFile(arg1:string):Promise<backend.ImportFileResult>;
 
-export function LoadCanvasFromFile():Promise<string>;
+export function LoadCanvasFromFile(arg1:string):Promise<string>;
 
 export function LoadChatSessions(arg1:string):Promise<Array<backend.ChatSession>>;
 
@@ -80,7 +80,7 @@ export function ReleaseDelayedTextGeneration():Promise<void>;
 
 export function ResolveToolApplication(arg1:backend.ToolApplicationResult):Promise<void>;
 
-export function SaveCanvasToFile(arg1:string):Promise<string>;
+export function SaveCanvasToFile(arg1:string,arg2:string):Promise<string>;
 
 export function SaveChatSessions(arg1:string,arg2:Array<backend.ChatSession>):Promise<void>;
 

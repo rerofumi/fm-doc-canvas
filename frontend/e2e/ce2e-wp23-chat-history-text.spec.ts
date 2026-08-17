@@ -8,8 +8,8 @@ test.describe("WP-2/WP-3 chat history and Text Node", () => {
     await api.newWorkspace();
     await api.openChat();
 
-    const input = page.getByLabel("Chat message input");
-    const send = page.getByRole("button", { name: "送信" });
+    const input = page.getByTestId("assistant-prompt");
+    const send = page.getByTestId("assistant-submit");
     await input.fill("fixture:history-first FIRST-TURN-UNIQUE");
     await send.click();
     await expect.poll(async () => (await api.getLLMFixtureObservations()).agentRequests.length).toBeGreaterThan(0);
@@ -31,11 +31,11 @@ test.describe("WP-2/WP-3 chat history and Text Node", () => {
     const textCreationPrompt = "さっきの情報をまとめてText NodeとしてCanvasに貼って";
     await input.fill(textCreationPrompt);
     await send.click();
-    await expect(page.getByLabel("Accept proposal")).toBeVisible();
+    await expect(page.getByTestId("tool-decision-accept")).toBeVisible();
     const textObservations = await api.getLLMFixtureObservations();
     const textRequest = textObservations.agentRequests.at(-1);
     expect(textRequest.contents.at(-1)).toContain(textCreationPrompt);
-    await page.getByLabel("Accept proposal").click();
+    await page.getByTestId("tool-decision-accept").click();
     await expect.poll(async () => (await api.snapshot()).domainNodes.length).toBe(1);
     const created = (await api.snapshot()).domainNodes[0];
     expect(created.kind).toBe("text");
@@ -51,16 +51,16 @@ test.describe("WP-2/WP-3 chat history and Text Node", () => {
     await api.newWorkspace();
     await api.openChat();
 
-    const input = page.getByLabel("Chat message input");
-    const send = page.getByRole("button", { name: "送信" });
+    const input = page.getByTestId("assistant-prompt");
+    const send = page.getByTestId("assistant-submit");
     const artifactCreationPrompt = "ここまでをArtifactとしてCanvasに貼って";
     await input.fill(artifactCreationPrompt);
     await send.click();
-    await expect(page.getByLabel("Accept proposal")).toBeVisible();
+    await expect(page.getByTestId("tool-decision-accept")).toBeVisible();
     const observations = await api.getLLMFixtureObservations();
     const request = observations.agentRequests.at(-1);
     expect(request.contents.at(-1)).toContain(artifactCreationPrompt);
-    await page.getByLabel("Accept proposal").click();
+    await page.getByTestId("tool-decision-accept").click();
     await expect.poll(async () => (await api.snapshot()).domainNodes.length).toBe(1);
     const artifact = (await api.snapshot()).domainNodes[0];
     expect(artifact.kind).toBe("text");
@@ -76,19 +76,19 @@ test.describe("WP-2/WP-3 chat history and Text Node", () => {
     await api.newWorkspace();
     await api.openChat();
 
-    const input = page.getByLabel("Chat message input");
-    const send = page.getByRole("button", { name: "送信" });
+    const input = page.getByTestId("assistant-prompt");
+    const send = page.getByTestId("assistant-submit");
     const artifactCreationPrompt = "この浅漬けのまとめを Artifact Node として canvas に書き込んでください";
     await input.fill(artifactCreationPrompt);
     await send.click();
-    await expect(page.getByLabel("Accept proposal")).toBeVisible();
+    await expect(page.getByTestId("tool-decision-accept")).toBeVisible();
 
     const observations = await api.getLLMFixtureObservations();
     const request = observations.agentRequests.at(-1);
     const currentPrompt = request.contents.at(-1).split("User request:\n").at(-1);
     expect(currentPrompt).toBe(artifactCreationPrompt);
 
-    await page.getByLabel("Accept proposal").click();
+    await page.getByTestId("tool-decision-accept").click();
     await expect.poll(async () => (await api.snapshot()).domainNodes.length).toBe(1);
     const artifact = (await api.snapshot()).domainNodes[0];
     expect(artifact.kind).toBe("text");

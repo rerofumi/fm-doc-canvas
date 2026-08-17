@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { GenerateTextWithImages, LoadChatSessions, ResolveToolApplication, SaveChatSessions, SendChat } from "../../../wailsjs/go/main/App";
 import { EventsOn } from "../../../wailsjs/runtime/runtime";
 import ChatHeader from "../chat/ChatHeader";
@@ -16,10 +17,15 @@ import { fromBackendChatSessions, toBackendChatSessions } from "../../utils/chat
 import { createCanvasSaveQueue } from "../../utils/chatSessionSaveQueue";
 import { createOrderedEventQueue } from "../../utils/orderedEventQueue";
 import { queueDiagnosticMessage, selectActiveChatRunForCancellation } from "../../utils/chatRunLifecycle";
+import { presentUiMessage, toUiMessageDescriptor } from "../../i18n/messages";
+import { presentDirectOperation } from "../../i18n/presentation";
 
 const newId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const ChatDrawer = () => {
+  // Store descriptors are locale-neutral; this subscription makes the load,
+  // save, and context banners re-render when i18next changes language.
+  const { t } = useTranslation();
   const store = useChatStore();
   const setDrawerWidth = useChatStore((state) => state.setDrawerWidth);
   const [resizing, setResizing] = useState(false);
@@ -85,7 +91,7 @@ const ChatDrawer = () => {
         if (!cancelled) store.hydrate(currentCanvasId, fromBackendChatSessions(sessions), runtimeGeneration);
       })
       .catch((error) => {
-        if (!cancelled) store.failLoad(currentCanvasId, error instanceof Error ? error.message : "chat-session-load-failed", runtimeGeneration);
+        if (!cancelled) store.failLoad(currentCanvasId, toUiMessageDescriptor(error, "chat.loadFailed"), runtimeGeneration);
       });
     return () => { cancelled = true; };
   }, [currentCanvasId, runtimeGeneration]);
@@ -101,8 +107,7 @@ const ChatDrawer = () => {
     }).catch((error) => {
       const current = useChatStore.getState();
       if (current.canvasId === currentCanvasId && current.loadGeneration === generation) {
-        const message = error instanceof Error ? error.message : "chat-session-save-failed";
-        current.setSaveError(message);
+        current.setSaveError(toUiMessageDescriptor(error, "chat.saveFailed"));
         console.warn("Failed to save chat sessions", error);
       }
     });
@@ -172,8 +177,12 @@ const ChatDrawer = () => {
         }
       }
       if (event.type === "chat:stream" && event.text) chat.appendStream(event.sessionId, event.runId, event.text);
-      if (event.type === "chat:tool_start" && event.toolEvent) chat.upsertToolEvent(event.sessionId, event.runId, event.toolEvent);
-      if (event.type === "chat:tool_done" && event.toolEvent) chat.upsertToolEvent(event.sessionId, event.runId, event.toolEvent);
+      if ((event.type === "chat:tool_start" || event.type === "chat:tool_done") && event.toolEvent) {
+        const toolEvent = event.toolEvent.error && !event.toolEvent.errorDescriptor
+          ? { ...event.toolEvent, errorDescriptor: toUiMessageDescriptor(event.toolEvent.error) }
+          : event.toolEvent;
+        chat.upsertToolEvent(event.sessionId, event.runId, toolEvent);
+      }
       if (event.type === "chat:context_packet" && event.packet) {
         const appState = useAppStore.getState();
         const domainRun = appState.workspace.runtime.asyncRuns[event.runId];
@@ -183,7 +192,7 @@ const ChatDrawer = () => {
             toolCallId: event.packet.packetId,
             name: "web_search",
             status: "stale",
-            summary: "stale/cancelled run",
+            summaryDescriptor: { code: "tool.staleRun" },
             packet: event.packet,
           });
           return;
@@ -192,9 +201,8 @@ const ChatDrawer = () => {
           toolCallId: event.packet.packetId,
           name: "web_search",
           status: event.packet.status === "failed" ? "error" : "done",
-          summary: event.packet.query,
           packet: event.packet,
-          error: event.packet.error?.message,
+          errorDescriptor: event.packet.error ? { code: "operation.searchFailed" } : undefined,
         });
         useAppStore.getState().applyIncomingPacket(
           { ...event.packet, runId: event.packet.runId || event.runId },
@@ -211,7 +219,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
             name: "mutation",
             status: "stale",
             proposal: event.apply,
-            summary: "stale/cancelled run",
+            summaryDescriptor: { code: "tool.staleRun" },
           });
           void ResolveToolApplication({
             toolCallId: event.apply.toolCallId,
@@ -230,7 +238,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
           name: "mutation",
           status: "proposed",
           proposal: event.apply,
-          summary: "accept / reject required",
+          summaryDescriptor: { code: "tool.decisionRequired" },
         });
       }
       if (event.type === "chat:done") {
@@ -241,13 +249,16 @@ if (event.type === "chat:tool_apply" && event.apply) {
       }
       if (event.type === "chat:cancelled") {
         const active = useChatStore.getState().activeRuns[event.sessionId];
-        if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { content: "キャンセルしました。", status: "cancelled" });
+        if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { content: "", messageDescriptor: { code: "chat.cancelled" }, status: "cancelled" });
         chat.finishRun(event.sessionId, event.runId);
         useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId: event.runId });
       }
       if (event.type === "chat:error") {
+        // Keep provider/backend details diagnostic-only. The assistant bubble
+        // receives a stable descriptor and never renders this raw payload.
+        console.error("Chat error diagnostic", event.error, event);
         const active = useChatStore.getState().activeRuns[event.sessionId];
-        if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { content: event.error || "応答を取得できませんでした。", status: "error" });
+        if (active?.runId === event.runId) chat.replaceMessage(event.sessionId, active.assistantMessageId, { content: "", messageDescriptor: { code: "chat.responseFailed" }, status: "error" });
         chat.finishRun(event.sessionId, event.runId);
         useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId: event.runId });
       }
@@ -319,12 +330,12 @@ if (event.type === "chat:tool_apply" && event.apply) {
       runEpoch,
        store.imageProvider,
     );
-    store.setContextWarning(request.contextWarning?.message ?? null);
+    store.setContextWarning(request.contextWarning ? { code: "chat.contextWarning" } : null);
     try {
       await SendChat(request as any);
       store.clearDraft(currentCanvasId);
     } catch (error) {
-      store.replaceMessage(session.id, assistantId, { content: error instanceof Error ? error.message : "送信できませんでした。", status: "error" });
+      store.replaceMessage(session.id, assistantId, { content: "", messageDescriptor: { code: "chat.responseFailed" }, status: "error" });
       store.finishRun(session.id, runId);
       useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId });
       store.cancelOperation(runId);
@@ -354,7 +365,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
     try {
       const context = await contextForDirect(scope, operation);
       if (!isCurrentScope(scope)) {
-        useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summary: "対象 Canvas が変更されたため結果を破棄しました。" } });
+        useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summaryDescriptor: { code: "operation.proposalStale" }, summary: "" } });
         return;
       }
       let success = false;
@@ -364,7 +375,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
           : await app.generateText(prompt, context.contextText);
         const summary = await app.generateSummary(generatedText);
         if (!isCurrentScope(scope)) {
-          useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summary: "対象 Canvas が変更されたため結果を破棄しました。" } });
+          useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summaryDescriptor: { code: "operation.proposalStale" }, summary: "" } });
           return;
         }
         const created = app.createDirectText({
@@ -375,14 +386,15 @@ if (event.type === "chat:tool_apply" && event.apply) {
           scope,
         });
         if (!created.ok || !created.nodeId) {
-          useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summary: "対象 Canvas が変更されたため結果を破棄しました。" } });
+          useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summaryDescriptor: { code: "operation.directActionFailed" }, summary: "" } });
           return;
         }
         useAppStore.setState({ lastDirectReceipt: {
           operation: "generate-text",
           sourceNodeIds,
           createdNodeId: created.nodeId,
-          summary: "Direct Text を生成しました。",
+          summaryDescriptor: { code: "operation.directTextGenerated" },
+          summary: "",
         } });
         success = true;
       } else {
@@ -400,12 +412,12 @@ if (event.type === "chat:tool_apply" && event.apply) {
             scope,
           });
         } else {
-          useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summary: "対象 Canvas が変更されたため結果を破棄しました。" } });
+          useAppStore.setState({ lastDirectReceipt: { operation: "direct-stale", sourceNodeIds, summaryDescriptor: { code: "operation.proposalStale" }, summary: "" } });
         }
       }
       if (success) store.clearDraft(currentCanvasId);
     } catch (error) {
-      useAppStore.setState({ lastError: error instanceof Error ? error.message : "Direct operation failed" });
+      useAppStore.setState({ lastError: toUiMessageDescriptor(error, "operation.directActionFailed") });
     } finally {
       const latest = useAppStore.getState().workspace.runtime.asyncRuns[operationId];
       if (latest?.status === "active") app.dispatch({ type: "completeAsyncRun", runId: operationId });
@@ -467,7 +479,7 @@ if (event.type === "chat:tool_apply" && event.apply) {
     if (!activeRun || !activeSession) return;
     // Local cancel first (F-1 freshness authority), then best-effort backend cancel.
     useAppStore.getState().dispatch({ type: "cancelAsyncRun", runId: activeRun.runId });
-    store.replaceMessage(activeSession.id, activeRun.assistantMessageId, { content: "キャンセルしました。", status: "cancelled" });
+    store.replaceMessage(activeSession.id, activeRun.assistantMessageId, { content: "", messageDescriptor: { code: "chat.cancelled" }, status: "cancelled" });
     store.cancelRun(activeSession.id);
   };
 
@@ -482,16 +494,16 @@ if (event.type === "chat:tool_apply" && event.apply) {
         : store.directMode === "image"
           ? "generate-image"
           : "generate-text";
-  return <aside className={`fixed right-0 top-0 z-50 flex h-full flex-col border-l border-gray-200 bg-white shadow-2xl transition-transform duration-300 ${store.isOpen ? "translate-x-0" : "translate-x-full"}`} style={{ width: store.drawerWidth, transitionProperty: resizing ? "none" : "transform" }}>
+  return <aside data-testid="chat-drawer" className={`fixed right-0 top-0 z-50 flex h-full flex-col border-l border-gray-200 bg-white shadow-2xl transition-transform duration-300 ${store.isOpen ? "translate-x-0" : "translate-x-full"}`} style={{ width: store.drawerWidth, transitionProperty: resizing ? "none" : "transform" }}>
     <div onMouseDown={(event) => { event.preventDefault(); setResizing(true); }} className="absolute left-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400/30" />
     <ChatHeader target={store.target} sessions={store.sessions} activeSessionId={store.activeSessionId} mode={store.mode} imageProvider={store.imageProvider} disabled={!store.isLoaded || operationPending} onChangeMode={store.setMode} onChangeSession={store.setActiveSession} onChangeImageProvider={store.setImageProvider} onNew={store.createSession} onClose={() => store.setOpen(false)} />
-    {store.loadError && <div className="border-b border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">会話履歴を読み込めませんでした: {store.loadError}</div>}
-    {store.saveError && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="alert">会話履歴を保存できませんでした。現在の下書き・履歴は保持されています: {store.saveError}</div>}
-    {store.contextWarning && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">{store.contextWarning}</div>}
+    {store.loadError && <div className="border-b border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{presentUiMessage(store.loadError)}</div>}
+    {store.saveError && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800" role="alert">{presentUiMessage(store.saveError)}</div>}
+    {store.contextWarning && <div className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">{presentUiMessage(store.contextWarning)}</div>}
     {store.mode === "chat" ? <MessageList messages={activeSession?.messages ?? []} sessionId={activeSession?.id} /> : <div className="min-h-0 flex-1 overflow-y-auto p-3" data-testid="direct-result-surface">
-      {directPending && <div role="status" aria-live="polite" className="mb-3 rounded bg-blue-50 p-3 text-sm text-blue-800">処理中… Direct の結果を生成しています。</div>}
-      {lastDirectReceipt && <div className="rounded border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900"><div className="font-semibold">{lastDirectReceipt.operation}</div><div>{lastDirectReceipt.summary}</div>{lastDirectReceipt.createdNodeId && <div data-testid="direct-created-node-id">Created node: {lastDirectReceipt.createdNodeId}</div>}</div>}
-      {!directPending && !lastDirectReceipt && <div className="text-sm text-gray-500">Direct 結果はここに表示されます。</div>}
+      {directPending && <div role="status" aria-live="polite" className="mb-3 rounded bg-blue-50 p-3 text-sm text-blue-800">{t($ => $.assistant.processingDirect)}</div>}
+      {lastDirectReceipt && <div className="rounded border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900"><div className="font-semibold">{presentDirectOperation(lastDirectReceipt.operation)}</div>{lastDirectReceipt.summaryDescriptor && <div>{presentUiMessage(lastDirectReceipt.summaryDescriptor)}</div>}{lastDirectReceipt.summary && <div>{t($ => $.assistant.directSummary, { summary: lastDirectReceipt.summary })}</div>}{lastDirectReceipt.createdNodeId && <div data-testid="direct-created-node-id">{t($ => $.assistant.createdNode, { id: lastDirectReceipt.createdNodeId })}</div>}</div>}
+      {!directPending && !lastDirectReceipt && <div className="text-sm text-gray-500">{t($ => $.assistant.directResultEmpty)}</div>}
     </div>}
     <NextActionPanel
       messages={activeSession?.messages ?? []}

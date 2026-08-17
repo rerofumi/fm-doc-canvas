@@ -1,16 +1,19 @@
 import React, { memo, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Handle, Position, NodeProps, NodeResizer } from "@xyflow/react";
 import { Check, Copy } from "lucide-react";
 import { ImageNodeData } from "../../types";
 import { useAppStore } from "../../store/useAppStore";
 import * as AppBackend from "../../../wailsjs/go/main/App";
 import ImageOverlay from "./ImageOverlay/ImageOverlay";
+import { presentUiMessage, type UiMessageDescriptor } from "../../i18n/messages";
 
 const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
+  const { t } = useTranslation();
   const { updateNodeDimensions, appendPromptInput } = useAppStore();
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UiMessageDescriptor | null>(null);
   const [isOverlayOpen, setIsOverlayOpen] = useState(false);
   const [isPromptCopied, setIsPromptCopied] = useState(false);
 
@@ -33,7 +36,7 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
   useEffect(() => {
     const fetchImage = async () => {
       if (!data || !(data as ImageNodeData).src) {
-        setError("No image source provided");
+        setError({ code: "image.loadFailed" });
         setLoading(false);
         return;
       }
@@ -45,7 +48,7 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
         setImageSrc(dataURL);
       } catch (err: any) {
         console.error("Failed to load image:", err);
-        setError(`Failed to load image: ${err.message || "Unknown error"}`);
+        setError({ code: "image.loadFailed" });
       } finally {
         setLoading(false);
       }
@@ -55,7 +58,7 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
   }, [(data as ImageNodeData)?.src]);
 
   const promptText = ((data as ImageNodeData)?.prompt || "").toString().trim();
-  const altText = ((data as ImageNodeData)?.alt || "Generated image")
+  const altText = ((data as ImageNodeData)?.alt || t(($) => $.canvas.generatedImage))
     .toString()
     .trim();
 
@@ -108,10 +111,10 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
           }}
         >
           {loading && (
-            <div className="text-xs text-gray-500">Loading image...</div>
+            <div className="text-xs text-gray-500">{t(($) => $.canvas.loadingImage)}</div>
           )}
           {error && (
-            <div className="text-xs text-red-500 text-center p-2">{error}</div>
+            <div className="text-xs text-red-500 text-center p-2">{presentUiMessage(error)}</div>
           )}
           {imageSrc && !loading && !error && (
             <img
@@ -147,7 +150,8 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
             </button>
             <button
               type="button"
-              title="Copy prompt"
+              title={t(($) => $.canvas.copyPrompt)}
+              aria-label={isPromptCopied ? t(($) => $.canvas.promptCopied) : t(($) => $.canvas.copyPrompt)}
               onClick={async (event) => {
                 event.stopPropagation();
                 try {
@@ -186,7 +190,7 @@ const ImageNode = ({ id, data, selected, width, height }: NodeProps<any>) => {
       {isOverlayOpen && (
         <ImageOverlay
           src={imageSrc!}
-          alt={(data as ImageNodeData)?.alt || "Generated image"}
+          alt={(data as ImageNodeData)?.alt || t(($) => $.canvas.generatedImage)}
           onClose={() => setIsOverlayOpen(false)}
         />
       )}

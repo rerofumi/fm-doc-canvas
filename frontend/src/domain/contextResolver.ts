@@ -89,7 +89,8 @@ export interface RelationContextHint {
 
 export interface ContextWarning {
   kind: string;
-  message: string;
+  /** Optional diagnostic; UI renders the semantic warning code via catalog. */
+  message?: string;
   nodeId?: NodeId;
   relationId?: RelationId;
 }
@@ -196,7 +197,6 @@ export function resolveContext(input: ResolveContextInput): ContextEnvelope {
         if (target.canvasId !== currentCanvasId) {
           warnings.push({
             kind: "canvas-target",
-            message: "direct-members canvas target must be current canvas",
           });
           continue;
         }

@@ -29,6 +29,8 @@ import type { AppNode, AppEdge } from "../../types";
 import * as AppBackend from "../../../wailsjs/go/main/App";
 import { OnFileDrop, OnFileDropOff } from "../../../wailsjs/runtime/runtime";
 import { isTextBearing } from "../../domain/workspace";
+import { useTranslation } from "react-i18next";
+import { presentUiMessage, type UiMessageDescriptor } from "../../i18n/messages";
 
 const nodeTypes: NodeTypes = {
   customNode: CustomNode,
@@ -43,6 +45,7 @@ const MAX_ZOOM = 4.0;
 type FocusTarget = HTMLElement | SVGElement | null;
 
 const CanvasArea: React.FC = () => {
+  const { t } = useTranslation();
   const {
     nodes,
     edges,
@@ -94,6 +97,7 @@ const CanvasArea: React.FC = () => {
     count: number;
     parentCanvasId: string;
   } | null>(null);
+  const [dropNotice, setDropNotice] = useState<UiMessageDescriptor | null>(null);
   const canvasRootRef = useRef<HTMLDivElement>(null);
   const dialogReturnFocusRef = useRef<FocusTarget>(null);
   const dialogWasOpenRef = useRef(false);
@@ -184,9 +188,10 @@ const CanvasArea: React.FC = () => {
       .map((node) => node.id);
     const ids = selected.includes(menu.id) ? selected : [...selected, menu.id];
     if (ids.length < 2) {
-      useAppStore.setState({ lastError: "Select 2+ nodes to add a Relation" });
+      useAppStore.setState({ lastError: { code: "operation.selectionRequiresTwo" } });
       return;
     }
+    dialogReturnFocusRef.current = menu.trigger ?? (document.activeElement as FocusTarget);
     const [source, target] = ids;
     setRelationEditor({
       mode: "create",
@@ -206,6 +211,7 @@ const CanvasArea: React.FC = () => {
     const relation =
       useAppStore.getState().workspace.document.relations[menu.id];
     if (!relation) return;
+    dialogReturnFocusRef.current = menu.trigger ?? (document.activeElement as FocusTarget);
     setRelationEditor({
       mode: "edit",
       relationId: menu.id,
@@ -351,7 +357,7 @@ const CanvasArea: React.FC = () => {
               position: flowPosition,
               data: {
                 src: result.content, // This should be the relative path
-                alt: `Imported image from ${filePath}`,
+                alt: t(($) => $.canvas.importedImage),
               },
               width: 300,
               height: 200,
@@ -360,7 +366,7 @@ const CanvasArea: React.FC = () => {
           }
         } catch (error) {
           console.error("Failed to import file:", filePath, error);
-          alert(`Failed to import file: ${filePath}`);
+          setDropNotice({ code: "canvas.importFailed" });
         }
       });
     };
@@ -506,7 +512,7 @@ const CanvasArea: React.FC = () => {
       setMenu(null);
     } catch (error: any) {
       console.error("Failed to export node:", error);
-      alert(`Failed to export node: ${error.message || "Unknown error"}`);
+      useAppStore.setState({ lastError: { code: "canvas.exportFailed" } });
     }
   }, [menu]);
 
@@ -526,9 +532,7 @@ const CanvasArea: React.FC = () => {
       setMenu(null);
     } catch (error: any) {
       console.error("Failed to export node as Marp:", error);
-      alert(
-        `Failed to export node as Marp: ${error.message || "Unknown error"}`,
-      );
+      useAppStore.setState({ lastError: { code: "canvas.exportFailed" } });
     }
   }, [menu, nodes]);
 
@@ -567,7 +571,7 @@ const CanvasArea: React.FC = () => {
         <Panel position="top-right">
           <div className="bg-white p-2 rounded shadow-md border border-gray-200">
             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-              Canvas Mode
+              {t(($) => $.canvas.mode)}
             </p>
           </div>
         </Panel>
@@ -577,7 +581,7 @@ const CanvasArea: React.FC = () => {
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          label={menu.type === "node" ? "Node" : "Edge"}
+          label={menu.type === "node" ? t(($) => $.canvas.node) : t(($) => $.canvas.edge)}
           returnFocusTarget={menu.trigger}
           fallbackFocusTarget={canvasRootRef.current}
           onClose={() => setMenu(null)}
@@ -597,7 +601,7 @@ const CanvasArea: React.FC = () => {
                           (v, i, a) => a.indexOf(v) === i,
                         );
                   if (ids.length >= 2) createSubCanvas(ids);
-                  else alert("Select 2+ nodes to create a SubCanvas");
+                else useAppStore.setState({ lastError: { code: "operation.selectionRequiresTwo" } });
                 }
               : undefined
           }
@@ -684,7 +688,7 @@ const CanvasArea: React.FC = () => {
         <ContextMenu
           x={paneMenu.x}
           y={paneMenu.y}
-          label="Canvas"
+          label={t(($) => $.canvas.canvas)}
           returnFocusTarget={paneMenu.trigger}
           fallbackFocusTarget={canvasRootRef.current}
           onClose={() => setPaneMenu(null)}
@@ -701,12 +705,13 @@ const CanvasArea: React.FC = () => {
       {relationEditor && (
         <RelationEditorDialog
           title={
-            relationEditor.mode === "create" ? "Add Relation" : "Edit Relation"
+            relationEditor.mode === "create" ? t(($) => $.contextMenu.addRelationShort) : t(($) => $.contextMenu.editRelation)
           }
           initial={relationEditor.initial}
           nodeOptions={relationEditor.nodeOptions}
           onSubmit={submitRelationEditor}
           onCancel={() => setRelationEditor(null)}
+          returnFocusTarget={dialogReturnFocusRef.current}
         />
       )}
 
@@ -734,9 +739,11 @@ const CanvasArea: React.FC = () => {
         <div
           role="status"
           aria-live="polite"
+          data-testid="move-notice"
+          data-moved-count={moveNotice.count}
           className="fixed bottom-4 left-1/2 z-[180] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-blue-200 bg-white px-4 py-3 text-sm text-blue-900 shadow-lg"
         >
-          <span>{moveNotice.count}件を親 Canvas へ移動しました</span>
+          <span>{t(($) => $.messages.subcanvas.moveSuccess, { count: moveNotice.count })}</span>
           <button
             type="button"
             className="rounded bg-blue-600 px-2 py-1 text-xs font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
@@ -744,17 +751,36 @@ const CanvasArea: React.FC = () => {
               navigateCanvas(moveNotice.parentCanvasId);
               setMoveNotice(null);
             }}
-            aria-label="親 Canvasを開く"
+            aria-label={t(($) => $.layout.goToParentCanvas)}
+            data-testid="move-notice-parent"
           >
-            親 Canvasを開く
+            {t(($) => $.layout.goToParentCanvas)}
           </button>
           <button
             type="button"
             className="text-xs text-gray-500 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300"
             onClick={() => setMoveNotice(null)}
-            aria-label="移動通知を閉じる"
+            aria-label={t(($) => $.common.action.close)}
           >
-            閉じる
+            {t(($) => $.common.action.close)}
+          </button>
+        </div>
+      )}
+      {dropNotice && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed bottom-4 left-1/2 z-[180] -translate-x-1/2 rounded-lg border border-red-200 bg-white px-4 py-3 text-sm text-red-800 shadow-lg"
+          data-testid="canvas-import-error"
+        >
+          {presentUiMessage(dropNotice)}
+          <button
+            type="button"
+            className="ml-3 text-xs font-semibold underline"
+            onClick={() => setDropNotice(null)}
+            aria-label={t(($) => $.common.action.close)}
+          >
+            {t(($) => $.common.action.close)}
           </button>
         </div>
       )}

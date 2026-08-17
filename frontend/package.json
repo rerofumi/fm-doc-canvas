@@ -11,7 +11,8 @@
     "test:acceptance-gaps": "vite build --config vite.acceptance-test.config.ts && node .test-dist/acceptanceGaps.test.mjs",
     "test:f6": "vite build --config vite.f6-test.config.ts && node .test-dist/f6Orchestration.test.mjs",
     "test:markdown": "vite build --config vite.markdown-test.config.ts && node .test-dist/markdownLinks.test.mjs",
-    "test": "npm run test:sprint-c && npm run test:domain && npm run test:acceptance-gaps && npm run test:f6 && npm run test:markdown",
+    "test:i18n": "node scripts/check-i18n.mjs && vite build --config vite.i18n-test.config.ts && node .test-dist/i18n.test.mjs",
+    "test": "npm run test:sprint-c && npm run test:domain && npm run test:acceptance-gaps && npm run test:f6 && npm run test:markdown && npm run test:i18n",
     "test:e2e": "node ./e2e/run-e2e.mjs",
     "preview": "vite preview"
   },
@@ -19,9 +20,11 @@
     "@types/dagre": "^0.7.53",
     "@xyflow/react": "^12.3.0",
     "dagre": "^0.8.5",
+    "i18next": "26.3.6",
     "lucide-react": "^0.446.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "17.0.11",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
     "zustand": "^5.0.0"
@@ -39,4 +42,3 @@
     "vite": "^5.4.8"
   }
 }
-

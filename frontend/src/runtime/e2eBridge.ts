@@ -17,6 +17,7 @@ import type {
 } from "../domain/orchestration";
 import { useAppStore } from "../store/useAppStore";
 import { useChatStore } from "../store/useChatStore";
+import { toUiMessageDescriptor } from "../i18n/messages";
 import { fromBackendChatSessions } from "../utils/chatSession";
 import {
   loadWorkspaceJSON,
@@ -77,7 +78,7 @@ async function hydrateE2EChat(canvasId: string, generation: string) {
   } catch (error) {
     useChatStore.getState().failLoad(
       canvasId,
-      error instanceof Error ? error.message : "chat-session-load-failed",
+      toUiMessageDescriptor(error, "chat.loadFailed"),
       generation,
     );
   }
@@ -127,13 +128,13 @@ export function installE2EBridge(env: RuntimeEnvironment) {
         })),
         canvases: Object.values(app.workspace.document.canvases),
         breadcrumb: app.getBreadcrumb(),
-        lastError: app.lastError,
+        lastError: app.lastError?.code ?? null,
         chat: {
           sessions: chat.sessions,
           activeSessionId: chat.activeSessionId,
           isLoaded: chat.isLoaded,
-          loadError: chat.loadError,
-          saveError: chat.saveError,
+          loadError: chat.loadError?.code ?? null,
+          saveError: chat.saveError?.code ?? null,
           loadGeneration: chat.loadGeneration,
           isOpen: chat.isOpen,
           target: chat.target,
@@ -621,6 +622,26 @@ export function installE2EBridge(env: RuntimeEnvironment) {
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
       configureAppRuntime({ ...env, backend: GeneratedBackend as any });
     },
+    async armCanvasFileFault(kind: "save" | "load") {
+      const { configureAppRuntime } = await import("../store/useAppStore");
+      const GeneratedBackend = await import("../../wailsjs/go/main/App");
+      const method = kind === "save" ? "SaveCanvasToFile" : "LoadCanvasFromFile";
+      let armed = true;
+      const original = (GeneratedBackend as any)[method].bind(GeneratedBackend);
+      configureAppRuntime({
+        ...env,
+        backend: {
+          ...(GeneratedBackend as any),
+          [method]: async (...args: unknown[]) => {
+            if (armed) {
+              armed = false;
+              throw new Error(`e2e canvas ${kind} binding fault`);
+            }
+            return original(...args);
+          },
+        } as any,
+      });
+    },
     async armDelayedDirectImage() {
       const { configureAppRuntime } = await import("../store/useAppStore");
       const GeneratedBackend = await import("../../wailsjs/go/main/App");
@@ -747,7 +768,7 @@ export function installE2EBridge(env: RuntimeEnvironment) {
         status: state.orchestrationStatus,
         request: state.orchestrationRequest,
         proposal: state.nextActionProposal,
-        error: state.lastError,
+        error: state.lastError?.code ?? null,
       };
     },
     async cancelNextActions() {

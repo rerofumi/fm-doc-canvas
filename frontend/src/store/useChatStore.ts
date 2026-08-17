@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { ActiveChatRuns, ChatMessage, ChatSession, ChatTarget, ChatToolEvent, ImageProvider } from "../types/chat";
+import type { UiMessageDescriptor } from "../i18n/messages";
 
 const newId = () => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -26,9 +27,9 @@ export interface ChatState {
   canvasId: string | null;
   loadGeneration: string | null;
   isLoaded: boolean;
-  loadError: string | null;
-  saveError: string | null;
-  contextWarning: string | null;
+  loadError: UiMessageDescriptor | null;
+  saveError: UiMessageDescriptor | null;
+  contextWarning: UiMessageDescriptor | null;
   sessions: ChatSession[];
   defaultSessionTitles: Record<string, string>;
   activeSessionId: string | null;
@@ -50,11 +51,11 @@ export interface ChatState {
   beginOperation: (operation: Exclude<AssistantOperation, null>) => boolean;
   finishOperation: (operationId: string) => void;
   cancelOperation: (operationId: string) => void;
-  setContextWarning: (message: string | null) => void;
+  setContextWarning: (message: UiMessageDescriptor | null) => void;
   beginLoad: (canvasId: string, generation?: string) => void;
   hydrate: (canvasId: string, sessions: ChatSession[], generation?: string) => void;
-  failLoad: (canvasId: string, message: string, generation?: string) => void;
-  setSaveError: (message: string | null) => void;
+  failLoad: (canvasId: string, message: UiMessageDescriptor, generation?: string) => void;
+  setSaveError: (message: UiMessageDescriptor | null) => void;
   createSession: () => ChatSession;
   setActiveSession: (sessionId: string) => void;
   appendMessage: (sessionId: string, message: ChatMessage) => void;
@@ -64,6 +65,7 @@ export interface ChatState {
   beginRun: (sessionId: string, runId: string, assistantMessageId: string) => void;
   finishRun: (sessionId: string, runId: string) => void;
   cancelRun: (sessionId: string) => void;
+  resetWorkspace: () => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -118,6 +120,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!current || ("runId" in current ? current.runId : current.operationId) !== operationId) return state;
     return { activeOperation: null };
   }),
+  resetWorkspace: () => set((state) => ({
+    target: null,
+    canvasId: null,
+    sessions: [],
+    defaultSessionTitles: {},
+    activeSessionId: null,
+    activeRuns: {},
+    draftsByCanvasId: {},
+    contextWarning: null,
+    loadError: null,
+    saveError: null,
+    activeOperation: null,
+    isOpen: state.isOpen,
+  })),
   setContextWarning: (contextWarning) => set({ contextWarning }),
   setSaveError: (saveError) => set({ saveError }),
   beginLoad: (canvasId, generation = "") => set({

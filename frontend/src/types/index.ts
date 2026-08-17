@@ -170,8 +170,8 @@ export interface AppState {
 
   // Actions
   addNode: (node: AppNode) => void;
-  addEmptyNode: () => void;
-  addArtifactNode: () => void;
+  addEmptyNode: (defaultLabel: string) => void;
+  addArtifactNode: (defaultLabel: string) => void;
   updateNodeContent: (id: string, content: string) => void;
   updateArtifactContent: (id: string, content: string) => void;
   updateArtifactFilename: (id: string, filename: string) => void;

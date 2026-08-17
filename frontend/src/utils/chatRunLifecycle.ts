@@ -1,4 +1,5 @@
 import type { ActiveChatRuns, ChatMessageStatus } from "../types/chat";
+import type { UiMessageDescriptor } from "../i18n/messages";
 import type { OrderedEventQueueDiagnostic } from "./orderedEventQueue";
 
 export type ActiveChatRunCancellationTarget = {
@@ -29,7 +30,8 @@ export const selectActiveChatRunForCancellation = (
 
 export const queueDiagnosticMessage = (
   reason: OrderedEventQueueDiagnostic["reason"],
-): { content: string; status: ChatMessageStatus } => ({
-  content: `応答の受信を継続できなかったため終了しました。(${reason})`,
+): { content: string; messageDescriptor: UiMessageDescriptor; status: ChatMessageStatus } => ({
+  content: "",
+  messageDescriptor: { code: "chat.responseFailed" },
   status: "error",
 });

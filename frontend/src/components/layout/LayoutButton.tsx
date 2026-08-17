@@ -2,9 +2,11 @@ import React from "react";
 import { Layers } from "lucide-react";
 import { useAppStore } from "../../store/useAppStore";
 import dagre from "dagre";
+import { useTranslation } from "react-i18next";
 
 const LayoutButton: React.FC = () => {
   const { nodes, edges, dispatch } = useAppStore();
+  const { t } = useTranslation();
 
   const handleLayout = () => {
     if (nodes.length === 0) return;
@@ -52,12 +54,13 @@ const LayoutButton: React.FC = () => {
 
   return (
     <button
+      data-testid="shell-auto-layout"
       onClick={handleLayout}
       className="flex items-center gap-2 px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-md transition-colors border border-gray-200 bg-white shadow-sm"
-      title="Auto Layout Nodes"
+      title={t(($) => $.layout.autoLayoutNodes)}
     >
       <Layers size={16} />
-      <span className="text-sm font-medium">Auto Layout</span>
+      <span className="text-sm font-medium">{t(($) => $.layout.autoLayout)}</span>
     </button>
   );
 };
