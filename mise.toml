@@ -1,0 +1,24 @@
+[tools]
+go = "1.26.1"
+node = "24.14.1"
+"go:github.com/wailsapp/wails/v2/cmd/wails" = "v2.12.0"
+
+[tasks.test-backend]
+description = "Run Go backend tests"
+run = "go test ./..."
+
+[tasks.test-frontend]
+description = "Run frontend Vitest unit tests"
+run = "npm --prefix frontend test -- --run"
+
+[tasks.build-frontend]
+description = "Type-check and build frontend"
+run = "npm --prefix frontend run build"
+
+[tasks.build]
+description = "Build Wails desktop binary"
+run = "wails build"
+
+[tasks.dev]
+description = "Run Wails development server"
+run = "wails dev"

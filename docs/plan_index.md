@@ -15,7 +15,7 @@
 | plan_20260816_gui_update | Full | GUI/UX 刷新（Chat/Direct統合、親引き上げ・安全解体、Canvas領域整理） | done | 2026-08-17 人間実機承認。全 active REQ 受理、Core E2E 67/67。i18n は後続計画へ移管 |
 | plan_20260817_bugfix | Light | Markdown 外部リンクと Chat session 履歴の不具合修正 | done | 2026-08-17 人間実機承認。REQ-01〜07 Pass、Core E2E 73/73、worklog disabled |
 | plan_20260817_ui_i18n | Full | 全 UI 文言の日本語・英語 i18n 一括移行 | done | 2026-08-18 人間実機確認で受理。literal 0/62、Core E2E 93/93、ja/en UI・native handoff Pass。macOS/Linux native表示はEX受理 |
-| plan_20261123_core_rebuild | Full | 8月改変を破棄し基本機能・マルチプロバイダー・新規Canvas-First UIで再構築 | planned | 2026-11-23 `fm-dev-plan` 完了（r1 `ready`、`Critical: 0 / Must-fix: 0`）。`REQ-01`〜`REQ-15`, `D-001`〜`D-018`, `WP-1`〜`WP-7` 整備済み。`90_status.md` 参照 |
+| plan_20261123_core_rebuild | Full | 8月改変を破棄し基本機能・マルチプロバイダー・新規Canvas-First UIで再構築 | accepting | 2026-11-23 `fm-dev-plan` 完了（r1 `ready`、`Critical: 0 / Must-fix: 0`）。`REQ-01`〜`REQ-15`, `D-001`〜`D-018`, `WP-1`〜`WP-7` 整備済み。`90_status.md` 参照 |
 
 ## 状態凡例
 

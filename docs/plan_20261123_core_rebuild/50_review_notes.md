@@ -113,3 +113,62 @@ Evidence class / Evidence: E3 / docs/plan_20261123_core_rebuild/30_requirement.m
 - `RV-001` (`Suggest`): **見送り（記録のみ）** — 通常モードのため任意改善として記録。作業計画の正本は `41_work_packages.md` §3（`WP-3`/`WP-7`）であり、`WP-1` 開始および実装進行への阻害なし。
 - `RV-002` (`Suggest`): **見送り（`WP-6` 実装時の任意改善メモとして保持）** — `REQ-03` の受入条件は現行設計で充足済み。`WP-6` 実装時に `CommandDock` 送信・エクスポート前の `commitInspectorDraft()` 呼び出しを任意検討可。
 - `RV-003` (`Suggest`): **対応済み（`60_review_packet.md` へ反映）** — 4 点の既定方針（ライトテーマ既定トークン、MVP 日本語 UI 固定、`Image/` 相対パス基準、Auto-layout `LR`）を `60_review_packet.md` に明示し、利用者へ共有する形とした。
+
+---
+
+## Verification Evidence Record (WP-7)
+
+- **検証担当**: Lv.3 `fm-dev-tester`（`wp7-tester`）
+- **対象版**: `jj` working copy `mssrrqzp` / commit `1a9e7e662ff7`（`WP-1`〜`WP-6` 完了後、`4e22b9bf` 以降・`90_status.md` 更新含む）
+- **対象 REQ / WP**: `REQ-01`〜`REQ-15` / `WP-7`（`[D-001]`〜`[D-018]`）
+- **実行環境**: Windows / PowerShell (`pwsh`), `mise` 管理下 Go / Node.js / Wails CLI v2.12.0
+
+### 1. E1: 全自動テスト・統合ビルド独立再実行（`WP-7_E1_PASS`）
+
+| 項目 | 実行コマンド | 結果 | 観測詳細 |
+| --- | --- | --- | --- |
+| Backend 通常回帰 | `mise run test-backend` | exit 0 | `fm-doc-canvas`, `fm-doc-canvas/backend` PASS |
+| Backend 非キャッシュ全件 | `mise x -- go test -v -count=1 ./...` | exit 0 | `fm-doc-canvas` 2件（`TestAppStartupAndHealthCheck`, `TestAppFacadeWiring`）、`fm-doc-canvas/backend` 21テスト（全サブテスト含む）PASS |
+| Backend dev タグ付き | `mise x -- go test -tags dev -count=1 ./...` | exit 0 | `fm-doc-canvas`, `fm-doc-canvas/backend` PASS |
+| Frontend 単体・ストア | `mise run test-frontend` | exit 0 | Vitest v3.2.7: 6テストファイル / 31テスト全 PASS（`types.test.ts`: 1, `marpExport.test.ts`: 3, `graphContext.test.ts`: 11, `canvasSerializer.test.ts`: 4, `autoLayout.test.ts`: 2, `useCanvasStore.test.ts`: 10） |
+| Frontend 型・バンドル | `mise run build-frontend` | exit 0 | `tsc --noEmit && vite build` 成功（2224モジュール変換、`dist/` 生成） |
+| Wails 本番ビルド | `mise run build` | exit 0 | Wails CLI v2.12.0 (`windows/amd64`)、`build/bin/fm-doc-canvas.exe`（12,183,040 bytes）生成 |
+
+### 2. E3: セキュリティ・構造確認（`WP-7_E3_PASS`）
+
+| 確認項目 | 対象 REQ | 確認箇所 | 観測結果 |
+| --- | --- | --- | --- |
+| API Key の `config.json` 限定保存 | `REQ-13`, `REQ-15` | `backend/config.go`, `frontend/src/utils/canvasSerializer.ts` | `config.go` は `os.UserConfigDir()` 配下 `fm-doc-canvas/config.json` のみに保存。`serializeCanvas` / `sanitizeNodeData` はホワイトリスト形式で構築し `apiKey` 等を含めない。 |
+| ログ・エラー文言への非混入 | `REQ-15` | `backend/sanitize.go`, `backend/llm.go`, `backend/provider_*.go`, `app.go`, `frontend/src/` | `SanitizeText` / `SanitizeError` が API Key・`?key=...`・`Bearer ...` を `[REDACTED]` へ置換。製品コードに `fmt.Print*` / `console.log` 出力なし（`main.go:36` の起動致命エラー `log.Fatal` のみ）。 |
+| パストラバーサル拒否の全経路適用 | `REQ-04`, `REQ-12`, `REQ-15` | `backend/image_asset.go`, `backend/file.go`, `app.go` | `ResolveImagePath`（絶対パス・ドライブ文字・`..`・`filepath.Rel`・symlink 逸脱を拒否）が `GetImageDataURL`（`image_asset.go:172`）、`GetImageFileURL`（`image_asset.go:189`）、`ExportImage`（`file.go:202`）全経路に適用。 |
+| `window.alert` / `window.confirm` 不使用 | `REQ-14` | `frontend/src/` | `rg` 検索にて使用箇所 0 件を確認（インアプリトースト・`ConfirmDialog` を使用）。 |
+| クロスプラットフォーム標準 API 利用 | `REQ-15` | `backend/config.go`, `backend/image_asset.go`, `backend/file.go`, `backend/path_base_*.go` | `os.UserConfigDir`, `filepath.Join`, `filepath.Abs`, `filepath.Rel`, `filepath.FromSlash`, `filepath.ToSlash`, `os.Executable`, `os.Getwd` を利用。 |
+
+### 3. E2: アプリ起動観測と GUI 実操作未観測の分離（`WP-7_E2_OBSERVED` / `WP-7_E2_UNOBSERVED`）
+
+#### 観測済み項目（CLI 環境で実測）
+- **本番バイナリ起動・パス基準（`REQ-01`）**: `build/bin/fm-doc-canvas.exe` を起動し、3秒間クラッシュせず生存（`PID=41316 Alive=True`）を確認。`backend/path_base_prod.go`（`//go:build !dev`）により `os.Executable()` 基準で解決。
+- **開発サーバー起動（`REQ-01`・前提②）**: `mise run dev`（`wails dev`）を起動し、10秒間生存（`DevPID=58788 Alive=True`）、Wails CLI v2.12.0 バインディング生成および Vite v6.4.6 DevServer（`http://localhost:5173/`）起動を観測。`backend/path_base_dev.go`（`//go:build dev`）により `os.Getwd()` 基準で解決。
+- **D&D 結線確認（前提③構造）**: `main.go:28-29`（`EnableFileDrop: true, DisableWebViewDrop: true`）と `frontend/src/components/canvas/CanvasViewport.tsx:44,51`（`OnFileDrop` / `OnFileDropOff`）の結線を確認。
+
+#### 未観測（GUI 実機確認待ち — CLI/headless 環境限界）
+以下の項目はデスクトップ GUI 上のインタラクティブ操作・OS ネイティブダイアログ・視覚確認を伴うため、本環境では直接観測できておらず、**未観測（GUI 実機確認待ち）** として明確に分離する：
+- `REQ-02`: 実マウスによるパン、ズーム境界（`0.1`〜`4.0`）、矩形選択、Clear Canvas ダイアログの画面操作観測。
+- `REQ-03` / `REQ-04`: `TextCardNode` / `ImageCardNode` の表示クランプ・リサイズ・`NodeInspector` 編集/切替自動確定・`ImageLightbox` 拡大・追記の画面操作観測（ストアロジックは `useCanvasStore.test.ts` E1 で検証済み）。
+- `REQ-05` / `REQ-06` / `REQ-10`: 実画面上でのコネクタドラッグ接続・ループ拒否トースト・Context Strip リアルタイム更新・`整頓` ボタン実行の視覚観測（純粋関数・ストアは E1 で検証済み）。
+- `REQ-09`（前提③）: Windows Explorer からの実ファイル D&D（`.md` / `.png` / 非対応拡張子）での `OnFileDrop` 発火と React Flow 操作（ノード移動・パン・矩形選択）の非干渉実機観測。
+- `REQ-11` / `REQ-12`: OS ネイティブファイルダイアログ経由の JSON 保存/読込、単体 `.md`・単体画像・Marp 出力、ダイアログキャンセルの画面操作観測。
+- `REQ-13` / `REQ-14`: `SettingsModal` 3タブ操作・保存後再起動維持、Canvas-First レイアウト目視、非同期生成中の多重送信抑止・トースト通知・`canvasEpoch` 失効破棄の実画面観測。
+
+### 4. EX 整理: 実課金外部 API 未接続（`REQ-07` / `REQ-08` — `WP-7_EX_SUMMARY`）
+
+- **対象**: `REQ-07`（LLM テキスト生成・Vision・自動サマリー）および `REQ-08`（OpenRouter / OpenAI / Google Gemini / xAI 画像生成）。
+- **直接確認できない理由**: テスト環境に有効な実課金 API Key が未提供であり、実外部サービスへの課金通信を実施できない。
+- **代替確認（実施済み E1）**: `backend/llm_test.go` および `backend/providers_test.go` にて `httptest.Server` モックを用い、System Prompt、空 API Key 時 `Authorization` 省略、Vision `image_url` 配列、4 プロバイダーの参照なし/参照あり（OpenAI 最大5枚・xAI 1枚制限）、URL フォールバック保存、エラー正規化・マスク、設定非破壊をすべて検証済み（PASS）。
+- **残るリスク**: 外部プロバイダー側の API 仕様変更、モデル ID 廃止（404）、実認証エラー、レート制限はモックでは検知できない。
+- **利用者承認判断材料**: `30_requirement.md` Verification Scope §3 の EX 運用条件は「`E1`＋ローカルモック `E2` がすべて `pass` であり、残るリスクを明示した上で利用者が承認した場合に `EX` として受け入れ可能」と定めている。E1 は全 PASS 済みだが、実アプリ GUI 上のローカルモック `E2` は上記「未観測（GUI 実機確認待ち）」に含まれるため、GUI 実機確認の実施有無と併せて受け入れ判断材料とする。
+
+### 5. 指摘サマリー（WP-7）
+- `Critical`: 0 件
+- `Must-fix`: 0 件
+- `Suggest`: 0 件
