@@ -25,11 +25,6 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v2
 
-      - name: Install Wails CLI
-        run: |
-          mise run setup
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
       - name: Build Wails App
         run: |
           if [ "${{ matrix.platform }}" = "linux" ]; then
@@ -46,7 +41,7 @@ jobs:
           # Copy binary from wails build output (build/bin/)
           cp build/bin/* ${DIR}/
           cp README.md ${DIR}/
-          cp LICENSE ${DIR}/
+          if [ -f LICENSE ]; then cp LICENSE ${DIR}/; fi
           zip -r fm-doc-canvas-${PLATFORM}.zip ${DIR}
 
       - name: Upload binary to release
