@@ -1,0 +1,121 @@
+{
+  "version": "1.1",
+  "metadata": {
+    "lastOpened": "2026-11-23T11:30:00.000Z"
+  },
+  "nodes": [
+    {
+      "id": "proposal",
+      "type": "customNode",
+      "position": { "x": 0, "y": 40 },
+      "data": {
+        "content": "# 障害対応ナレッジ基盤\n\n## 解決したいこと\n- 調査ログが Slack に散在\n- 類似障害の発見に平均 **18分**\n- 引き継ぎ品質が担当者に依存\n\n## 仮説\n一次情報を自動収集し、根拠付き要約を提示すれば MTTR を30%短縮できる。",
+        "summary": "散在する障害情報を集約し、根拠付き要約でMTTRを30%短縮する提案。"
+      }
+    },
+    {
+      "id": "review-notes",
+      "type": "customNode",
+      "position": { "x": 0, "y": 360 },
+      "data": {
+        "content": "## 設計レビューの論点\n\n- PII除去は保存前に実施\n- 原文へのリンクを必須にする\n- LLM失敗時も検索は継続\n- コスト上限をチーム別に設定",
+        "summary": "PII・根拠リンク・縮退運転・コスト上限をレビュー対象にする。"
+      }
+    },
+    {
+      "id": "architecture",
+      "type": "imageNode",
+      "position": { "x": 380, "y": 0 },
+      "width": 440,
+      "height": 300,
+      "data": {
+        "src": "product-review/architecture.png",
+        "alt": "障害対応ナレッジ基盤の提案アーキテクチャ",
+        "prompt": "既存運用を壊さず、非同期処理で段階導入できる構成にする",
+        "provider": "openai",
+        "model": "gpt-image-1.5"
+      }
+    },
+    {
+      "id": "release-flow",
+      "type": "imageNode",
+      "position": { "x": 920, "y": 0 },
+      "width": 440,
+      "height": 300,
+      "data": {
+        "src": "product-review/release-flow.png",
+        "alt": "段階リリースのフロー図",
+        "prompt": "Shadow運用から全社展開まで、評価指標をゲートにする",
+        "provider": "openai",
+        "model": "gpt-image-1.5"
+      }
+    },
+    {
+      "id": "adr",
+      "type": "customNode",
+      "position": { "x": 920, "y": 350 },
+      "data": {
+        "content": "# ADR-014: 取り込みを非同期化\n\n**決定**: API は受信後すぐ `202 Accepted` を返し、要約と索引作成はワーカーへ委譲する。\n\n**理由**\n1. Pager連携のタイムアウトを避ける\n2. モデル障害を入口から分離する\n3. 再処理と監査を容易にする",
+        "summary": "受付とAI処理を分離し、可用性と再処理性を優先する。",
+        "originalPrompt": "アーキテクチャ案とレビュー論点をもとに、非同期取り込みの ADR をまとめて"
+      }
+    },
+    {
+      "id": "next-actions",
+      "type": "customNode",
+      "position": { "x": 1300, "y": 350 },
+      "data": {
+        "content": "## 次のアクション\n\n- [ ] 佐藤: PII除去PoC\n- [ ] 鈴木: SLO計測設計\n- [ ] 田中: 10件で精度評価\n- [ ] 金曜: Go / No-Goレビュー",
+        "summary": "担当と期限を決め、精度・性能・安全性を1週間で検証する。",
+        "originalPrompt": "ADR-014 を検証するための1週間分のアクションリストを作成して"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "pr-edge-1",
+      "source": "proposal",
+      "target": "architecture",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "pr-edge-2",
+      "source": "architecture",
+      "target": "release-flow",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "pr-edge-3",
+      "source": "review-notes",
+      "target": "adr",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "pr-edge-4",
+      "source": "architecture",
+      "target": "adr",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "pr-edge-5",
+      "source": "adr",
+      "target": "next-actions",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    }
+  ]
+}

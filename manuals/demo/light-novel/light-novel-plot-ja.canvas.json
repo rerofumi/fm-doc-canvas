@@ -1,0 +1,153 @@
+{
+  "version": "1.1",
+  "metadata": {
+    "lastOpened": "2026-11-23T11:30:00.000Z"
+  },
+  "nodes": [
+    {
+      "id": "story-pitch",
+      "type": "customNode",
+      "position": { "x": 0, "y": 40 },
+      "data": {
+        "content": "# 廻天のヨーヨーマスター\n\n## 一行企画\n異世界へ転移した高校生ヨーヨー世界王者が、**魔力を通す糸**と競技技術を組み合わせ、切れかけた世界樹の天糸を結び直す。\n\n## 読後感\n爽快な技バトル × ものづくりバディ × 王道成長譚",
+        "summary": "ヨーヨー世界王者が糸魔法の異世界で無双し、相棒と世界を救う爽快バディファンタジー。"
+      }
+    },
+    {
+      "id": "world-rules",
+      "type": "customNode",
+      "position": { "x": 0, "y": 380 },
+      "data": {
+        "content": "# 魔法ルール\n\n- 魔力は張った糸に沿って流れる\n- 回転数が威力、軌道が術式になる\n- 糸が切れると術者にも反動\n- 世界樹は空を支える巨大な“天糸”\n\n**制約**: カイトは魔力を持たず、リネット製の糸がなければ技を魔法へ変換できない。",
+        "summary": "ヨーヨー技を魔法へ変換できるが、魔力糸とリネットの調整が不可欠。"
+      }
+    },
+    {
+      "id": "kaito-visual",
+      "type": "imageNode",
+      "position": { "x": 380, "y": 0 },
+      "width": 340,
+      "height": 320,
+      "data": {
+        "src": "light-novel/kaito-character-sheet.png",
+        "alt": "主人公・風見カイトのキャラクターシート",
+        "prompt": "主人公・風見カイト｜元ヨーヨー世界王者。蒼銀の魔導ヨーヨー《ブルー・コメット》を操る",
+        "provider": "google",
+        "model": "gemini-2.5-flash-image"
+      }
+    },
+    {
+      "id": "lynette-visual",
+      "type": "imageNode",
+      "position": { "x": 380, "y": 360 },
+      "width": 340,
+      "height": 320,
+      "data": {
+        "src": "light-novel/lynette-character-sheet.png",
+        "alt": "ヒロイン・リネットのキャラクターシート",
+        "prompt": "ヒロイン・リネット｜糸魔法の宮廷魔導具技師。カイトの戦術設計と武器改造を担う",
+        "provider": "google",
+        "model": "gemini-2.5-flash-image"
+      }
+    },
+    {
+      "id": "kaito-sheet",
+      "type": "customNode",
+      "position": { "x": 820, "y": 40 },
+      "data": {
+        "content": "## 風見カイト / 17歳\n\n- 元ヨーヨー世界王者\n- 勝負中ほど冷静になる天才肌\n- 必殺技: 《星喰みロングスリーパー》\n- 弱点: 誰にも頼らず勝とうとする\n- 成長: “戻ってくる糸”を信頼の象徴にする",
+        "summary": "風見カイト：孤独な王者から、相棒へ糸を預けられる英雄へ成長する。",
+        "originalPrompt": "キャラクターシートから主人公の性格・必殺技・弱点と成長軸を整理して"
+      }
+    },
+    {
+      "id": "lynette-sheet",
+      "type": "customNode",
+      "position": { "x": 820, "y": 400 },
+      "data": {
+        "content": "## リネット・アルヴェーン / 18歳\n\n- 宮廷魔導具技師見習い\n- 理屈屋だが困っている人を放っておけない\n- 糸の張力から未来軌道を読む\n- 弱点: 自分の発明を信じ切れない\n- 成長: カイトと新しい魔法体系を作る",
+        "summary": "リネット：技術への自信を失った発明家が、カイトとの共闘で自分の理論を証明する。",
+        "originalPrompt": "キャラクターシートからヒロインの役割・特技・成長課題を整理して"
+      }
+    },
+    {
+      "id": "plot-arc",
+      "type": "imageNode",
+      "position": { "x": 1200, "y": 170 },
+      "width": 480,
+      "height": 320,
+      "data": {
+        "src": "light-novel/plot-arc.png",
+        "alt": "全5章のプロットフロー",
+        "prompt": "二人の信頼がヨーヨーの往復運動のように深まる五章構成",
+        "provider": "openai",
+        "model": "gpt-image-1.5"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "ln-edge-1",
+      "source": "story-pitch",
+      "target": "kaito-visual",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "ln-edge-2",
+      "source": "story-pitch",
+      "target": "lynette-visual",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "ln-edge-3",
+      "source": "kaito-visual",
+      "target": "kaito-sheet",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "ln-edge-4",
+      "source": "lynette-visual",
+      "target": "lynette-sheet",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "ln-edge-5",
+      "source": "kaito-sheet",
+      "target": "plot-arc",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "ln-edge-6",
+      "source": "lynette-sheet",
+      "target": "plot-arc",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    },
+    {
+      "id": "ln-edge-7",
+      "source": "world-rules",
+      "target": "plot-arc",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "type": "default",
+      "markerEnd": { "type": "arrowclosed" }
+    }
+  ]
+}

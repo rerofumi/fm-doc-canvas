@@ -1,8 +1,21 @@
 # fm-doc-canvas
 
+[日本語](README.md) | [English](README_en.md)
+
 `fm-doc-canvas` は、無限キャンバス上にテキストや画像を配置・連結し、LLM（大規模言語モデル）や画像生成 API を活用して思考の整理や拡張を行うデスクトップツールです。
 
 キャンバス上に断片的なメモや画像を並べ、選択したノードと上流のつながりからコンテキストを収集して AI に問いかけたり、複数のプロバイダーを切り替えて画像を生成・保存したりできます。
+
+![日本語でプロダクト設計を検討しているキャンバスのデモ](manuals/screenshot_readme_product_planning_ja.png)
+
+画像と Markdown を組み合わせたデモワークスペースも同梱しています（[`manuals/demo/product-review/README.md`](manuals/demo/product-review/README.md)）。
+
+![ライトノベルのプロット検討デモ](manuals/screenshot_readme_light_novel_plot_ja.png)
+
+キャラクターシートを参照しながら物語を組み立てるデモもあります（[`manuals/demo/light-novel/README.md`](manuals/demo/light-novel/README.md)）。
+
+> 📖 **詳細な操作マニュアル**  
+> GUI の詳細仕様、全メニュー項目、キーボードショートカット、トラブルシューティングについては [リファレンスマニュアル (`manuals/reference.md`)](manuals/reference.md) をご覧ください。
 
 ---
 
